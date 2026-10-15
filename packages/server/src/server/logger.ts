@@ -5,6 +5,7 @@ import pretty from "pino-pretty";
 import { resolveDaemonVersion } from "./daemon-version.js";
 import type { PersistedConfig } from "./persisted-config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
+import { redactLogLine } from "./log-redaction.js";
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 export type LogFormat = "pretty" | "json";
@@ -185,6 +186,7 @@ export function createRootLogger(
     {
       level: config.file?.level ?? config.console.level,
       redact: { paths: REDACT_PATHS, remove: true },
+      hooks: { streamWrite: redactLogLine },
     },
     stream,
   );

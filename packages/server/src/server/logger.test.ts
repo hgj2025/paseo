@@ -154,6 +154,57 @@ describe("loadConfig logger config", () => {
 });
 
 describe("createRootLogger", () => {
+  it("redacts nested credentials, raw process output and child bindings without mutating input", async () => {
+    const { stdout } = await runLoggerFixture(`
+      const logger = createRootLogger();
+      const input = {
+        headers: { Cookie: "session=cookie-fixture" },
+        nested: [{ password: "password-fixture", access_token: "access-fixture" }],
+        stderr: "unstructured-private-output",
+        stdout: "unstructured-private-code",
+        status: 503,
+      };
+      const before = JSON.stringify(input);
+      logger.child({ daemonPublicKeyB64: "pairing-fixture", component: "fixture" }).error(input, "request failed");
+      if (JSON.stringify(input) !== before) throw new Error("log input mutated");
+      logger.flush();
+    `);
+
+    expect(JSON.parse(stdout)).toMatchObject({
+      daemonPublicKeyB64: "[REDACTED]",
+      component: "fixture",
+      headers: { Cookie: "[REDACTED]" },
+      nested: [{ password: "[REDACTED]", access_token: "[REDACTED]" }],
+      stderr: "[REDACTED]",
+      stdout: "[REDACTED]",
+      status: 503,
+      msg: "request failed",
+    });
+    expect(stdout).not.toMatch(
+      /cookie-fixture|password-fixture|access-fixture|pairing-fixture|unstructured-private/,
+    );
+  });
+
+  it.each(["json", "pretty"])(
+    "redacts formatted messages, errors and pairing URLs in %s output",
+    async (format) => {
+      const { stdout } = await runLoggerFixture(`
+      const logger = createRootLogger({ format: ${JSON.stringify(format)} });
+      logger.error({ err: new Error("request failed: https://app.paseo.sh/#offer=pairing-link-fixture") }, "Authorization: %s %s", "Bearer", "bearer-fixture");
+      logger.warn("ANTHROPIC_API_KEY=env-fixture token=token-fixture https://api.example/?key=query-fixture ExpoPushToken[device-fixture] sk-ant-test-fixture-long-value");
+      logger.info("retry %d after status %d", 2, 503);
+      logger.flush();
+    `);
+
+      expect(stdout).not.toMatch(
+        /pairing-link-fixture|bearer-fixture|env-fixture|token-fixture|query-fixture|device-fixture|sk-ant-test-fixture-long-value/,
+      );
+      expect(stdout).toContain("request failed");
+      expect(stdout).toContain("[REDACTED]");
+      expect(stdout).toContain("retry 2 after status 503");
+    },
+  );
+
   it("includes the daemon version in child logger entries", async () => {
     const paseoHome = await mkdtemp(path.join(tmpdir(), "paseo-logger-version-"));
 

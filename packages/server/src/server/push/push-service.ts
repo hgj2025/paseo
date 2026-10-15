@@ -23,6 +23,7 @@ interface ExpoPushTicket {
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const MAX_BATCH_SIZE = 100;
+const PUSH_ROUTING_KEYS = ["serverId", "workspaceId", "agentId", "terminalId"] as const;
 
 /**
  * Service for sending Expo push notifications.
@@ -42,11 +43,18 @@ export class PushService {
       return;
     }
 
+    // Expo/APNs/FCM can read this payload. Full previews belong only on the
+    // authenticated client connection, never in third-party push delivery.
+    const data: Record<string, string> = {};
+    for (const key of PUSH_ROUTING_KEYS) {
+      const value = payload.data?.[key];
+      if (typeof value === "string") data[key] = value;
+    }
     const messages: ExpoPushMessage[] = tokens.map((token) => ({
       to: token,
-      title: payload.title,
-      body: payload.body,
-      data: payload.data,
+      title: "Paseo",
+      body: "An update is available. Open Paseo to view it.",
+      data,
       sound: "default",
     }));
 
@@ -91,10 +99,8 @@ export class PushService {
       const message = messages[i];
 
       if (ticket.status === "error") {
-        this.logger.error(
-          { token: message.to, message: ticket.message, details: ticket.details },
-          "Push failed for token",
-        );
+        // Provider errors may echo the device token or notification contents.
+        this.logger.error("Push delivery failed");
 
         // Remove invalid tokens
         if (

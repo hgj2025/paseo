@@ -259,6 +259,58 @@ async function waitForCapturedLog(
     relayProcess = null;
   };
 
+  test("requires credentials through the encrypted relay before exposing session data", async () => {
+    let daemon: Awaited<ReturnType<typeof createTestPaseoDaemon>> | null = null;
+    const clients: DaemonClient[] = [];
+    try {
+      await startRelay({ useLocalRelay: true });
+      daemon = await createTestPaseoDaemon({
+        relayEnabled: true,
+        relayEndpoint: `127.0.0.1:${relayPort}`,
+        relayUseTls: false,
+        relayPublicUseTls: false,
+        auth: { password: "$2b$12$OLxyuuP9uLK30Uzc4wQX0O6liuU/Q1t5P2b0Ebf36mULvpVK3DRZW" },
+      });
+      const offer = decodeOfferFromFragmentUrl(
+        await getPairingOfferUrl({
+          paseoHome: daemon.paseoHome,
+          relayEnabled: true,
+          relayEndpoint: daemon.config.relayEndpoint,
+        }),
+      );
+      const createClient = (password?: string) => {
+        const client = new DaemonClient({
+          url: buildRelayWebSocketUrl({
+            endpoint: `127.0.0.1:${relayPort}`,
+            useTls: false,
+            serverId: offer.serverId,
+            role: "client",
+          }),
+          password,
+          e2ee: { enabled: true, daemonPublicKeyB64: offer.daemonPublicKeyB64 },
+          reconnect: { enabled: false },
+          connectTimeoutMs: 10000,
+        });
+        clients.push(client);
+        return client;
+      };
+
+      const missing = createClient();
+      await expect(missing.connect()).rejects.toThrow("Password required");
+      expect(missing.authFailureReason).toBe("password_required");
+      const wrong = createClient("wrong-password");
+      await expect(wrong.connect()).rejects.toThrow("Incorrect password");
+      expect(wrong.authFailureReason).toBe("incorrect_password");
+      const correct = createClient("correct-password");
+      await correct.connect();
+      expect((await correct.fetchAgents()).entries).toEqual([]);
+    } finally {
+      await Promise.all(clients.map((client) => client.close()));
+      await daemon?.close();
+      await stopRelay();
+    }
+  }, 60000);
+
   test("oversized attachments fail without disconnecting or resubmitting over the relay", async () => {
     await startRelay({ useLocalRelay: true });
     const daemon = await createTestPaseoDaemon({

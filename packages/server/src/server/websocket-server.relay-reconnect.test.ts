@@ -531,7 +531,7 @@ describe("relay external socket reconnect behavior", () => {
       await server.close();
     }
   });
-  test("admits a hello password and an old relay hello, but rejects a wrong password", async () => {
+  test("requires a hello password on relay and admits only valid credentials", async () => {
     const server = createServer({
       auth: {
         password: "$2b$12$OLxyuuP9uLK30Uzc4wQX0O6liuU/Q1t5P2b0Ebf36mULvpVK3DRZW",
@@ -551,9 +551,24 @@ describe("relay external socket reconnect behavior", () => {
       await vi.waitFor(() => expect(sentServerInfoEnvelopes(passwordSocket)).toHaveLength(1));
 
       const legacySocket = new MockSocket();
+      const closed = vi.fn();
+      legacySocket.on("close", closed);
       await server.attachExternalSocket(legacySocket, { transport: "relay" });
       legacySocket.emit("message", JSON.stringify(createHelloMessage("relay-legacy")));
-      await vi.waitFor(() => expect(sentServerInfoEnvelopes(legacySocket)).toHaveLength(1));
+      await vi.waitFor(() => expect(legacySocket.readyState).toBe(3));
+      expect(closed).toHaveBeenCalledWith(4401, "Password required");
+      expect(sentServerInfoEnvelopes(legacySocket)).toEqual([]);
+
+      const localSocket = new MockSocket();
+      await server.attachExternalSocket(localSocket, { transport: "relay" });
+      localSocket.emit(
+        "message",
+        JSON.stringify({
+          ...createHelloMessage("relay-local"),
+          auth: { kind: "localCredential", token: "local-token" },
+        }),
+      );
+      await vi.waitFor(() => expect(sentServerInfoEnvelopes(localSocket)).toHaveLength(1));
 
       const wrongSocket = new MockSocket();
       await server.attachExternalSocket(wrongSocket, { transport: "relay" });
@@ -565,6 +580,7 @@ describe("relay external socket reconnect behavior", () => {
         }),
       );
       await vi.waitFor(() => expect(wrongSocket.readyState).toBe(3));
+      expect(sentServerInfoEnvelopes(wrongSocket)).toEqual([]);
       expect(wrongSocket.sent).toContain(
         JSON.stringify({
           type: "hello.rejected",

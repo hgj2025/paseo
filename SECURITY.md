@@ -36,13 +36,22 @@ The daemon requires a valid cryptographic handshake before processing any comman
 - **Send commands as you** — The daemon only accepts traffic that decrypts and authenticates under a shared key derived with its own secret key. The phone's keypair is ephemeral per connection, so there is no persistent phone-side secret to steal; protection comes from the daemon's secret key never leaving the daemon.
 - **Read your traffic** — All messages are encrypted with XSalsa20-Poly1305 (NaCl box) after the handshake
 - **Forge messages** — NaCl box provides authenticated encryption; tampered messages are rejected
-- **Replay old messages across sessions** — Each session derives fresh encryption keys, so ciphertext from one session cannot be replayed into another session. Within a live session, replay protection is not yet implemented; the protocol uses random nonces and does not track nonce reuse or message counters.
+
+The current relay encryption does not provide replay protection. Receivers do not track nonce reuse or message counters. Replaying a client handshake against the same long-lived daemon key also derives the same shared key, so encryption alone does not prevent replay across connections. Application-level request handling may reject some repeated operations, but must not be treated as transport replay protection.
+
+The daemon uses a long-lived key, so this protocol does not provide forward secrecy against later compromise of that key. A party holding recorded client handshakes and ciphertext could decrypt that traffic after obtaining the daemon secret key.
 
 ### Trust model
 
 The QR code or pairing link is the trust anchor. It contains the daemon's public key, which is required to establish the encrypted connection. Treat it like a password — don't share it publicly.
 
-When a daemon password is configured, new relay clients send it in the encrypted `hello` message. This release still admits relay clients that send no credential so existing mobile builds continue to connect. A wrong password is rejected. The next release will require the password for relay connections after updated mobile builds are available.
+When a daemon password is configured, relay clients must send it in the encrypted `hello` message. Missing or incorrect credentials are rejected before any session data is sent, just as on direct connections. Older clients that cannot submit credentials must be updated before connecting to a password-protected daemon. Without a configured password, the pairing link remains the relay access credential.
+
+## Push notifications and logs
+
+Remote push delivery goes through Expo and the device's push provider, outside the relay E2EE channel. The daemon sends a fixed reminder and only server/workspace/agent/terminal routing identifiers, plus the required device push token. It never sends the notification preview, permission details, terminal name, or working directory through this path. Full notification details remain available over the authenticated client connection. Push providers can still observe the routing identifiers and delivery metadata.
+
+The daemon logger redacts credential fields recursively, omits raw process output and prompt fields, and filters known credential and pairing-link formats from formatted messages and errors before writing JSON or pretty logs. This is a best-effort credential filter, not a guarantee that arbitrary business data or an unrecognized secret format will be removed. Existing log files and backups are not rewritten; protect them as sensitive data.
 
 ## Local daemon trust boundary
 
