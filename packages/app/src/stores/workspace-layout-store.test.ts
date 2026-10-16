@@ -79,6 +79,34 @@ function createDeterministicWorkspaceLayoutIds() {
 const workspaceLayoutIds = createDeterministicWorkspaceLayoutIds();
 const workspaceLayoutStore = createWorkspaceLayoutStore(workspaceLayoutIds);
 
+it("persists scoped panes and observes the resource host across another host's workspace", async () => {
+  const store = createWorkspaceLayoutStore(workspaceLayoutIds);
+  store.setState({ layoutByWorkspace: {} });
+  const target = {
+    kind: "scoped",
+    serverId: "vm",
+    workspaceId: "vm-code",
+    target: { kind: "agent", agentId: "remote-agent" },
+  } as const;
+  const local: string[][] = [];
+  const remote: string[][] = [];
+  const stopLocal = observeOpenWorkspaceAgentIds("mac", (ids) => local.push(ids), store);
+  const stopRemote = observeOpenWorkspaceAgentIds("vm", (ids) => remote.push(ids), store);
+  const id = store.getState().openTab({ workspaceKey: "mac:code", target, intent: "reveal" });
+  expect(id).toBeTruthy();
+  expect(local).toEqual([[]]);
+  expect(remote.at(-1)).toEqual(["remote-agent"]);
+  const restored = createWorkspaceLayoutStore(createDeterministicWorkspaceLayoutIds());
+  await restored.persist.rehydrate();
+  expect(collectAllTabs(restored.getState().layoutByWorkspace["mac:code"].root)).toEqual(
+    expect.arrayContaining([expect.objectContaining({ target })]),
+  );
+  store.getState().closeTab("mac:code", id!);
+  expect(remote.at(-1)).toEqual([]);
+  stopLocal();
+  stopRemote();
+});
+
 it("observes open chats across unmounted workspaces until their tabs close", () => {
   const store = createWorkspaceLayoutStore(workspaceLayoutIds);
   store.setState({ layoutByWorkspace: {} });

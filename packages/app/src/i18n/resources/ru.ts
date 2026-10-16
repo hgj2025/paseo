@@ -439,6 +439,7 @@ export const ru: TranslationResources = {
     },
   },
   workspace: {
+    crossHost: en.workspace.crossHost,
     route: {
       loading: "Загрузка рабочего пространства",
       connecting: "Подключение",

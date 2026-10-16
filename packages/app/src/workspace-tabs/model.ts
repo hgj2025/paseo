@@ -32,7 +32,12 @@ export type PluginWorkspaceTabTarget =
       agentId: string;
     };
 
-export type WorkspaceTabTarget =
+export interface WorkspaceScope {
+  serverId: string;
+  workspaceId: string;
+}
+
+export type LocalWorkspaceTabTarget =
   | { kind: "new_tab" }
   | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup }
   | { kind: "agent"; agentId: string }
@@ -47,6 +52,13 @@ export type WorkspaceTabTarget =
   | PluginWorkspaceTabTarget
   | { kind: "setup"; workspaceId: string }
   | { kind: "commit_diff"; sha: string };
+
+export interface ScopedWorkspaceTabTarget extends WorkspaceScope {
+  kind: "scoped";
+  target: LocalWorkspaceTabTarget;
+}
+
+export type WorkspaceTabTarget = LocalWorkspaceTabTarget | ScopedWorkspaceTabTarget;
 
 export interface WorkspaceTab {
   tabId: string;

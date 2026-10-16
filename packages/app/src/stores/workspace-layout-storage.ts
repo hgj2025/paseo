@@ -9,7 +9,7 @@ const WorkspaceDraftTabSetupStorageSchema = z.strictObject({
   thinkingOptionId: z.string().nullable(),
   featureValues: z.record(z.string(), z.union([z.boolean(), z.string(), z.null()])),
 });
-const WorkspaceTabTargetStorageSchema = z.discriminatedUnion("kind", [
+const LocalWorkspaceTabTargetStorageSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("new_tab") }),
   z.strictObject({
     kind: z.literal("draft"),
@@ -59,6 +59,15 @@ const WorkspaceTabTargetStorageSchema = z.discriminatedUnion("kind", [
       agentId: z.string(),
     }),
   ]),
+]);
+const WorkspaceTabTargetStorageSchema = z.union([
+  LocalWorkspaceTabTargetStorageSchema,
+  z.strictObject({
+    kind: z.literal("scoped"),
+    serverId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    target: LocalWorkspaceTabTargetStorageSchema,
+  }),
 ]);
 const WorkspaceTabStorageSchema = z.strictObject({
   tabId: z.string(),

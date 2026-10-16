@@ -21,6 +21,7 @@ import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { buildWorkspaceTabPersistenceKey, type WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
 import { openComposerChanges } from "@/workspace-tabs/open-supporting-view";
+import { scopeWorkspaceTabTarget } from "@/workspace-tabs/scope";
 
 /**
  * The pane's ambient context — workspace changes, subagents, and tasks — as a row of pills above
@@ -50,7 +51,8 @@ export const AgentTracks = memo(function AgentTracks({
   onArchiveFinished: () => void;
   hasPluginComposerPills: boolean;
 }): ReactElement | null {
-  const { tabId } = usePaneContext();
+  const pane = usePaneContext();
+  const { tabId } = pane;
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
   const isCompact = useIsCompactFormFactor();
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
@@ -62,6 +64,10 @@ export const AgentTracks = memo(function AgentTracks({
   const detachSubagent = useDetachSubagent({ serverId });
   const openSubagentTarget = useCallback(
     (target: WorkspaceTabTarget) => {
+      if (pane.scopeBound) {
+        pane.openPreferredTarget(target, "subagents");
+        return;
+      }
       openPreferredWorkspaceTarget({
         workspaceKey,
         target,
@@ -70,7 +76,7 @@ export const AgentTracks = memo(function AgentTracks({
         parentTabId: tabId,
       });
     },
-    [openInSidePane, tabId, workspaceKey],
+    [openInSidePane, tabId, workspaceKey, pane],
   );
   const handleOpenSubagent = useCallback(
     (subagentId: string) => {
@@ -78,12 +84,21 @@ export const AgentTracks = memo(function AgentTracks({
       const agent = session?.agents.get(subagentId) ?? session?.agentDetails.get(subagentId);
       // A subagent in another workspace lives in that workspace's tabs.
       if (agent?.workspaceId && agent.workspaceId !== workspaceId) {
+        if (pane.scopeBound) {
+          openSubagentTarget(
+            scopeWorkspaceTabTarget(
+              { kind: "agent", agentId: subagentId },
+              { serverId, workspaceId: agent.workspaceId },
+            ),
+          );
+          return;
+        }
         navigateToAgent({ serverId, agentId: subagentId });
         return;
       }
       openSubagentTarget({ kind: "agent", agentId: subagentId });
     },
-    [openSubagentTarget, serverId, workspaceId],
+    [openSubagentTarget, serverId, workspaceId, pane.scopeBound],
   );
   const handleOpenProviderSubagent = useCallback(
     (parentAgentId: string, subagentId: string) => {
@@ -93,6 +108,10 @@ export const AgentTracks = memo(function AgentTracks({
   );
   const opensInSheet = useSubagentOpensInSheet(workspaceKey);
   const handleOpenChanges = useCallback(() => {
+    if (pane.scopeBound) {
+      pane.openPreferredTarget({ kind: "working_diff" }, "diffs");
+      return;
+    }
     if (!workspaceKey) {
       return;
     }
@@ -102,7 +121,7 @@ export const AgentTracks = memo(function AgentTracks({
       checkout: { serverId, cwd, isGit: true },
       preferences: openInSidePane,
     });
-  }, [cwd, isCompact, openInSidePane, serverId, workspaceKey]);
+  }, [cwd, isCompact, openInSidePane, serverId, workspaceKey, pane]);
 
   if (
     !hasWorkspaceDiffStat &&

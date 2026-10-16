@@ -99,8 +99,16 @@ export function useWorkspaceTabLaunchCatalog(input: {
   host: PaneHost;
   surface: "menu" | "panel";
   panePanelKinds?: readonly WorkspaceTabTarget["kind"][];
+  scopeBound?: boolean;
 }): readonly WorkspaceTabLaunchGroup[] {
-  const { serverId, purpose, host, surface, panePanelKinds = EMPTY_PANE_PANEL_KINDS } = input;
+  const {
+    serverId,
+    purpose,
+    host,
+    surface,
+    scopeBound = false,
+    panePanelKinds = EMPTY_PANE_PANEL_KINDS,
+  } = input;
   const { t } = useTranslation();
   const router = useRouter();
   const launcher = useContext(NewTabLauncherContext);
@@ -180,7 +188,7 @@ export function useWorkspaceTabLaunchCatalog(input: {
         shortcutActionId: "workspace-tab-target-browser",
         disabled: false,
         panelKind: "browser",
-        hidden: !launcher.showBrowser,
+        hidden: !launcher.showBrowser || scopeBound,
         launch: launchSelection(BUILT_IN_SELECTIONS.browser),
       },
       pullRequest: {
@@ -195,7 +203,10 @@ export function useWorkspaceTabLaunchCatalog(input: {
     };
     const tabItems = getBuiltInLaunchOrder(purpose).flatMap((id) => {
       const item = builtIns[id];
-      return item.hidden || !panelSupportsHost(item.panelKind, host) ? [] : [item];
+      const supportsHost =
+        panelSupportsHost(item.panelKind, host) ||
+        (scopeBound && item.panelKind === "files" && host === "main");
+      return item.hidden || !supportsHost ? [] : [item];
     });
 
     const pluginItems: WorkspaceTabLaunchItem[] = [];
@@ -262,6 +273,7 @@ export function useWorkspaceTabLaunchCatalog(input: {
     surface,
     panePanelKinds,
     serverId,
+    scopeBound,
     t,
   ]);
 }

@@ -435,6 +435,7 @@ export const ar: TranslationResources = {
     },
   },
   workspace: {
+    crossHost: en.workspace.crossHost,
     route: {
       loading: "جارٍ تحميل مساحة العمل",
       connecting: "الاتصال",

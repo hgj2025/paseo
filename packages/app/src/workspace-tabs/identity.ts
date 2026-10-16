@@ -1,11 +1,36 @@
 import { normalizeWorkspaceFileLocation, workspaceFileLocationsEqual } from "@/workspace/file-open";
-import type { WorkspaceDraftTabSetup, WorkspaceTabTarget } from "@/workspace-tabs/model";
+import type {
+  ScopedWorkspaceTabTarget,
+  WorkspaceDraftTabSetup,
+  WorkspaceTabTarget,
+} from "@/workspace-tabs/model";
+
+function normalizeScopedTarget(value: ScopedWorkspaceTabTarget): WorkspaceTabTarget | null {
+  const serverId = trimNonEmpty(value.serverId);
+  const workspaceId = trimNonEmpty(value.workspaceId);
+  const target = normalizeWorkspaceTabTarget(value.target);
+  return serverId && workspaceId && target && target.kind !== "scoped"
+    ? { kind: "scoped", serverId, workspaceId, target }
+    : null;
+}
+
+function scopedTargetsEqual(left: ScopedWorkspaceTabTarget, right: WorkspaceTabTarget): boolean {
+  return (
+    right.kind === "scoped" &&
+    left.serverId === right.serverId &&
+    left.workspaceId === right.workspaceId &&
+    workspaceTabTargetsEqual(left.target, right.target)
+  );
+}
 
 export function normalizeWorkspaceTabTarget(
   value: WorkspaceTabTarget | null | undefined,
 ): WorkspaceTabTarget | null {
   if (!value || typeof value !== "object" || typeof value.kind !== "string") {
     return null;
+  }
+  if (value.kind === "scoped") {
+    return normalizeScopedTarget(value);
   }
   if (value.kind === "draft") {
     const draftId = trimNonEmpty(value.draftId);
@@ -103,6 +128,9 @@ export function workspaceTabTargetsEqual(
   if (left.kind !== right.kind) {
     return false;
   }
+  if (left.kind === "scoped") {
+    return scopedTargetsEqual(left, right);
+  }
   if (left.kind === "draft" && right.kind === "draft") {
     return left.draftId === right.draftId && workspaceDraftTabSetupsEqual(left.setup, right.setup);
   }
@@ -192,6 +220,9 @@ function recordsShallowEqual(
 }
 
 export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): string {
+  if (target.kind === "scoped") {
+    return `scoped_${JSON.stringify([target.serverId, target.workspaceId, target.target.kind === "new_tab" ? "new_tab" : buildDeterministicWorkspaceTabId(target.target)])}`;
+  }
   if (target.kind === "new_tab") {
     throw new Error("New tabs do not have deterministic target identities");
   }

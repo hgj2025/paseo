@@ -20,6 +20,57 @@ function layoutWithTarget(
 }
 
 describe("focused chat target", () => {
+  const layoutOwner = { serverId: "host", workspaceId: "host-workspace" };
+  const remoteScope = { serverId: "guest", workspaceId: "guest-workspace" };
+
+  it("attaches a remote file to a remote chat in the owner's layout", () => {
+    expect(
+      resolveFocusedChatTarget({
+        ...remoteScope,
+        layoutOwner,
+        layout: layoutWithTarget({
+          kind: "scoped",
+          ...remoteScope,
+          target: { kind: "agent", agentId: "remote-agent" },
+        }),
+      }),
+    ).toEqual({ tabId: "focused-tab", draftKey: "agent:guest:remote-agent" });
+  });
+
+  it("does not attach a local file to a remote chat", () => {
+    expect(
+      resolveFocusedChatTarget({
+        ...layoutOwner,
+        layoutOwner,
+        layout: layoutWithTarget({
+          kind: "scoped",
+          ...remoteScope,
+          target: { kind: "agent", agentId: "remote-agent" },
+        }),
+      }),
+    ).toBeNull();
+  });
+
+  it("does not attach a remote file to the owner or another remote workspace", () => {
+    for (const target of [
+      { kind: "agent", agentId: "local-agent" } as const,
+      {
+        kind: "scoped",
+        serverId: remoteScope.serverId,
+        workspaceId: "another-workspace",
+        target: { kind: "draft", draftId: "other-draft" },
+      } as const,
+    ]) {
+      expect(
+        resolveFocusedChatTarget({
+          ...remoteScope,
+          layoutOwner,
+          layout: layoutWithTarget(target),
+        }),
+      ).toBeNull();
+    }
+  });
+
   it("targets the focused agent draft", () => {
     expect(
       resolveFocusedChatTarget({

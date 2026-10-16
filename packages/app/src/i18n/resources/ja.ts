@@ -440,6 +440,7 @@ export const ja: TranslationResources = {
     },
   },
   workspace: {
+    crossHost: en.workspace.crossHost,
     route: {
       loading: "ワークスペースを読み込み中",
       connecting: "接続中",

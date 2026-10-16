@@ -86,13 +86,20 @@ function resolveChangesPresentation(
 
 function ChangesPanel() {
   const { t } = useTranslation();
-  const { serverId, workspaceId, tabId, target, openPreferredTarget, openTargetToSide } =
-    usePaneContext();
+  const {
+    serverId,
+    workspaceId,
+    layoutOwner,
+    tabId,
+    target,
+    openPreferredTarget,
+    openTargetToSide,
+  } = usePaneContext();
   const [changesState, setChangesState] = usePanelState(changesStateSchema, defaultChangesState);
   const { preferences } = useChangesPreferences();
   const cwd = useWorkspaceDirectory(serverId, workspaceId);
   const isActive = useRetainedPanelActive();
-  const { addFile, canAddToChat } = useAddFileToChat({ serverId, workspaceId });
+  const { addFile, canAddToChat } = useAddFileToChat({ serverId, workspaceId, layoutOwner });
   invariant(
     target.kind === "working_diff" || target.kind === "changes_tree",
     "ChangesPanel requires working_diff or changes_tree target",

@@ -48,6 +48,8 @@ export interface FileExplorerEntry {
   kind: ExplorerEntryKind;
   size: number;
   modifiedAt: string;
+  /** Repository roots only; detached checkouts use HEAD (<short SHA>). */
+  gitBranch?: string;
 }
 
 export interface FileExplorerDirectory {
@@ -845,13 +847,38 @@ async function buildEntryPayload({
     relativePath: normalizeRelativePath({ root, targetPath }),
   });
   const stats = await fs.stat(entryPath.resolvedPath);
+  const gitBranch =
+    kind === "directory" ? await readRepositoryBranch(entryPath.resolvedPath) : undefined;
   return {
     name,
     path: normalizeRelativePath({ root, targetPath }),
     kind,
     size: stats.size,
     modifiedAt: stats.mtime.toISOString(),
+    ...(gitBranch ? { gitBranch } : {}),
   };
+}
+
+async function readRepositoryBranch(directory: string): Promise<string | undefined> {
+  try {
+    const gitPath = path.join(directory, ".git");
+    // Do not run Git for ordinary directories or inherit the enclosing repository's branch.
+    // An explicit git-dir also supports the .git files used by worktrees and submodules.
+    const stats = await fs.stat(gitPath);
+    if (!stats.isDirectory() && !stats.isFile()) return undefined;
+    const args = ["--git-dir", gitPath, "--work-tree", directory];
+    const options = { cwd: directory, timeout: 2_000, maxOutputBytes: 4096 };
+    const branch = await runGitCommand([...args, "symbolic-ref", "--quiet", "--short", "HEAD"], {
+      ...options,
+      acceptExitCodes: [0, 1],
+    });
+    if (branch.exitCode === 0) return branch.stdout.trim() || undefined;
+    const head = await runGitCommand([...args, "rev-parse", "--short", "HEAD"], options);
+    return head.stdout.trim() ? `HEAD (${head.stdout.trim()})` : undefined;
+  } catch {
+    // Optional metadata must not hide files when Git is unavailable, slow, or the repo is broken.
+    return undefined;
+  }
 }
 
 function isMissingEntryError(error: unknown): boolean {

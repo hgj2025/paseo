@@ -3,6 +3,8 @@ import {
   useComposerTabFullscreen,
 } from "@/composer/editing-session";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { scopeWorkspaceTabTarget } from "@/workspace-tabs/scope";
+import { resolveTerminalProfileLaunch } from "@getpaseo/protocol/terminal-profiles";
 import { SheetHostScope } from "@/components/ui/isolated-bottom-sheet-modal";
 import type { JsonValue } from "@getpaseo/protocol/agent-types";
 import { getOpenAgentTabLabel } from "@getpaseo/protocol/agent-labels";
@@ -1469,6 +1471,20 @@ function WorkspaceScreenContent({
     };
   }, [isRouteFocused, normalizedServerId, setFocusedAgentId, setFocusedTerminalId]);
 
+  const bindTargetToPane = useCallback(
+    (target: WorkspaceTabTarget, destination?: { paneId?: string | null; tabId?: string }) => {
+      const layout = persistenceKey
+        ? useWorkspaceLayoutStore.getState().layoutByWorkspace[persistenceKey]
+        : null;
+      if (!layout) return target;
+      const pane = findPaneById(layout.root, destination?.paneId ?? layout.focusedPaneId);
+      const tabId = destination?.tabId ?? pane?.focusedTabId;
+      const source = collectAllTabs(layout.root).find((tab) => tab.tabId === tabId)?.target;
+      return source?.kind === "scoped" ? scopeWorkspaceTabTarget(target, source) : target;
+    },
+    [persistenceKey],
+  );
+
   const openWorkspaceDraftTab = useCallback(
     function openWorkspaceDraftTab(input?: {
       ambient?: boolean;
@@ -1480,11 +1496,12 @@ function WorkspaceScreenContent({
         return null;
       }
 
-      const target = normalizeWorkspaceTabTarget({
+      const draft = normalizeWorkspaceTabTarget({
         kind: "draft",
         draftId: trimNonEmpty(input?.draftId) ?? generateDraftId(),
       });
-      invariant(target?.kind === "draft", "Draft tab target must be valid");
+      invariant(draft?.kind === "draft", "Draft tab target must be valid");
+      const target = input?.ambient ? draft : bindTargetToPane(draft, input);
       if (input?.ambient) {
         return openWorkspaceTabFocused(persistenceKey, target);
       }
@@ -1494,7 +1511,7 @@ function WorkspaceScreenContent({
       }
       return openWorkspaceTabFocused(persistenceKey, target, placement);
     },
-    [openWorkspaceTabFocused, openWorkspaceTabInBackground, persistenceKey],
+    [openWorkspaceTabFocused, openWorkspaceTabInBackground, persistenceKey, bindTargetToPane],
   );
 
   useLayoutEffect(() => {
@@ -1827,22 +1844,13 @@ function WorkspaceScreenContent({
     [openWorkspaceDraftTab],
   );
 
-  const handleCreateTerminal = useStableEvent((input?: { paneId?: string }) => {
-    createTerminal({
-      destination: input?.paneId ? { kind: "open", paneId: input.paneId } : { kind: "open" },
-    });
-  });
-
-  const handleCreateTerminalWithProfile = useCallback(
-    (profile: TerminalProfile) => {
-      createTerminal({ profile, destination: { kind: "open" } });
-    },
-    [createTerminal],
-  );
-
   const handleCreateBrowserTab = useCallback(
     (input?: { paneId?: string }) => {
       if (!persistenceKey || !getIsElectron()) {
+        return;
+      }
+      if (bindTargetToPane({ kind: "new_tab" }, input).kind === "scoped") {
+        toast.error(t("workspace.crossHost.localBrowser"));
         return;
       }
       const { browserId } = createWorkspaceBrowser();
@@ -1852,7 +1860,7 @@ function WorkspaceScreenContent({
         paneLocalPlacement(input?.paneId),
       );
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, bindTargetToPane, toast, t],
   );
 
   const handleCreateNewTab = useCallback(
@@ -1860,9 +1868,13 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
-      createWorkspaceTab(persistenceKey, { kind: "new_tab" }, paneLocalPlacement(input?.paneId));
+      createWorkspaceTab(
+        persistenceKey,
+        bindTargetToPane({ kind: "new_tab" }, input),
+        paneLocalPlacement(input?.paneId),
+      );
     },
-    [createWorkspaceTab, persistenceKey],
+    [createWorkspaceTab, persistenceKey, bindTargetToPane],
   );
 
   const launchWorkspaceTab = useCallback(
@@ -1871,6 +1883,7 @@ function WorkspaceScreenContent({
         return;
       }
       const openTarget = (target: WorkspaceTab["target"]) => {
+        target = bindTargetToPane(target, destination);
         if (destination.kind === "replace") {
           replaceWorkspaceTabTarget(persistenceKey, destination.tabId, target);
         } else {
@@ -1889,16 +1902,73 @@ function WorkspaceScreenContent({
         return;
       }
       if (selection.kind === "terminal") {
+        const scoped = bindTargetToPane({ kind: "new_tab" }, destination);
+        if (scoped.kind === "scoped") {
+          const runtime = getHostRuntimeStore().getSnapshot(scoped.serverId);
+          const remoteWorkspace = useSessionStore
+            .getState()
+            .sessions[scoped.serverId]?.workspaces.get(scoped.workspaceId);
+          if (!runtime?.client || runtime.connectionStatus !== "online" || !remoteWorkspace) {
+            toast.error(t("workspace.terminal.hostDisconnected"));
+            return;
+          }
+          const profile = selection.profile
+            ? resolveTerminalProfileLaunch(selection.profile, "")
+            : undefined;
+          void runtime.client
+            .createTerminal(remoteWorkspace.workspaceDirectory, profile?.name, undefined, {
+              workspaceId: scoped.workspaceId,
+              command: profile?.command,
+              args: profile?.args,
+            })
+            .then((result) => {
+              if (!result.terminal) throw new Error(result.error || "Could not create terminal");
+              return openTarget(
+                scopeWorkspaceTabTarget(
+                  { kind: "terminal", terminalId: result.terminal.id },
+                  scoped,
+                ),
+              );
+            })
+            .catch((error) => toast.error(String(error)));
+          return;
+        }
         createTerminal({
           profile: selection.profile,
           destination,
         });
         return;
       }
+      if (bindTargetToPane({ kind: "new_tab" }, destination).kind === "scoped") {
+        toast.error(t("workspace.crossHost.localBrowser"));
+        return;
+      }
       const { browserId } = createWorkspaceBrowser();
       openTarget({ kind: "browser", browserId });
     },
-    [createTerminal, createWorkspaceTab, persistenceKey, replaceWorkspaceTabTarget],
+    [
+      createTerminal,
+      createWorkspaceTab,
+      persistenceKey,
+      replaceWorkspaceTabTarget,
+      bindTargetToPane,
+      toast,
+      t,
+    ],
+  );
+
+  const handleCreateTerminal = useStableEvent((input?: { paneId?: string }) => {
+    launchWorkspaceTab(
+      { kind: "terminal" },
+      input?.paneId ? { kind: "open", paneId: input.paneId } : { kind: "open" },
+    );
+  });
+
+  const handleCreateTerminalWithProfile = useCallback(
+    (profile: TerminalProfile) => {
+      launchWorkspaceTab({ kind: "terminal", profile }, { kind: "open" });
+    },
+    [launchWorkspaceTab],
   );
 
   const handleOpenUrlInBrowserTab = useCallback(
@@ -3306,7 +3376,8 @@ function WorkspaceScreenContent({
     () => ({
       showChanges: isGitCheckout,
       showPullRequest: hasPullRequest,
-      showBrowser: showCreateBrowserTab,
+      showBrowser:
+        showCreateBrowserTab && focusedPaneTabState.activeTab?.descriptor.target.kind !== "scoped",
       terminalDisabled: createTerminalDisabled,
       launch: launchWorkspaceTab,
     }),
@@ -3316,6 +3387,7 @@ function WorkspaceScreenContent({
       isGitCheckout,
       launchWorkspaceTab,
       showCreateBrowserTab,
+      focusedPaneTabState.activeTab,
     ],
   );
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
@@ -3660,7 +3732,10 @@ function WorkspaceScreenContent({
     </RenderProfile>
   );
 
-  if (gatedWorkspaceScreen) {
+  if (
+    gatedWorkspaceScreen &&
+    !retainScopedPanesWhileOwnerDisconnected(uiTabs, workspaceRouteState.kind)
+  ) {
     return gatedWorkspaceScreen;
   }
   return (
@@ -3894,3 +3969,10 @@ const styles = StyleSheet.create((theme) => ({
     textAlign: "center",
   },
 }));
+
+function retainScopedPanesWhileOwnerDisconnected(tabs: WorkspaceTab[], routeKind: string): boolean {
+  return (
+    ["unreachable", "loading"].includes(routeKind) &&
+    tabs.some((tab) => tab.target.kind === "scoped")
+  );
+}

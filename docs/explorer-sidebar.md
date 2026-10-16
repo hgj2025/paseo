@@ -82,6 +82,11 @@ Bulk-close actions apply only to the dock's tabs. Explorer tabs can be reordered
 between compatible panes, but the dock cannot be split or maximized. Selecting an Explorer tab
 does not change workspace focus.
 
+Files shows the current Git branch beside repository root directories, including nested repositories
+and linked worktrees. Ordinary subdirectories do not repeat the branch. Detached checkouts show
+`HEAD (<short SHA>)`; hover a truncated label to read it in full. Branch labels update when directory
+listings reload, including the Files toolbar's Refresh action. There is no background branch polling.
+
 Cmd+E shows or hides Explorer without changing its selected view. Compact layouts use the combined
 full-screen Explorer overlay for Changes, Files, and pull requests, and close it after a file opens. Compact Changes has no tree rail; its overview is the Jump to file action (`packages/app/src/git/jump-to-file/`), a sheet over the same changed-files tree the desktop rail renders.
 Wide native layouts without pane splits use the same combined content in a resizable inline dock;

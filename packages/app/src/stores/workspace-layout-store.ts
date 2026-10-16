@@ -2230,9 +2230,14 @@ export function observeOpenWorkspaceAgentIds(
       ),
     ];
     for (const [workspaceKey, tabs] of tabsByWorkspace) {
-      if (!workspaceKey.startsWith(`${serverId}:`)) continue;
       for (const tab of tabs) {
-        if (tab.target.kind === "agent") ids.add(tab.target.agentId);
+        if (tab.target.kind === "scoped") {
+          if (tab.target.serverId === serverId && tab.target.target.kind === "agent") {
+            ids.add(tab.target.target.agentId);
+          }
+        } else if (workspaceKey.startsWith(`${serverId}:`) && tab.target.kind === "agent") {
+          ids.add(tab.target.agentId);
+        }
       }
     }
     const next = [...ids].sort();

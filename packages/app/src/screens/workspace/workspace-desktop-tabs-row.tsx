@@ -214,6 +214,7 @@ function TabLabelMeasurement({
 type PanePanelKinds = readonly WorkspaceTabDescriptor["kind"][];
 
 interface WorkspaceNewTabButtonProps {
+  scopeBound?: boolean;
   panePanelKinds: PanePanelKinds;
   host: PaneHost;
   launchPurpose: WorkspaceTabLaunchPurpose;
@@ -224,6 +225,7 @@ interface WorkspaceNewTabButtonProps {
 }
 
 function WorkspaceNewTabButton({
+  scopeBound,
   panePanelKinds,
   host,
   launchPurpose,
@@ -246,6 +248,7 @@ function WorkspaceNewTabButton({
         <ThemedPlus size={14} uniProps={extraMutedColorMapping} />
       </ToolbarButton>
       <WorkspaceNewTabMenuContent
+        scopeBound={scopeBound}
         serverId={serverId}
         purpose={launchPurpose}
         host={host}
@@ -259,6 +262,7 @@ function WorkspaceNewTabButton({
 }
 
 function WorkspacePaneToolbarActions({
+  scopeBound,
   panePanelKinds,
   host,
   launchPurpose,
@@ -273,6 +277,7 @@ function WorkspacePaneToolbarActions({
   onSplitDown,
   onTogglePaneMaximized,
 }: {
+  scopeBound?: boolean;
   panePanelKinds: PanePanelKinds;
   host: PaneHost;
   launchPurpose: WorkspaceTabLaunchPurpose;
@@ -314,6 +319,7 @@ function WorkspacePaneToolbarActions({
     <ToolbarControls style={styles.paneSplitActions}>
       {showNewTabButton ? (
         <WorkspaceNewTabButton
+          scopeBound={scopeBound}
           panePanelKinds={panePanelKinds}
           host={host}
           launchPurpose={launchPurpose}
@@ -1046,6 +1052,7 @@ function ResolvedWorkspaceDesktopTabsRow({
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
   const { t } = useTranslation();
+  const { serverId: launchServerId, scopeBound } = resolvePaneLaunchHost(tabs, normalizedServerId);
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
   const [exitFocusModeWidth, setExitFocusModeWidth] = useState<number>(0);
@@ -1389,11 +1396,12 @@ function ResolvedWorkspaceDesktopTabsRow({
           />
           {!layout.requiresHorizontalScrollFallback ? (
             <WorkspaceNewTabButton
+              scopeBound={scopeBound}
               panePanelKinds={panePanelKinds}
               host={host}
               launchPurpose={launchPurpose}
               placement="inline"
-              serverId={normalizedServerId}
+              serverId={launchServerId}
               paneId={paneId}
               shortcutKeys={newTabKeys}
             />
@@ -1408,6 +1416,7 @@ function ResolvedWorkspaceDesktopTabsRow({
         />
       </View>
       <WorkspacePaneToolbarActions
+        scopeBound={scopeBound}
         panePanelKinds={panePanelKinds}
         host={host}
         launchPurpose={launchPurpose}
@@ -1415,7 +1424,7 @@ function ResolvedWorkspaceDesktopTabsRow({
         showSplitActions={showPaneSplitActions}
         showMaximizeAction={showPaneMaximizeAction}
         paneMaximized={paneMaximized}
-        serverId={normalizedServerId}
+        serverId={launchServerId}
         paneId={paneId}
         newTabShortcutKeys={newTabKeys}
         onSplitRight={onSplitRight}
@@ -1773,3 +1782,10 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
   },
 }));
+
+function resolvePaneLaunchHost(tabs: WorkspaceDesktopTabRowItem[], fallback: string) {
+  const target = tabs.find((entry) => entry.isActive)?.tab.target;
+  return target?.kind === "scoped"
+    ? { serverId: target.serverId, scopeBound: true }
+    : { serverId: fallback, scopeBound: false };
+}

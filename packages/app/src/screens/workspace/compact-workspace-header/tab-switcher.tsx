@@ -118,7 +118,7 @@ function getFallbackTabOptionDescription(
   if (tab.target.kind === "plugin") {
     return tab.target.panelId;
   }
-  return tab.target.path;
+  return tab.target.kind === "scoped" ? labels.agent : tab.target.path;
 }
 
 interface MobileWorkspaceTabSwitcherProps {

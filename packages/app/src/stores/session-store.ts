@@ -241,6 +241,7 @@ export interface ExplorerEntry {
   kind: ExplorerEntryKind;
   size: number;
   modifiedAt: string;
+  gitBranch?: string;
 }
 
 export interface ExplorerFile {

@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it, vi } from "vitest";
 import { realpathSync } from "node:fs";
-import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
@@ -68,6 +68,7 @@ import type { DaemonConfigStore } from "../daemon-config-store.js";
 import type { BrowserToolsBroker, BrowserToolsExecuteInput } from "../browser-tools/broker.js";
 import type { BrowserToolsResponsePayload } from "../browser-tools/errors.js";
 import { readPaseoWorktreeMetadata } from "../../utils/worktree-metadata.js";
+import { RemoteAgents } from "./remote-agents.js";
 import { createWorkspaceProvisioningService } from "../session/workspace-provisioning/workspace-provisioning-service.js";
 
 const REPO_CWD = resolvePath("/tmp/repo");
@@ -1163,6 +1164,112 @@ describe("browser MCP tools", () => {
       },
       context: { agentId: "agent-1", cwd: REPO_CWD },
     });
+  });
+});
+
+describe("remote collaboration MCP tools", () => {
+  it("dispatches literal prompts only once and returns remote output through MCP", async () => {
+    const home = await mkdtemp(join(tmpdir(), "paseo-remote-tools-"));
+    const script = join(home, "bridge.cjs");
+    const calls = join(home, "calls.jsonl");
+    await writeFile(
+      script,
+      `const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+const action = args[1];
+console.log(JSON.stringify(action === 'send' ? {agentId: args[2], status: 'sent'} : action === 'wait' ? {agentId: args[2], status: 'idle', message: 'remote work complete'} : []));`,
+    );
+    await writeFile(
+      join(home, "collaboration-hosts.json"),
+      JSON.stringify({
+        version: 1,
+        hosts: [{ id: "vm", label: "Mac mini", command: [process.execPath, script] }],
+      }),
+    );
+    const server = await createAgentMcpServer({
+      agentManager: new BoundaryAgentManagerFake() as AgentManager,
+      agentStorage: new BoundaryAgentStorageFake() as AgentStorage,
+      providerSnapshotManager:
+        new BoundaryProviderSnapshotManagerFake() as unknown as ProviderSnapshotManager,
+      callerAgentId: "agent-1",
+      paseoHome: home,
+      logger: createTestLogger(),
+    });
+    const client = await connectInMemoryMcpClient(server);
+    try {
+      const listed = await client.callTool({ name: "list_remote_agents", arguments: {} });
+      expect(listed.structuredContent).toEqual({ hosts: [{ id: "vm", label: "Mac mini" }] });
+      expect(expectSingleTextContent(listed)).not.toContain(script);
+      const args = {
+        hostId: "vm",
+        agentId: randomUUID(),
+        requestId: randomUUID(),
+        prompt: 'Review $(echo secret) `date` "literal"\nsecond line',
+      };
+      const first = await client.callTool({ name: "send_remote_agent_prompt", arguments: args });
+      expect(first.isError).not.toBe(true);
+      expect(first.structuredContent).toMatchObject({ state: "acknowledged" });
+      const retry = await client.callTool({ name: "send_remote_agent_prompt", arguments: args });
+      expect(retry.structuredContent).toEqual(first.structuredContent);
+      expect((await readFile(calls, "utf8")).trim().split("\n")).toHaveLength(1);
+      expect(JSON.parse((await readFile(calls, "utf8")).trim())).toContain(args.prompt);
+      const collision = await client.callTool({
+        name: "send_remote_agent_prompt",
+        arguments: { ...args, prompt: "different task" },
+      });
+      expect(collision.isError).toBe(true);
+      const result = await client.callTool({
+        name: "wait_remote_agent",
+        arguments: { hostId: "vm", agentId: args.agentId, timeoutSeconds: 1 },
+      });
+      expect(result.structuredContent).toMatchObject({
+        status: "idle",
+        message: "remote work complete",
+      });
+      expect(expectSingleTextContent(result)).toContain("remote work complete");
+      const restored = new RemoteAgents(home, async () => {
+        throw new Error("must not resend");
+      });
+      expect(await restored.send({ ...args, callerId: "agent-1" })).toEqual(
+        first.structuredContent,
+      );
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unknown acknowledgements uncertain without blindly retrying or falling back to local", async () => {
+    const home = await mkdtemp(join(tmpdir(), "paseo-remote-uncertain-"));
+    await writeFile(
+      join(home, "collaboration-hosts.json"),
+      JSON.stringify({ version: 1, hosts: [{ id: "vm", label: "VM", command: ["unused"] }] }),
+    );
+    const run = vi.fn(async () => {
+      throw new Error("connection lost after dispatch");
+    });
+    const remote = new RemoteAgents(home, run);
+    const input = {
+      callerId: "lead",
+      hostId: "vm",
+      agentId: randomUUID(),
+      requestId: randomUUID(),
+      prompt: "task",
+    };
+    try {
+      expect((await remote.send(input)).state).toBe("uncertain");
+      expect((await remote.send(input)).state).toBe("uncertain");
+      expect(run).toHaveBeenCalledTimes(1);
+      await expect(remote.send({ ...input, hostId: "unconfigured" })).rejects.toThrow(
+        "not configured",
+      );
+      await expect(remote.send({ ...input, agentId: "short-id" })).rejects.toThrow();
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
 

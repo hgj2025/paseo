@@ -87,15 +87,18 @@ export function WorkspaceNewTabMenuContent({
   host,
   panePanelKinds,
   paneId,
+  scopeBound,
 }: {
   serverId: string;
   purpose: WorkspaceTabLaunchPurpose;
   host: PaneHost;
   panePanelKinds: readonly WorkspaceTabTarget["kind"][];
   paneId?: string;
+  scopeBound?: boolean;
 }) {
   const groups = useWorkspaceTabLaunchCatalog({
     serverId,
+    scopeBound,
     purpose,
     host,
     surface: "menu",

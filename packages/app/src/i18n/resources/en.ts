@@ -432,6 +432,18 @@ export const en = {
     },
   },
   workspace: {
+    crossHost: {
+      localBrowser: "Browser tabs run on this desktop. Open one in a local pane.",
+      coordinator: "Coordinator",
+      makeCoordinator: "Make lead",
+      link: "Link to lead",
+      linked: "Collaborator sent to the coordinator",
+      upgrade: "Update this host's daemon to enable cross-host coordination tools.",
+      chooseScope: "Choose host and workspace",
+      sessions: "Open agent",
+      offline:
+        "This host is offline. Reconnect it to continue; this pane stays on its original host.",
+    },
     route: {
       loading: "Loading workspace",
       connecting: "Connecting",

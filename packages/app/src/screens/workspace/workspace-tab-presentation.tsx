@@ -18,6 +18,7 @@ import {
 } from "@/utils/status-indicator-geometry";
 import type { Theme } from "@/styles/theme";
 import { usePanelInstanceAttributes } from "@/panels/panel-instance-attributes";
+import { resolveWorkspaceTabScope } from "@/workspace-tabs/scope";
 
 export interface WorkspaceTabPresentation {
   key: string;
@@ -44,6 +45,8 @@ interface WorkspaceTabPresentationResolverProps {
 
 type WorkspaceTabPresentationResolverInnerProps = WorkspaceTabPresentationResolverProps & {
   registration: NonNullable<ReturnType<typeof getPanelRegistration>>;
+  layoutOwner: { serverId: string; workspaceId: string };
+  scopeBound: boolean;
 };
 
 export function WorkspaceTabPresentationResolver({
@@ -53,16 +56,24 @@ export function WorkspaceTabPresentationResolver({
   children,
 }: WorkspaceTabPresentationResolverProps): ReactElement {
   ensurePanelsRegistered();
-  const registration = getPanelRegistration(tab.kind);
+  const resolved = resolveWorkspaceTabScope(tab.target, { serverId, workspaceId });
+  const registration = getPanelRegistration(resolved.target.kind);
   invariant(registration, `No panel registration for kind: ${tab.kind}`);
+  const layoutOwner = useMemo(() => ({ serverId, workspaceId }), [serverId, workspaceId]);
+  const resourceTab = useMemo(
+    () => ({ ...tab, kind: resolved.target.kind, target: resolved.target }),
+    [tab, resolved.target],
+  );
 
   return (
     <WorkspaceTabPresentationResolverInner
-      key={`${tab.key}:${tab.kind}`}
+      key={`${tab.key}:${resolved.scope.serverId}:${resolved.target.kind}`}
       registration={registration}
-      tab={tab}
-      serverId={serverId}
-      workspaceId={workspaceId}
+      layoutOwner={layoutOwner}
+      scopeBound={tab.target.kind === "scoped"}
+      tab={resourceTab}
+      serverId={resolved.scope.serverId}
+      workspaceId={resolved.scope.workspaceId}
     >
       {children}
     </WorkspaceTabPresentationResolverInner>
@@ -75,13 +86,15 @@ function WorkspaceTabPresentationResolverInner({
   serverId,
   workspaceId,
   children,
+  layoutOwner,
+  scopeBound,
 }: WorkspaceTabPresentationResolverInnerProps): ReactElement {
   const descriptor = registration.useDescriptor(tab.target as never, {
     serverId,
     workspaceId,
     tabId: tab.tabId,
   });
-  const attributes = usePanelInstanceAttributes({ serverId, workspaceId, tabId: tab.tabId });
+  const attributes = usePanelInstanceAttributes({ ...layoutOwner, tabId: tab.tabId });
 
   const presentation = useMemo(
     () => ({
@@ -91,7 +104,7 @@ function WorkspaceTabPresentationResolverInner({
       subtitle: descriptor.subtitle,
       tooltip: descriptor.tooltip,
       modified: attributes.modified,
-      showCloseButton: registration.showCloseButton,
+      showCloseButton: scopeBound || registration.showCloseButton,
       titleState: descriptor.titleState,
       icon: descriptor.icon,
       statusBucket: descriptor.statusBucket,
@@ -107,6 +120,7 @@ function WorkspaceTabPresentationResolverInner({
       tab.kind,
       attributes.modified,
       registration.showCloseButton,
+      scopeBound,
     ],
   );
 

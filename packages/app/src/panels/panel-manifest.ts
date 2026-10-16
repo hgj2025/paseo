@@ -41,6 +41,15 @@ type PanelManifestByKind = {
 };
 
 const manifests = {
+  scoped: {
+    kind: "scoped",
+    supportedHosts: ["main", "explorer"],
+    showCloseButton: true,
+    singleton: false,
+    compactSheet: null,
+    resourceKey: (target) =>
+      JSON.stringify([target.serverId, target.workspaceId, panelResourceKey(target.target)]),
+  },
   new_tab: {
     kind: "new_tab",
     supportedHosts: ["main", "explorer"],

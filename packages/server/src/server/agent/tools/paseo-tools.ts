@@ -1,4 +1,6 @@
 import { AgentDirectory } from "../directory.js";
+import { RemoteAgents } from "../remote-agents.js";
+import { resolvePaseoHome } from "../../paseo-home.js";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
@@ -1850,6 +1852,58 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
 
   const PROMPTED_AGENT_NOTIFICATION_GUIDANCE =
     "You will get notified when the prompted agent finishes, errors, or needs permission. Do not poll for status; continue with other work until the notification arrives.";
+
+  const remoteAgents = new RemoteAgents(options.paseoHome ?? resolvePaseoHome());
+  registerTool(
+    "list_remote_agents",
+    {
+      title: "List remote agents",
+      description:
+        "List administrator-configured collaboration hosts, or list agents on one host. Host IDs and agent IDs are separate. No host credentials are returned.",
+      inputSchema: { hostId: z.string().optional() },
+    },
+    async ({ hostId }) => ({
+      content: [],
+      structuredContent: ensureValidJson(await remoteAgents.list(hostId)),
+    }),
+  );
+  registerTool(
+    "send_remote_agent_prompt",
+    {
+      title: "Send remote agent prompt",
+      description:
+        "Dispatch to an existing agent on a configured host. Supply its full agent UUID and a fresh request UUID. Reuse the same request ID when checking an ambiguous acknowledgement; it never resends. Use wait_remote_agent for progress/results. Permissions remain with the user in the target pane.",
+      inputSchema: {
+        hostId: z.string().min(1),
+        agentId: z.string().uuid(),
+        requestId: z.string().uuid(),
+        prompt: z.string().min(1).max(40000),
+      },
+    },
+    async (input) => ({
+      content: [],
+      structuredContent: ensureValidJson(
+        await remoteAgents.send({ ...input, callerId: callerAgentId ?? "external" }),
+      ),
+    }),
+  );
+  registerTool(
+    "wait_remote_agent",
+    {
+      title: "Wait for remote agent",
+      description:
+        "Wait up to 30 seconds for the selected remote agent and return status and recent output. A timeout is still running; it is not a dispatch failure. This does not approve remote permissions.",
+      inputSchema: {
+        hostId: z.string().min(1),
+        agentId: z.string().uuid(),
+        timeoutSeconds: z.number().int().min(1).max(30).optional(),
+      },
+    },
+    async ({ hostId, agentId, timeoutSeconds }) => ({
+      content: [],
+      structuredContent: ensureValidJson(await remoteAgents.wait(hostId, agentId, timeoutSeconds)),
+    }),
+  );
 
   registerTool(
     "send_agent_prompt",

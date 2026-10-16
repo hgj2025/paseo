@@ -27,7 +27,15 @@ import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles"
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import * as Clipboard from "expo-clipboard";
-import { ChevronDown, Eye, EyeOff, FilePlus, FolderPlus, RotateCw } from "lucide-react-native";
+import {
+  ChevronDown,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FolderPlus,
+  GitBranch,
+  RotateCw,
+} from "lucide-react-native";
 import { MaterialFileIcon } from "@/components/material-file-icon";
 import {
   TreeChevron,
@@ -38,6 +46,7 @@ import {
   WORKSPACE_TREE_LOADING_ICON_SIZE,
 } from "@/components/tree-primitives";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   PaneContentToolbar,
   paneContentToolbarIconSize,
@@ -228,6 +237,8 @@ function EntryNameInputRow({
   );
 }
 
+const ThemedGitBranch = withUnistyles(GitBranch);
+
 function TreeRowItem({
   serverId,
   workspaceId,
@@ -371,6 +382,25 @@ function TreeRowItem({
           >
             {entry.name}
           </Text>
+          {isDirectory && entry.gitBranch ? (
+            <Tooltip delayDuration={300} enabledOnDesktop enabledOnMobile={false}>
+              <TooltipTrigger asChild>
+                <View style={styles.gitBranch} accessibilityLabel={entry.gitBranch}>
+                  <ThemedGitBranch size={12} style={styles.gitBranchIcon} />
+                  <Text
+                    style={styles.gitBranchText}
+                    numberOfLines={1}
+                    testID={testID ? `${testID}-branch` : undefined}
+                  >
+                    {entry.gitBranch}
+                  </Text>
+                </View>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="end">
+                <Text style={styles.gitBranchTooltip}>{entry.gitBranch}</Text>
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </View>
       </ContextMenuTrigger>
       <FileActionsContextMenuContent
@@ -1780,6 +1810,28 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
     userSelect: "none",
+  },
+  gitBranch: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    maxWidth: "45%",
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  gitBranchIcon: {
+    color: theme.colors.foregroundMuted,
+    flexShrink: 0,
+  },
+  gitBranchText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    flexShrink: 1,
+    userSelect: "none",
+  },
+  gitBranchTooltip: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
   },
   draftInput: {
     flex: 1,

@@ -15,6 +15,8 @@ import { RenderProfile } from "@/utils/render-profiler";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import type { OpenInSidePaneSource } from "@/workspace-tabs/open-beside";
 import type { PaneHost } from "@/panels/panel-manifest";
+import { resolveWorkspaceTabScope, scopeWorkspaceTabTarget } from "@/workspace-tabs/scope";
+import { WorkspacePaneSession } from "./workspace-pane-session";
 
 export interface WorkspacePaneContentModel {
   key: string;
@@ -57,26 +59,42 @@ export function buildWorkspacePaneContentModel({
   onOpenImportSheet,
 }: BuildWorkspacePaneContentModelInput): WorkspacePaneContentModel {
   ensurePanelsRegistered();
-  const registration = getPanelRegistration(tab.kind);
-  invariant(registration, `No panel registration for kind: ${tab.kind}`);
+  const { scope, target } = resolveWorkspaceTabScope(tab.target, {
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+  });
+  const bind = (next: WorkspaceTabDescriptor["target"]) =>
+    tab.target.kind === "scoped" ? scopeWorkspaceTabTarget(next, scope) : next;
+  const registration = getPanelRegistration(target.kind);
+  invariant(registration, `No panel registration for kind: ${target.kind}`);
   return {
-    key: `${normalizedServerId}:${normalizedWorkspaceId}:${tab.tabId}`,
+    key: `${scope.serverId}:${scope.workspaceId}:${tab.tabId}`,
     Component: registration.component,
     paneContextValue: {
-      serverId: normalizedServerId,
-      workspaceId: normalizedWorkspaceId,
+      ...scope,
+      scopeBound: tab.target.kind === "scoped",
+      layoutOwner: { serverId: normalizedServerId, workspaceId: normalizedWorkspaceId },
       host,
       tabId: tab.tabId,
-      target: tab.target,
+      target,
       state: tab.state,
       fileNavigationRevision,
-      openTab: onOpenTab,
-      openPreferredTarget: onOpenPreferredTarget,
-      openTargetToSide: onOpenTargetToSide,
+      openTab: (next) => onOpenTab(bind(next)),
+      openPreferredTarget: (next, source) => onOpenPreferredTarget(bind(next), source),
+      openTargetToSide: onOpenTargetToSide ? (next) => onOpenTargetToSide(bind(next)) : undefined,
       closeCurrentTab: onCloseCurrentTab,
-      retargetCurrentTab: onRetargetCurrentTab,
+      retargetCurrentTab: (next) => onRetargetCurrentTab(bind(next)),
       setCurrentTabState: onSetCurrentTabState,
-      openFileInWorkspace: onOpenWorkspaceFile,
+      openFileInWorkspace:
+        tab.target.kind !== "scoped"
+          ? onOpenWorkspaceFile
+          : (request) => {
+              const file = bind({ kind: "file", ...request.location });
+              if (request.disposition === "side" && onOpenTargetToSide) onOpenTargetToSide(file);
+              else if (request.disposition === "preferred")
+                onOpenPreferredTarget(file, "chatFiles");
+              else onOpenTab(file);
+            },
       openImportSheet: onOpenImportSheet,
     },
   };
@@ -108,6 +126,8 @@ export function WorkspacePaneContent({
     () => ({
       serverId: paneContextValue.serverId,
       workspaceId: paneContextValue.workspaceId,
+      scopeBound: paneContextValue.scopeBound,
+      layoutOwner: paneContextValue.layoutOwner,
       host: paneContextValue.host,
       tabId: paneContextValue.tabId,
       target: paneContextValue.target,
@@ -135,6 +155,8 @@ export function WorkspacePaneContent({
       paneContextValue.target,
       paneContextValue.state,
       paneContextValue.workspaceId,
+      paneContextValue.scopeBound,
+      paneContextValue.layoutOwner,
       paneContextValue.host,
       paneContextValue.openTargetToSide,
       retargetCurrentTab,
@@ -161,7 +183,9 @@ export function WorkspacePaneContent({
             tabId={paneContextValue.tabId}
             targetKey={JSON.stringify(paneContextValue.target)}
           >
-            <Component key={key} />
+            <WorkspacePaneSession key={key}>
+              <Component />
+            </WorkspacePaneSession>
           </ComposerEditingScope>
         </PaneFocusProvider>
       </PaneProvider>

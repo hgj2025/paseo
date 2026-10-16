@@ -120,7 +120,9 @@ export function usePanelInstanceAttributes({
 }
 
 export function usePublishPanelInstanceAttributes(attributes: PanelInstanceAttributes): void {
-  const { serverId, workspaceId, tabId } = usePaneContext();
+  const pane = usePaneContext();
+  const { serverId, workspaceId } = pane.layoutOwner ?? pane;
+  const { tabId } = pane;
   const modified = attributes.modified;
   const suspendPendingSave = attributes.suspendPendingSave;
   useEffect(() => {

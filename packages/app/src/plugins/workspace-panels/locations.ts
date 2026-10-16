@@ -50,6 +50,11 @@ export function panelTargetSupportsHost(
   target: WorkspaceTabTarget,
   host: PaneHost,
 ): boolean {
+  if (target.kind === "scoped")
+    return (
+      (host === "main" && target.target.kind === "files") ||
+      panelTargetSupportsHost(target.serverId, target.target, host)
+    );
   if (target.kind !== "plugin" || host === "sheet") return panelSupportsHost(target.kind, host);
   const panel = findPluginPanel(serverId, target);
   // Preserve a persisted unavailable panel where the user left it until its plugin loads again.
@@ -63,6 +68,11 @@ export function panelTargetSupportsHostForWorkspaceKey(
   target: WorkspaceTabTarget,
   host: PaneHost,
 ): boolean {
+  if (target.kind === "scoped")
+    return (
+      (host === "main" && target.target.kind === "files") ||
+      panelTargetSupportsHost(target.serverId, target.target, host)
+    );
   if (target.kind !== "plugin") return panelSupportsHost(target.kind, host);
   const serverId =
     pluginRegistry

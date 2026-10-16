@@ -4,6 +4,7 @@ import {
   classifyBulkClosableTabs,
   closeBulkWorkspaceTabs,
 } from "@/screens/workspace/workspace-bulk-close";
+import { scopeWorkspaceTabTarget } from "@/workspace-tabs/scope";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 
 function makeAgentTab(id: string): WorkspaceTabDescriptor {
@@ -34,6 +35,21 @@ function makeFileTab(path: string): WorkspaceTabDescriptor {
 }
 
 describe("workspace bulk close helpers", () => {
+  it("closes cross-host views without archiving agents or stopping terminals on the owner host", () => {
+    const tabs: WorkspaceTabDescriptor[] = [
+      makeAgentTab("remote-agent"),
+      makeTerminalTab("remote-terminal"),
+    ].map((tab) => ({
+      key: tab.key,
+      tabId: tab.tabId,
+      kind: "scoped",
+      target: scopeWorkspaceTabTarget(tab.target, { serverId: "vm", workspaceId: "code" }),
+    }));
+    const groups = classifyBulkClosableTabs(tabs);
+    expect(groups.archiveAgentTabs).toEqual([]);
+    expect(groups.terminalTabs).toEqual([]);
+    expect(groups.otherTabs).toHaveLength(2);
+  });
   it("classifies agent, terminal, and passive tabs for shared bulk close handling", () => {
     const groups = classifyBulkClosableTabs([
       makeAgentTab("a1"),

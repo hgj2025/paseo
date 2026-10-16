@@ -139,6 +139,24 @@ export function useWorkspaceKeys(serverId: string | null): string[] {
   );
 }
 
+/** Project only the fields used by the cross-host pane picker. */
+export function useWorkspaceScopeOptions(serverIds: string[]) {
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    (state) =>
+      serverIds.flatMap((serverId) =>
+        Array.from(state.sessions[serverId]?.workspaces.values() ?? [])
+          .filter((workspace) => !workspace.archivingAt)
+          .map((workspace) => ({
+            serverId,
+            workspaceId: workspace.id,
+            name: workspace.title || workspace.name,
+          })),
+      ),
+    workspaceEqualityFns.deep,
+  );
+}
+
 export function useRecommendedProjectPaths(serverId: string | null): string[] {
   return useStoreWithEqualityFn(
     useSessionStore,

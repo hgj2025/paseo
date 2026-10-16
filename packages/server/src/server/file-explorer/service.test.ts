@@ -19,6 +19,7 @@ import {
   deleteExplorerEntry,
   duplicateExplorerEntry,
   getExplorerFileVersion,
+  listDirectoryEntries,
   readExplorerFile,
   renameExplorerEntry,
   streamExplorerFile,
@@ -34,6 +35,92 @@ async function createTempDir(prefix: string): Promise<string> {
 }
 
 describe("file explorer service", () => {
+  it("lists each repository's branch without inheriting it in ordinary subdirectories", async () => {
+    const root = await createTempDir("paseo-file-branches-");
+    try {
+      for (const name of ["api", "web", "plain"]) await mkdir(path.join(root, name));
+      await runGitCommand(["init", "-b", "fix/consul_bug"], { cwd: path.join(root, "api") });
+      await runGitCommand(["init", "-b", "feature/cards"], { cwd: path.join(root, "web") });
+      await mkdir(path.join(root, "api", "src"));
+      const first = await listDirectoryEntries({ root });
+      expect(first.entries.find((entry) => entry.name === "api")?.gitBranch).toBe("fix/consul_bug");
+      expect(first.entries.find((entry) => entry.name === "web")?.gitBranch).toBe("feature/cards");
+      expect(first.entries.find((entry) => entry.name === "plain")?.gitBranch).toBeUndefined();
+      const nested = await listDirectoryEntries({ root, relativePath: "api" });
+      expect(nested.entries.every((entry) => entry.gitBranch === undefined)).toBe(true);
+
+      await runGitCommand(["symbolic-ref", "HEAD", "refs/heads/fix/updated"], {
+        cwd: path.join(root, "api"),
+      });
+      const refreshed = await listDirectoryEntries({ root });
+      expect(refreshed.entries.find((entry) => entry.name === "api")?.gitBranch).toBe(
+        "fix/updated",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("shows worktree branches and detached HEADs", async () => {
+    const root = await createTempDir("paseo-file-worktrees-");
+    const repo = path.join(root, "repo");
+    try {
+      await mkdir(repo);
+      await runGitCommand(["init", "-b", "main"], { cwd: repo });
+      await runGitCommand(
+        [
+          "-c",
+          "user.name=Paseo Test",
+          "-c",
+          "user.email=test@example.test",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "initial",
+        ],
+        { cwd: repo },
+      );
+      await runGitCommand(
+        ["worktree", "add", "-b", "feature/worktree", path.join(root, "worktree")],
+        { cwd: repo },
+      );
+      await runGitCommand(["checkout", "--detach"], { cwd: repo });
+      const head = await runGitCommand(["rev-parse", "--short", "HEAD"], { cwd: repo });
+      const listing = await listDirectoryEntries({ root });
+      expect(listing.entries.find((entry) => entry.name === "worktree")?.gitBranch).toBe(
+        "feature/worktree",
+      );
+      expect(listing.entries.find((entry) => entry.name === "repo")?.gitBranch).toBe(
+        `HEAD (${head.stdout.trim()})`,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps broken repositories browsable and avoids Git processes for ordinary folders", async () => {
+    const root = await createTempDir("paseo-file-plain-");
+    try {
+      await mkdir(path.join(root, "plain"));
+      snapshotGitCommandRuntimeMetrics();
+      const listing = await listDirectoryEntries({ root });
+      expect(listing.entries[0]?.gitBranch).toBeUndefined();
+      expect(snapshotGitCommandRuntimeMetrics().started).toBe(0);
+
+      await mkdir(path.join(root, "broken"));
+      await writeFile(path.join(root, "broken", ".git"), "gitdir: /nonexistent-paseo-repository\n");
+      const broken = (await listDirectoryEntries({ root })).entries.find(
+        (entry) => entry.name === "broken",
+      );
+      expect(broken).toMatchObject({ name: "broken", kind: "directory" });
+      expect(broken?.gitBranch).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("atomically writes an existing text file at the expected revision", async () => {
     const root = await createTempDir("paseo-file-write-");
     try {

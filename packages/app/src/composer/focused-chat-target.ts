@@ -5,6 +5,8 @@ import {
   findPaneById,
   type WorkspaceLayout,
 } from "@/stores/workspace-layout-store";
+import type { WorkspaceScope } from "@/workspace-tabs/model";
+import { resolveWorkspaceTabScope } from "@/workspace-tabs/scope";
 
 export interface FocusedChatTarget {
   tabId: string;
@@ -12,22 +14,32 @@ export interface FocusedChatTarget {
 }
 
 function resolveChatTab(
-  serverId: string,
+  source: { serverId: string; workspaceId?: string | null; layoutOwner?: WorkspaceScope },
   tab: ReturnType<typeof collectAllTabs>[number] | undefined,
 ): FocusedChatTarget | null {
-  if (tab?.target.kind === "agent") {
+  if (!tab) return null;
+  const { scope, target } = resolveWorkspaceTabScope(
+    tab.target,
+    source.layoutOwner ?? { serverId: source.serverId, workspaceId: source.workspaceId ?? "" },
+  );
+  if (
+    scope.serverId !== source.serverId ||
+    (source.workspaceId && scope.workspaceId !== source.workspaceId)
+  )
+    return null;
+  if (target.kind === "agent") {
     return {
       tabId: tab.tabId,
-      draftKey: buildDraftStoreKey({ serverId, agentId: tab.target.agentId }),
+      draftKey: buildDraftStoreKey({ serverId: scope.serverId, agentId: target.agentId }),
     };
   }
-  if (tab?.target.kind === "draft") {
+  if (target.kind === "draft") {
     return {
       tabId: tab.tabId,
       draftKey: buildDraftStoreKey({
-        serverId,
+        serverId: scope.serverId,
         agentId: tab.tabId,
-        draftId: tab.target.draftId,
+        draftId: target.draftId,
       }),
     };
   }
@@ -42,6 +54,8 @@ function resolveChatTab(
  */
 export function resolveFocusedChatTarget(input: {
   serverId: string;
+  workspaceId?: string | null;
+  layoutOwner?: WorkspaceScope;
   layout: WorkspaceLayout | undefined;
 }): FocusedChatTarget | null {
   if (!input.layout) {
@@ -51,7 +65,7 @@ export function resolveFocusedChatTarget(input: {
   const focusedTabId = findPaneById(input.layout.root, input.layout.focusedPaneId)?.focusedTabId;
   if (focusedTabId) {
     const focusedChat = resolveChatTab(
-      input.serverId,
+      input,
       tabs.find((candidate) => candidate.tabId === focusedTabId),
     );
     if (focusedChat) {
@@ -59,7 +73,7 @@ export function resolveFocusedChatTarget(input: {
     }
     const parentTabId = input.layout.parentTabIdByTabId?.[focusedTabId];
     const parentChat = resolveChatTab(
-      input.serverId,
+      input,
       tabs.find((candidate) => candidate.tabId === parentTabId),
     );
     if (parentChat) {
@@ -69,7 +83,7 @@ export function resolveFocusedChatTarget(input: {
 
   for (const pane of collectAllPanes(input.layout.root)) {
     const paneChat = resolveChatTab(
-      input.serverId,
+      input,
       tabs.find((candidate) => candidate.tabId === pane.focusedTabId),
     );
     if (paneChat) {

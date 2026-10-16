@@ -5,6 +5,22 @@ import {
   workspaceTabTargetsEqual,
 } from "./identity";
 
+it("keeps identical agent and file identifiers on different hosts distinct", () => {
+  for (const target of [
+    { kind: "agent", agentId: "same-id" },
+    { kind: "file", path: "/code/README.md" },
+  ] as const) {
+    const first = { kind: "scoped", serverId: "mac", workspaceId: "code", target } as const;
+    const second = { ...first, serverId: "vm" };
+    expect(buildDeterministicWorkspaceTabId(first)).not.toBe(
+      buildDeterministicWorkspaceTabId(second),
+    );
+    expect(workspaceTabTargetsEqual(first, second)).toBe(false);
+    expect(normalizeWorkspaceTabTarget(first)).toEqual(first);
+    expect(normalizeWorkspaceTabTarget({ ...first, serverId: " " })).toBeNull();
+  }
+});
+
 describe("New tab identity", () => {
   it("stays outside deterministic target identity", () => {
     const target = { kind: "new_tab" } as const;

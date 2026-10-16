@@ -439,6 +439,7 @@ export const ptBR: TranslationResources = {
     },
   },
   workspace: {
+    crossHost: en.workspace.crossHost,
     route: {
       loading: "Carregando workspace",
       connecting: "Conectando",

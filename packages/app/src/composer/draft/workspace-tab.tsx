@@ -280,6 +280,7 @@ interface WorkspaceDraftAgentTabProps {
   onCreated: (snapshot: AgentSnapshotPayload) => void;
   onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => void;
   onOpenImportSheet?: () => void;
+  onOpenReview?: () => void;
 }
 
 function resolveImportPillPress(
@@ -301,6 +302,7 @@ export function WorkspaceDraftAgentTab({
   isPaneFocused,
   onCreated,
   onOpenWorkspaceFile,
+  onOpenReview,
   onOpenImportSheet,
 }: WorkspaceDraftAgentTabProps) {
   const { t } = useTranslation();
@@ -411,6 +413,10 @@ export function WorkspaceDraftAgentTab({
       if (attachment.kind !== "review") {
         return;
       }
+      if (onOpenReview) {
+        onOpenReview();
+        return;
+      }
       openWorkspaceChanges({
         isCompact: isCompactFormFactor,
         workspaceKey: buildWorkspaceTabPersistenceKey({ serverId, workspaceId: workspaceId ?? "" }),
@@ -418,7 +424,14 @@ export function WorkspaceDraftAgentTab({
         preferences: openInSidePane,
       });
     },
-    [composerState.workingDir, isCompactFormFactor, openInSidePane, serverId, workspaceId],
+    [
+      composerState.workingDir,
+      isCompactFormFactor,
+      openInSidePane,
+      serverId,
+      workspaceId,
+      onOpenReview,
+    ],
   );
 
   const {

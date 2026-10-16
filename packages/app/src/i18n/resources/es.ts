@@ -440,6 +440,7 @@ export const es: TranslationResources = {
     },
   },
   workspace: {
+    crossHost: en.workspace.crossHost,
     route: {
       loading: "Cargando espacio de trabajo",
       connecting: "Conectando",

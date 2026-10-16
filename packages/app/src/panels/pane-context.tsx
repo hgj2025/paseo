@@ -1,7 +1,7 @@
 import React, { createContext, useContext, type ReactNode } from "react";
 import invariant from "tiny-invariant";
 import type { JsonValue } from "@getpaseo/protocol/agent-types";
-import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+import type { WorkspaceScope, WorkspaceTabTarget } from "@/workspace-tabs/model";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import type { OpenInSidePaneSource } from "@/workspace-tabs/open-beside";
 import type { PaneHost } from "@/panels/panel-manifest";
@@ -9,6 +9,8 @@ import type { PaneHost } from "@/panels/panel-manifest";
 export interface PaneContextValue {
   serverId: string;
   workspaceId: string;
+  scopeBound?: boolean;
+  layoutOwner?: WorkspaceScope;
   host: PaneHost;
   tabId: string;
   target: WorkspaceTabTarget;

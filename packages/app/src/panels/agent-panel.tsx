@@ -397,9 +397,15 @@ function DraftPanel() {
     openFileInWorkspace,
     openImportSheet,
     retargetCurrentTab,
+    openPreferredTarget,
+    scopeBound,
   } = usePaneContext();
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "draft", "DraftPanel requires draft target");
+  const handleOpenReview = useCallback(
+    () => openPreferredTarget({ kind: "working_diff" }, "diffs"),
+    [openPreferredTarget],
+  );
 
   const handleCreated = useCallback(
     (agentSnapshot: Parameters<typeof normalizeAgentSnapshot>[0]) => {
@@ -422,6 +428,7 @@ function DraftPanel() {
       onOpenWorkspaceFile={openFileInWorkspace}
       onCreated={handleCreated}
       onOpenImportSheet={openImportSheet}
+      onOpenReview={scopeBound ? handleOpenReview : undefined}
     />
   );
 }
@@ -1597,9 +1604,8 @@ function ActiveAgentComposer({
   );
   const paneContext = usePaneContext();
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
-  const { workspaceId, tabId, retargetCurrentTab } = paneContext;
+  const { workspaceId, retargetCurrentTab, closeCurrentTab } = paneContext;
   const { archiveAgent } = useArchiveAgent();
-  const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
   const hideWorkspaceAgent = useWorkspaceLayoutStore((state) => state.hideAgent);
   const unpinWorkspaceAgent = useWorkspaceLayoutStore((state) => state.unpinAgent);
   const workspaceAttachmentScopeKey = useWorkspaceAttachmentScopeKey({
@@ -1616,6 +1622,10 @@ function ActiveAgentComposer({
       if (attachment.kind !== "review") {
         return;
       }
+      if (paneContext.scopeBound) {
+        paneContext.openPreferredTarget({ kind: "working_diff" }, "diffs");
+        return;
+      }
       openWorkspaceChanges({
         isCompact: isCompactFormFactor,
         workspaceKey: buildWorkspaceTabPersistenceKey({ serverId, workspaceId }),
@@ -1623,7 +1633,7 @@ function ActiveAgentComposer({
         preferences: openInSidePane,
       });
     },
-    [cwd, isCompactFormFactor, openInSidePane, serverId, workspaceId],
+    [cwd, isCompactFormFactor, openInSidePane, serverId, workspaceId, paneContext],
   );
 
   const handleClientSlashCommand = useCallback(
@@ -1645,8 +1655,8 @@ function ActiveAgentComposer({
           draftId: generateDraftId(),
           setup: buildDraftAgentSetup(agent),
         });
-      } else if (workspaceKey) {
-        closeWorkspaceTab(workspaceKey, tabId);
+      } else {
+        closeCurrentTab();
       }
 
       await archiveAgent({ serverId, agentId });
@@ -1654,11 +1664,10 @@ function ActiveAgentComposer({
     [
       agentId,
       archiveAgent,
-      closeWorkspaceTab,
+      closeCurrentTab,
       hideWorkspaceAgent,
       retargetCurrentTab,
       serverId,
-      tabId,
       unpinWorkspaceAgent,
       workspaceId,
     ],

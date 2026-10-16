@@ -5,6 +5,7 @@ import { app } from "electron";
 import { UUID } from "builder-util-runtime";
 import log from "electron-log/main";
 import { autoUpdater } from "electron-updater";
+import { isOfficialDesktopBuild } from "./app-update-build.js";
 import {
   createAppUpdateService,
   type AppUpdateCheckResult,
@@ -224,7 +225,7 @@ class ElectronAppUpdateRuntime implements AppUpdateRuntime {
 
 const appUpdateService = createAppUpdateService({
   runtime: new ElectronAppUpdateRuntime(),
-  isPackaged: () => app.isPackaged,
+  isPackaged: () => app.isPackaged && isOfficialDesktopBuild(process.resourcesPath),
   now: () => Date.now(),
   bucket: async () => bucketFromStagingUserId(await getStagingUserId()),
   reportCheckError: (error) => {

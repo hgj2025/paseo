@@ -10,10 +10,46 @@ import {
   FileEntryDuplicateResponseSchema,
   FileEntryRenameRequestSchema,
   FileEntryRenameResponseSchema,
+  FileExplorerResponseSchema,
   ServerInfoStatusPayloadSchema,
 } from "./messages.js";
 
 describe("file context action messages", () => {
+  test("preserves optional repository branches in directory listings", () => {
+    const response = {
+      type: "file_explorer_response",
+      payload: {
+        cwd: "/workspace",
+        path: ".",
+        mode: "list",
+        requestId: "branches",
+        file: null,
+        error: null,
+        directory: {
+          path: ".",
+          entries: [
+            {
+              name: "repo",
+              path: "repo",
+              kind: "directory",
+              size: 0,
+              modifiedAt: "2026-10-16T00:00:00.000Z",
+              gitBranch: "fix/consul_bug",
+            },
+            {
+              name: "plain",
+              path: "plain",
+              kind: "directory",
+              size: 0,
+              modifiedAt: "2026-10-16T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+    expect(FileExplorerResponseSchema.parse(response)).toEqual(response);
+  });
+
   test("keeps context-action capabilities optional and preserves advertised support", () => {
     const legacy = ServerInfoStatusPayloadSchema.parse({
       status: "server_info",

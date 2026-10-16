@@ -16,6 +16,10 @@ vi.mock("@/panels/register-panels", () => ({
   ensurePanelsRegistered: vi.fn(),
 }));
 
+vi.mock("./workspace-pane-session", () => ({
+  WorkspacePaneSession: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 vi.mock("@/panels/panel-registry", () => ({
   getPanelRegistration: () => ({
     kind: "agent",
@@ -73,6 +77,80 @@ function buildContent(tab: WorkspaceTabDescriptor = agentTab, host: "main" | "ex
 }
 
 describe("WorkspacePaneContent", () => {
+  it("routes scoped actions to the resource host while keeping layout actions in this window", () => {
+    const remote = { serverId: "vm", workspaceId: "vm-code" };
+    const onOpenTab = vi.fn();
+    const onRetargetCurrentTab = vi.fn();
+    const onOpenPreferredTarget = vi.fn();
+    const onCloseCurrentTab = vi.fn();
+    const onOpenWorkspaceFile = vi.fn();
+    const content = buildWorkspacePaneContentModel({
+      tab: {
+        ...agentTab,
+        kind: "scoped",
+        target: {
+          kind: "scoped",
+          ...remote,
+          target: agentTab.target as { kind: "agent"; agentId: string },
+        },
+      },
+      normalizedServerId: "mac",
+      normalizedWorkspaceId: "mac-code",
+      host: "main",
+      onOpenTab,
+      onRetargetCurrentTab,
+      onOpenPreferredTarget,
+      onCloseCurrentTab,
+      onOpenWorkspaceFile,
+      onSetCurrentTabState: vi.fn(),
+      onOpenImportSheet: vi.fn(),
+    });
+    const pane = content.paneContextValue;
+    expect(pane).toMatchObject({
+      ...remote,
+      target: agentTab.target,
+      layoutOwner: { serverId: "mac", workspaceId: "mac-code" },
+    });
+    pane.openTab({ kind: "files" });
+    expect(onOpenTab).toHaveBeenCalledWith({
+      kind: "scoped",
+      ...remote,
+      target: { kind: "files" },
+    });
+    pane.retargetCurrentTab({ kind: "agent", agentId: "new-remote-agent" });
+    expect(onRetargetCurrentTab).toHaveBeenCalledWith({
+      kind: "scoped",
+      ...remote,
+      target: { kind: "agent", agentId: "new-remote-agent" },
+    });
+    pane.openFileInWorkspace({
+      location: { path: "/vm/code/readme.md", lineStart: 4 },
+      disposition: "preferred",
+    });
+    expect(onOpenWorkspaceFile).not.toHaveBeenCalled();
+    expect(onOpenPreferredTarget).toHaveBeenCalledWith(
+      {
+        kind: "scoped",
+        ...remote,
+        target: { kind: "file", path: "/vm/code/readme.md", lineStart: 4 },
+      },
+      "chatFiles",
+    );
+    pane.closeCurrentTab();
+    expect(onCloseCurrentTab).toHaveBeenCalledOnce();
+    pane.openTab({
+      kind: "scoped",
+      serverId: "third-host",
+      workspaceId: "another",
+      target: { kind: "new_tab" },
+    });
+    expect(onOpenTab).toHaveBeenLastCalledWith({
+      kind: "scoped",
+      serverId: "third-host",
+      workspaceId: "another",
+      target: { kind: "new_tab" },
+    });
+  });
   let root: Root | null = null;
   let container: HTMLElement | null = null;
 

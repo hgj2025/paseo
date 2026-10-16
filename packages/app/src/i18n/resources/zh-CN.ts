@@ -435,6 +435,17 @@ export const zhCN: TranslationResources = {
     },
   },
   workspace: {
+    crossHost: {
+      localBrowser: "浏览器标签在当前电脑运行，请在本机分屏中打开。",
+      coordinator: "主控",
+      makeCoordinator: "设为主控",
+      link: "告知主控",
+      linked: "已将协作会话告知主控",
+      upgrade: "请升级此主机的后台，以启用跨主机协作工具。",
+      chooseScope: "选择主机和工作区",
+      sessions: "打开会话",
+      offline: "此主机已离线，重新连接后可继续。此分屏仍绑定原主机。",
+    },
     route: {
       loading: "正在加载 workspace",
       connecting: "正在连接",
