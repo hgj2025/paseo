@@ -2,7 +2,8 @@ import React, { useCallback, useMemo } from "react";
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Copy, Ellipsis, Globe, Import as ImportIcon, Settings } from "lucide-react-native";
+import { Copy, Ellipsis, Globe, Import as ImportIcon, Settings, Users } from "lucide-react-native";
+import { useWorkspaceTeamMenu } from "./workspace-team-menu";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
@@ -33,6 +34,7 @@ const ThemedCopy = withUnistyles(Copy);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedImport = withUnistyles(ImportIcon);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedUsers = withUnistyles(Users);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -40,6 +42,7 @@ const MENU_NEW_BROWSER_ICON = <ThemedGlobe size={16} uniProps={mutedColorMapping
 const MENU_IMPORT_ICON = <ThemedImport size={16} uniProps={mutedColorMapping} />;
 const MENU_COPY_ICON = <ThemedCopy size={16} uniProps={mutedColorMapping} />;
 const MENU_SETTINGS_ICON = <ThemedSettings size={16} uniProps={mutedColorMapping} />;
+const MENU_TEAM_ICON = <ThemedUsers size={16} uniProps={mutedColorMapping} />;
 function WorkspaceHeaderMenuTriggerIcon() {
   return (
     <ThemedEllipsis
@@ -61,6 +64,8 @@ const COMPACT_HEADER_BUTTON_HIT_SLOP = { top: 8, bottom: 8 } as const;
  * from the same callbacks, so the two surfaces can't drift.
  */
 export interface WorkspaceHeaderWorkspaceActions {
+  serverId?: string;
+  workspaceId?: string;
   currentBranchName: string | null;
   showWorkspaceSetup: boolean;
   importAgentDisabled: boolean;
@@ -72,6 +77,8 @@ export interface WorkspaceHeaderWorkspaceActions {
 }
 
 function WorkspaceHeaderWorkspaceActionItems({
+  showTeamDashboard,
+  onOpenTeamDashboard,
   currentBranchName,
   showWorkspaceSetup,
   importAgentDisabled,
@@ -80,10 +87,19 @@ function WorkspaceHeaderWorkspaceActionItems({
   onCopyWorkspacePath,
   onCopyBranchName,
   onOpenSetupTab,
-}: WorkspaceHeaderWorkspaceActions) {
+}: WorkspaceHeaderWorkspaceActions & { showTeamDashboard: boolean; onOpenTeamDashboard(): void }) {
   const { t } = useTranslation();
   return (
     <>
+      {showTeamDashboard && (
+        <DropdownMenuItem
+          testID="workspace-team-open"
+          leading={MENU_TEAM_ICON}
+          onSelect={onOpenTeamDashboard}
+        >
+          {t("workspace.team.dashboard.title")}
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem
         testID="workspace-header-copy-path"
         leading={MENU_COPY_ICON}
@@ -142,20 +158,28 @@ function workspaceHeaderMenuButtonStyle({
  */
 export function WorkspaceHeaderMenuDesktop(props: WorkspaceHeaderWorkspaceActions) {
   const { t } = useTranslation();
+  const teamMenu = useWorkspaceTeamMenu(props.serverId, props.workspaceId);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        testID="workspace-header-menu-trigger"
-        style={workspaceHeaderMenuButtonStyle}
-        accessibilityRole="button"
-        accessibilityLabel={t("workspace.header.actions.workspaceActions")}
-      >
-        <WorkspaceHeaderMenuTriggerIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" width={220} testID="workspace-header-menu">
-        <WorkspaceHeaderWorkspaceActionItems {...props} />
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          testID="workspace-header-menu-trigger"
+          style={workspaceHeaderMenuButtonStyle}
+          accessibilityRole="button"
+          accessibilityLabel={t("workspace.header.actions.workspaceActions")}
+        >
+          <WorkspaceHeaderMenuTriggerIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" width={220} testID="workspace-header-menu">
+          <WorkspaceHeaderWorkspaceActionItems
+            {...props}
+            showTeamDashboard={teamMenu.supported}
+            onOpenTeamDashboard={teamMenu.show}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {teamMenu.content}
+    </>
   );
 }
 
@@ -212,6 +236,7 @@ export function WorkspaceHeaderMenuMobile({
 }: WorkspaceHeaderMenuMobileProps) {
   const { t } = useTranslation();
   const router = useRouter();
+  const teamMenu = useWorkspaceTeamMenu(normalizedServerId, workspaceActions.workspaceId);
   const triggerStyle = useIconButtonChromeStyle({ size: "large" });
   const { config } = useDaemonConfig(normalizedServerId);
   const profiles = useMemo(
@@ -224,51 +249,58 @@ export function WorkspaceHeaderMenuMobile({
   }, [normalizedServerId, router]);
 
   return (
-    <DropdownMenu compactMode="sheet">
-      <DropdownMenuTrigger
-        testID="workspace-header-menu-trigger"
-        style={triggerStyle}
-        hitSlop={COMPACT_HEADER_BUTTON_HIT_SLOP}
-        accessibilityRole="button"
-        accessibilityLabel={t("workspace.header.actions.workspaceActions")}
-      >
-        <WorkspaceHeaderMenuTriggerIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        width={220}
-        testID="workspace-header-menu"
-        sheetTitle={t("workspace.header.actions.workspaceActions")}
-      >
-        {showCreateBrowserTab ? (
-          <DropdownMenuItem
-            testID="workspace-header-new-browser"
-            leading={MENU_NEW_BROWSER_ICON}
-            onSelect={onCreateBrowser}
-          >
-            {t("workspace.header.actions.newBrowser")}
-          </DropdownMenuItem>
-        ) : null}
-        <WorkspaceHeaderWorkspaceActionItems {...workspaceActions} />
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
-        {profiles.map((profile) => (
-          <HeaderMenuProfileItem
-            key={profile.id}
-            profile={profile}
-            disabled={createTerminalDisabled}
-            onCreateTerminalWithProfile={onCreateTerminalWithProfile}
-          />
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          testID="workspace-header-edit-terminal-profiles"
-          onSelect={handleEditProfiles}
+    <>
+      <DropdownMenu compactMode="sheet">
+        <DropdownMenuTrigger
+          testID="workspace-header-menu-trigger"
+          style={triggerStyle}
+          hitSlop={COMPACT_HEADER_BUTTON_HIT_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel={t("workspace.header.actions.workspaceActions")}
         >
-          {t("workspace.tabs.actions.editTerminalProfiles")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <WorkspaceHeaderMenuTriggerIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          width={220}
+          testID="workspace-header-menu"
+          sheetTitle={t("workspace.header.actions.workspaceActions")}
+        >
+          {showCreateBrowserTab ? (
+            <DropdownMenuItem
+              testID="workspace-header-new-browser"
+              leading={MENU_NEW_BROWSER_ICON}
+              onSelect={onCreateBrowser}
+            >
+              {t("workspace.header.actions.newBrowser")}
+            </DropdownMenuItem>
+          ) : null}
+          <WorkspaceHeaderWorkspaceActionItems
+            {...workspaceActions}
+            showTeamDashboard={teamMenu.supported}
+            onOpenTeamDashboard={teamMenu.show}
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
+          {profiles.map((profile) => (
+            <HeaderMenuProfileItem
+              key={profile.id}
+              profile={profile}
+              disabled={createTerminalDisabled}
+              onCreateTerminalWithProfile={onCreateTerminalWithProfile}
+            />
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            testID="workspace-header-edit-terminal-profiles"
+            onSelect={handleEditProfiles}
+          >
+            {t("workspace.tabs.actions.editTerminalProfiles")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {teamMenu.content}
+    </>
   );
 }
 

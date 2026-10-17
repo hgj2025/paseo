@@ -1,3 +1,4 @@
+import { getWorkspaceTeamService } from "../../workspace-team-runtime.js";
 import { AgentDirectory } from "../directory.js";
 import { RemoteAgents } from "../remote-agents.js";
 import { resolvePaseoHome } from "../../paseo-home.js";
@@ -1852,6 +1853,136 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
 
   const PROMPTED_AGENT_NOTIFICATION_GUIDANCE =
     "You will get notified when the prompted agent finishes, errors, or needs permission. Do not poll for status; continue with other work until the notification arrives.";
+
+  const teams = () =>
+    getWorkspaceTeamService({
+      paseoHome: options.paseoHome ?? resolvePaseoHome(),
+      agentManager,
+      agentStorage,
+      logger: childLogger,
+    });
+  const callerTeam = async (workspaceId: string) => {
+    if (!callerAgentId) throw new Error("Team tools require an agent identity.");
+    const service = teams();
+    const team = (await service.listForAgent(callerAgentId)).find(
+      (entry) => entry.workspaceId === workspaceId,
+    );
+    if (!team) throw new Error("Caller is not a member of this team.");
+    const member = team.members.find(
+      (entry) => entry.agentId === callerAgentId && entry.serverId === service.serverId,
+    )!;
+    return { service, team, member };
+  };
+  registerTool(
+    "list_team_members",
+    {
+      title: "List team members",
+      description:
+        "Read your teams and their named members, roles, skills, hosts and exact session IDs. A Captain should call this before assigning work; names are aliases for stable member IDs. Team data is stored on the team workspace host.",
+      inputSchema: {},
+    },
+    async () => {
+      const entries = callerAgentId ? await teams().listForAgent(callerAgentId) : [];
+      for (const team of entries) team.tasks = team.tasks.slice(-10);
+      return { content: [], structuredContent: ensureValidJson({ teams: entries }) };
+    },
+  );
+  registerTool(
+    "send_team_task",
+    {
+      title: "Assign team task",
+      description:
+        "Send one user-authorized task to a named team member. Resolve its stable memberId with list_team_members. Include a fresh taskId UUID; retrying that ID never sends twice. Busy members are rejected without interruption. Results are saved and automatically reported to Captain; do not poll or approve permissions on another member's behalf.",
+      inputSchema: {
+        workspaceId: z.string(),
+        memberId: z.string().uuid(),
+        taskId: z.string().uuid(),
+        prompt: z.string().min(1).max(40000),
+      },
+    },
+    async ({ workspaceId, memberId, taskId, prompt }) => {
+      const { service, member } = await callerTeam(workspaceId);
+      if (member.id === memberId) throw new Error("Assign work to another team member.");
+      const activeTeam = await service.execute(workspaceId, { kind: "read" });
+      if (
+        activeTeam.groups?.some(
+          (g) => g.captainId === member.id && ["planning", "clarification"].includes(g.status),
+        )
+      )
+        throw new Error(
+          "Commit the pending request with plan_team_request instead of dispatching ungrouped work.",
+        );
+      const team = await service.execute(workspaceId, {
+        kind: "send",
+        memberId,
+        taskId,
+        prompt,
+        senderId: member.id,
+      });
+      return {
+        content: [],
+        structuredContent: ensureValidJson(team.tasks.find((task) => task.id === taskId)),
+      };
+    },
+  );
+  registerTool(
+    "plan_team_request",
+    {
+      title: "Commit team request plan",
+      description:
+        "As Captain, assign exactly one task to each user-selected collaborator in a saved team request. Use dependsOn member IDs to wait for prerequisite results. Ask the user first when the request is ambiguous. The service executes, queues busy members, and reports once; do not dispatch these tasks separately.",
+      inputSchema: {
+        workspaceId: z.string(),
+        groupId: z.string().uuid(),
+        steps: z
+          .array(
+            z.object({
+              memberId: z.string().uuid(),
+              prompt: z.string().min(1).max(40000),
+              dependsOn: z.array(z.string().uuid()).max(32),
+            }),
+          )
+          .min(1)
+          .max(32),
+      },
+    },
+    async ({ workspaceId, groupId, steps }) => {
+      const { service, member } = await callerTeam(workspaceId);
+      const team = await service.execute(workspaceId, {
+        kind: "plan_group",
+        groupId,
+        captainId: member.id,
+        steps,
+      });
+      return {
+        content: [],
+        structuredContent: ensureValidJson(team.groups?.find((g) => g.id === groupId)),
+      };
+    },
+  );
+  registerTool(
+    "get_team_tasks",
+    {
+      title: "Read team task results",
+      description:
+        "Read saved team task receipts and results, including failed/uncertain delivery. Optionally refresh one uncertain task by ID; this never resends it. Completion reports are automatic while the team host is running.",
+      inputSchema: { workspaceId: z.string(), taskId: z.string().uuid().optional() },
+    },
+    async ({ workspaceId, taskId }) => {
+      const { service } = await callerTeam(workspaceId);
+      const team = await service.execute(
+        workspaceId,
+        taskId ? { kind: "refresh", taskId } : { kind: "read" },
+      );
+      return {
+        content: [],
+        structuredContent: ensureValidJson({
+          tasks: taskId ? team.tasks.filter((task) => task.id === taskId) : team.tasks.slice(-20),
+          groups: team.groups ?? [],
+        }),
+      };
+    },
+  );
 
   const remoteAgents = new RemoteAgents(options.paseoHome ?? resolvePaseoHome());
   registerTool(

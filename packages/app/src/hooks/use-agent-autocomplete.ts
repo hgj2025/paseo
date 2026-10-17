@@ -1,3 +1,4 @@
+import type { TeamMember } from "@getpaseo/protocol/workspace-team";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
@@ -30,6 +31,8 @@ import {
 } from "@/utils/file-mention-autocomplete";
 
 interface UseAgentAutocompleteInput {
+  teamMembers?: TeamMember[];
+  onTeamMemberSelected?: (member: TeamMember) => void;
   userInput: string;
   cursorIndex: number;
   setUserInput: (nextValue: string) => void;
@@ -54,6 +57,7 @@ interface AgentAutocompleteInputSnapshot {
 }
 
 type AgentAutocompleteOption =
+  | (AutocompleteOption & { type: "team_member"; member: TeamMember })
   | (AutocompleteOption & { type: "client_command"; command: ClientSlashCommand })
   | (AutocompleteOption & {
       type: "plugin_command";
@@ -375,6 +379,8 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     onClientSlashCommand,
     canExecuteClientSlashCommand,
     pluginClientSlashCommands = [],
+    teamMembers,
+    onTeamMemberSelected,
   } = input;
 
   const activeSlashCommand = useMemo(
@@ -479,7 +485,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     placeholderData: keepPreviousData,
   });
 
-  const options = useMemo<AgentAutocompleteOption[]>(
+  const baseOptions = useMemo<AgentAutocompleteOption[]>(
     () =>
       buildCommandAutocompleteOptions({
         activeFileMention,
@@ -507,6 +513,23 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     ],
   );
 
+  const options = useMemo<AgentAutocompleteOption[]>(() => {
+    if (mode !== "file" || !activeFileMention || !onTeamMemberSelected) return baseOptions;
+    const query = activeFileMention.query.toLowerCase();
+    const members = (teamMembers ?? [])
+      .filter((member) => member.alias.toLowerCase().includes(query))
+      .map((member) => ({
+        type: "team_member" as const,
+        id: `team:${member.id}`,
+        label: `@${member.alias}`,
+        description: `${t("workspace.team.members")} · ${member.role || member.provider}`,
+        member,
+      }));
+    // Above-input lists pin and select their last row. Keep members nearest the input,
+    // ahead of file results in keyboard priority, including while file search is pending.
+    return [...baseOptions, ...orderAutocompleteOptions(members)];
+  }, [baseOptions, mode, activeFileMention, teamMembers, onTeamMemberSelected, t]);
+
   const onSelectOption = useCallback(
     (option: AutocompleteOption, snapshot?: AgentAutocompleteInputSnapshot) => {
       const selected = option as AgentAutocompleteOption;
@@ -517,6 +540,16 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
         activeSlashCommand,
         activeFileMention,
       });
+      if (selected.type === "team_member") {
+        if (!current.fileMention || !onTeamMemberSelected) return;
+        onTeamMemberSelected(selected.member);
+        setUserInput(
+          current.text.slice(0, current.fileMention.start) +
+            current.text.slice(current.fileMention.end),
+        );
+        onAutocompleteApplied?.();
+        return;
+      }
       const selectedIsCommand =
         selected.type === "client_command" ||
         selected.type === "plugin_command" ||
@@ -559,6 +592,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
       onAutocompleteApplied?.();
     },
     [
+      onTeamMemberSelected,
       canExecuteClientSlashCommand,
       onAutocompleteApplied,
       onClientSlashCommand,

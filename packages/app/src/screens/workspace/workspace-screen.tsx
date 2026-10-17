@@ -452,6 +452,7 @@ function useCloseTabs(): UseCloseTabsResult {
 }
 
 interface WorkspaceHeaderTitleBarProps {
+  normalizedWorkspaceId: string;
   isLoading: boolean;
   title: string;
   subtitle: string;
@@ -468,6 +469,7 @@ interface WorkspaceHeaderTitleBarProps {
 }
 
 function WorkspaceHeaderTitleBar({
+  normalizedWorkspaceId,
   isLoading,
   title,
   subtitle,
@@ -500,6 +502,8 @@ function WorkspaceHeaderTitleBar({
       )}
       <View style={styles.compactHeaderMenuCluster}>
         <WorkspaceHeaderMenuDesktop
+          serverId={normalizedServerId}
+          workspaceId={normalizedWorkspaceId}
           currentBranchName={currentBranchName}
           showWorkspaceSetup={showWorkspaceSetup}
           importAgentDisabled={importAgentDisabled}
@@ -3408,6 +3412,7 @@ function WorkspaceScreenContent({
             <>
               <SidebarMenuToggle />
               <WorkspaceHeaderTitleBar
+                normalizedWorkspaceId={normalizedWorkspaceId}
                 isLoading={isWorkspaceHeaderLoading}
                 title={workspaceHeaderTitle}
                 subtitle={workspaceHeaderSubtitle}
@@ -3436,6 +3441,7 @@ function WorkspaceScreenContent({
       headerRight,
       isWorkspaceHeaderLoading,
       normalizedServerId,
+      normalizedWorkspaceId,
       openImportSheet,
       showScreenHeader,
       showWorkspaceSetup,
@@ -3479,6 +3485,7 @@ function WorkspaceScreenContent({
             onCloseOtherTabs={handleCloseOtherTabs}
           />
           <WorkspaceHeaderMenuMobile
+            workspaceId={normalizedWorkspaceId}
             normalizedServerId={normalizedServerId}
             currentBranchName={currentBranchName}
             showWorkspaceSetup={showWorkspaceSetup}

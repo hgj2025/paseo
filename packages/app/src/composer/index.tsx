@@ -1,3 +1,11 @@
+import { Button } from "@/components/ui/button";
+import { v4 as teamTaskUuid } from "uuid";
+import { useWorkspaceTeam } from "@/screens/workspace/workspace-team-context";
+import { useWorkspaceToolbar } from "./workspace-toolbar-context";
+import { recipientIds, useTeamComposerStore } from "@/stores/team-composer-store";
+import { TeamRecipients } from "./team-recipients";
+import { TeamGroupFeed } from "@/screens/workspace/team-group-card";
+import type { TeamMember } from "@getpaseo/protocol/workspace-team";
 import {
   useComposerEditingSession,
   useComposerFullscreen,
@@ -1267,6 +1275,50 @@ function ComposerContentImpl({
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
   const agentDirectoryStatus = useHostRuntimeAgentDirectoryStatus(serverId);
+  const editingSession = useComposerEditingSession(inputMode, providedEditingSession);
+  const isFullscreen = useComposerFullscreen(editingSession);
+  const teamContext = useWorkspaceTeam();
+  const workspaceToolbar = useWorkspaceToolbar();
+  const team = teamContext?.team;
+  const teamComposerKey = `${teamContext?.ownerServerId ?? ""}:${teamContext?.workspaceId ?? ""}:${serverId}:${agentId}`;
+  const recipient = useTeamComposerStore((state) => state.recipients[teamComposerKey]);
+  const selectedMemberIds = useMemo(() => recipientIds(recipient), [recipient]);
+  const teamSender = team?.members.find(
+    (member) => member.serverId === serverId && member.agentId === agentId,
+  );
+  const teamCandidates = useMemo(
+    () =>
+      teamSender
+        ? team?.members.filter(
+            (member) =>
+              member.id !== teamSender.id &&
+              member.id !== team?.captainId &&
+              !selectedMemberIds.includes(member.id),
+          )
+        : undefined,
+    [team, teamSender, selectedMemberIds],
+  );
+  const selectTeamMember = useCallback(
+    (member: TeamMember) => {
+      const store = useTeamComposerStore.getState();
+      const current = store.recipients[teamComposerKey];
+      store.set(teamComposerKey, {
+        memberIds: [...new Set([...recipientIds(current), member.id])],
+        mode: current?.mode ?? "coordinate",
+        taskId: null,
+        prompt: null,
+      });
+    },
+    [teamComposerKey],
+  );
+  const savedCollapsed = useTeamComposerStore((state) => state.collapsed[teamComposerKey]);
+  const canCollapse = Boolean(teamSender && team && team.members.length > 1 && workspaceToolbar);
+  const composerCollapsed =
+    canCollapse && !isFullscreen && (savedCollapsed ?? team?.captainId !== teamSender?.id);
+  const toggleComposer = useCallback(() => {
+    useTeamComposerStore.getState().setCollapsed(teamComposerKey, !composerCollapsed);
+  }, [teamComposerKey, composerCollapsed]);
+
   const toast = useToast();
   const toastErrorRef = useRef(toast.error);
   toastErrorRef.current = toast.error;
@@ -1362,8 +1414,6 @@ function ComposerContentImpl({
   const nextPendingFileId = useRef(0);
   const isUploadingFile = pendingFiles.length > 0;
   const [pendingNativeImagePastes, setPendingNativeImagePastes] = useState(0);
-  const editingSession = useComposerEditingSession(inputMode, providedEditingSession);
-  const isFullscreen = useComposerFullscreen(editingSession);
   const [sendError, setSendError] = useState<string | null>(null);
   const [isMessageInputFocused, setIsMessageInputFocused] = useState(false);
   const [isGithubPickerOpen, setIsGithubPickerOpen] = useState(false);
@@ -1517,8 +1567,55 @@ function ComposerContentImpl({
     onFocusInput?.(focusInput);
   }, [focusInput, onFocusInput]);
 
+  const submitTeamRequest = useCallback(
+    async (text: string, submitAttachments: ComposerAttachment[]) => {
+      if (!recipient) return;
+      if (
+        !teamContext ||
+        !teamSender ||
+        !selectedMemberIds.length ||
+        selectedMemberIds.some((id) => !team?.members.some((m) => m.id === id))
+      )
+        throw new Error(t("workspace.team.group.unavailable"));
+      if (!teamContext.supportsGroups) throw new Error(t("workspace.team.group.updateHost"));
+      if (recipient.memberId && !recipient.memberIds && recipient.taskId)
+        throw new Error(t("workspace.team.group.legacyPending"));
+      if (submitAttachments.length) throw new Error(t("workspace.team.attachmentsUnsupported"));
+      const groupId =
+        recipient.prompt === text && recipient.taskId ? recipient.taskId : teamTaskUuid();
+      useTeamComposerStore
+        .getState()
+        .set(teamComposerKey, { ...recipient, taskId: groupId, prompt: text });
+      const result = await teamContext.execute({
+        kind: "start_group",
+        groupId,
+        memberIds: selectedMemberIds,
+        senderId: teamSender.id,
+        mode: recipient.mode ?? "coordinate",
+        prompt: text,
+      });
+      if (!result.groups?.some((group) => group.id === groupId))
+        throw new Error(t("workspace.team.group.unconfirmed"));
+      useTeamComposerStore.getState().set(teamComposerKey, null);
+      onMessageSent?.();
+    },
+    [
+      recipient,
+      teamContext,
+      teamSender,
+      selectedMemberIds,
+      team,
+      t,
+      teamComposerKey,
+      onMessageSent,
+    ],
+  );
   const submitMessage = useCallback(
     async (text: string, submitAttachments: ComposerAttachment[]) => {
+      if (recipient) return submitTeamRequest(text, submitAttachments);
+      if (team && teamSender && team.captainId === teamSender.id) {
+        text += `\n\n[Team context] You are Captain for workspace ${team.workspaceId}. Use list_team_members to read current responsibilities and skills before assigning the user's requested work with send_team_task. Completion reports are automatic. Do not assign additional work beyond the user's request.`;
+      }
       onMessageSent?.();
       if (onSubmitMessageRef.current) {
         await onSubmitMessageRef.current({ text, attachments: submitAttachments, cwd });
@@ -1534,7 +1631,16 @@ function ComposerContentImpl({
         appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
       );
     },
-    [appSettings.sendBehavior, cwd, onMessageSent, t],
+    [
+      appSettings.sendBehavior,
+      cwd,
+      onMessageSent,
+      t,
+      recipient,
+      teamSender,
+      team,
+      submitTeamRequest,
+    ],
   );
 
   useEffect(() => {
@@ -1647,7 +1753,7 @@ function ComposerContentImpl({
         allowEmptySubmit,
         forceSend,
         submitBehavior,
-        isAgentRunning,
+        isAgentRunning: recipient ? false : isAgentRunning,
         // Parent-managed submits are still valid submit paths even when the
         // transport is disconnected, because the parent decides the failure mode.
         canSubmit: Boolean(sendAgentMessageRef.current || onSubmitMessageRef.current),
@@ -1678,6 +1784,7 @@ function ComposerContentImpl({
       });
     },
     [
+      recipient,
       allowEmptySubmit,
       beginSubmit,
       clearDraft,
@@ -1897,8 +2004,9 @@ function ComposerContentImpl({
   }, [client, isAgentRunning, isCancellingAgent, isConnected, serverId]);
 
   const focusMessageInputForKeyboardAction = useCallback(() => {
-    focusMessageInputWithPlatformStrategy(messageInputRef);
-  }, []);
+    useTeamComposerStore.getState().setCollapsed(teamComposerKey, false);
+    requestAnimationFrame(() => focusMessageInputWithPlatformStrategy(messageInputRef));
+  }, [teamComposerKey]);
 
   const isVoiceModeForAgent = resolveIsVoiceModeForAgent(voice, serverId, agentId);
 
@@ -2280,16 +2388,21 @@ function ComposerContentImpl({
       styles.inputAreaContainer,
       isComposerLocked && styles.inputAreaLocked,
       isFullscreen && styles.inputAreaFullscreen,
+      composerCollapsed && styles.inputAreaCollapsed,
     ],
-    [isComposerLocked, isFullscreen],
+    [isComposerLocked, isFullscreen, composerCollapsed],
   );
   const inputAreaContentStyle = useMemo(
     () => [styles.inputAreaContent, isFullscreen && styles.fullscreenFill],
     [isFullscreen],
   );
   const messageInputContainerStyle = useMemo(
-    () => [styles.messageInputContainer, isFullscreen && styles.fullscreenFill],
-    [isFullscreen],
+    () => [
+      styles.messageInputContainer,
+      Boolean(workspaceToolbar) && styles.messageInputWithToolbar,
+      isFullscreen && styles.fullscreenFill,
+    ],
+    [isFullscreen, workspaceToolbar],
   );
 
   const attachmentTray = useMemo(
@@ -2334,6 +2447,8 @@ function ComposerContentImpl({
 
   const autocompleteConfiguration = useMemo(
     () => ({
+      teamMembers: teamCandidates,
+      onTeamMemberSelected: teamSender ? selectTeamMember : undefined,
       setUserInput: replaceUserInput,
       serverId,
       agentId,
@@ -2343,6 +2458,9 @@ function ComposerContentImpl({
       pluginClientSlashCommands,
     }),
     [
+      teamCandidates,
+      teamSender,
+      selectTeamMember,
       replaceUserInput,
       serverId,
       agentId,
@@ -2373,7 +2491,13 @@ function ComposerContentImpl({
   );
 
   // Focusing the composer on a touch screen raises the on-screen keyboard over the conversation.
-  const messageInputAutoFocus = autoFocus && isDesktopWebBreakpoint && hasFinePointer;
+  const messageInputAutoFocus =
+    autoFocus && isDesktopWebBreakpoint && hasFinePointer && !composerCollapsed;
+  const teamSubmitLabel = recipient
+    ? t(`workspace.team.group.${recipient.mode === "broadcast" ? "sendMany" : "sendCaptain"}`, {
+        count: selectedMemberIds.length,
+      })
+    : submitLabel;
   const submitLoadingPressHandler = isAgentRunning ? handleCancelAgent : undefined;
   const sendErrorNode = useMemo(
     () =>
@@ -2387,6 +2511,57 @@ function ComposerContentImpl({
   const githubEmptyText = githubSearchResultsQuery.isFetching
     ? t("composer.github.searching")
     : t("composer.github.noResults");
+
+  const messageInputNode = (
+    <StableMessageInput
+      ref={messageInputRef}
+      editingSession={editingSession}
+      submissionError={sendErrorNode}
+      value={textSource.getSnapshot()}
+      onChangeText={setUserInput}
+      onSubmit={handleSubmit}
+      hasExternalContent={hasExternalContent}
+      allowEmptySubmit={allowEmptySubmit}
+      submitButtonAccessibilityLabel={recipient ? teamSubmitLabel : submitButtonAccessibilityLabel}
+      submitButtonTestID={submitButtonTestID}
+      submitIcon={submitIcon}
+      isSubmitDisabled={isSubmitDisabled}
+      isSubmitLoading={isSubmitLoadingVisible}
+      preserveHeightOnSubmit={submitBehavior === "preserve-and-lock"}
+      attachments={selectedAttachments}
+      cwd={cwd}
+      attachmentMenuItems={attachmentMenuItems}
+      onAttachButtonRef={handleAttachButtonRef}
+      onAddImages={addImages}
+      onPasteImages={handleNativePasteImages}
+      client={client}
+      isReadyForDictation={isDictationReady}
+      placeholder={messagePlaceholder}
+      autoFocus={messageInputAutoFocus}
+      autoFocusKey={`${serverId}:${agentId}:${autoFocusKey ?? ""}`}
+      disabled={isSubmitLoading}
+      leftContent={leftContent}
+      beforeVoiceContent={beforeVoiceContent}
+      rightContent={rightContent}
+      activeActionContent={activeActionContent}
+      voiceServerId={serverId}
+      voiceAgentId={agentId}
+      isAgentRunning={recipient ? false : isAgentRunning}
+      defaultSendBehavior={activeSendBehavior}
+      onQueue={handleQueue}
+      onSubmitLoadingPress={submitLoadingPressHandler}
+      onKeyPress={handleCommandKeyPress}
+      onSelectionChange={handleSelectionChange}
+      onFocusChange={handleFocusChange}
+      onHeightChange={onComposerHeightChange}
+      inputWrapperStyle={inputWrapperStyle}
+      attachmentSlot={attachmentTray}
+      inputMode={inputMode}
+      readOnly={readOnly}
+      textReplacement={textReplacement}
+      submitLabel={teamSubmitLabel}
+    />
+  );
 
   return (
     <>
@@ -2413,94 +2588,83 @@ function ComposerContentImpl({
             {!isFullscreen && sendErrorNode}
 
             <View ref={messageInputContainerRef} style={messageInputContainerStyle}>
-              <ComposerAutocompleteBinding
-                text={textSource}
-                cursor={cursor}
-                inputRef={messageInputRef}
-                anchorRef={messageInputContainerRef}
-                show={mode.showAutocomplete && !isFullscreen}
-                ref={autocompleteRef}
-                configuration={autocompleteConfiguration}
-              />
-              <ComposerForgeBinding
-                text={textSource}
-                configuration={forgeConfiguration}
-                ref={forgeAutoAttachRef}
-                onResolvingChange={setIsForgeResolving}
-              />
-
-              {/* MessageInput handles everything: text, dictation, attachments, all buttons */}
-              <RenderProfile id="MessageInput">
-                <StableMessageInput
-                  ref={messageInputRef}
-                  editingSession={editingSession}
-                  submissionError={sendErrorNode}
-                  value={textSource.getSnapshot()}
-                  onChangeText={setUserInput}
-                  onSubmit={handleSubmit}
-                  hasExternalContent={hasExternalContent}
-                  allowEmptySubmit={allowEmptySubmit}
-                  submitButtonAccessibilityLabel={submitButtonAccessibilityLabel}
-                  submitButtonTestID={submitButtonTestID}
-                  submitIcon={submitIcon}
-                  isSubmitDisabled={isSubmitDisabled}
-                  isSubmitLoading={isSubmitLoadingVisible}
-                  preserveHeightOnSubmit={submitBehavior === "preserve-and-lock"}
-                  attachments={selectedAttachments}
-                  cwd={cwd}
-                  attachmentMenuItems={attachmentMenuItems}
-                  onAttachButtonRef={handleAttachButtonRef}
-                  onAddImages={addImages}
-                  onPasteImages={handleNativePasteImages}
-                  client={client}
-                  isReadyForDictation={isDictationReady}
-                  placeholder={messagePlaceholder}
-                  autoFocus={messageInputAutoFocus}
-                  autoFocusKey={`${serverId}:${agentId}:${autoFocusKey ?? ""}`}
-                  disabled={isSubmitLoading}
-                  leftContent={leftContent}
-                  beforeVoiceContent={beforeVoiceContent}
-                  rightContent={rightContent}
-                  activeActionContent={activeActionContent}
-                  voiceServerId={serverId}
-                  voiceAgentId={agentId}
-                  isAgentRunning={isAgentRunning}
-                  defaultSendBehavior={activeSendBehavior}
-                  onQueue={handleQueue}
-                  onSubmitLoadingPress={submitLoadingPressHandler}
-                  onKeyPress={handleCommandKeyPress}
-                  onSelectionChange={handleSelectionChange}
-                  onFocusChange={handleFocusChange}
-                  onHeightChange={onComposerHeightChange}
-                  inputWrapperStyle={inputWrapperStyle}
-                  attachmentSlot={attachmentTray}
-                  inputMode={inputMode}
-                  readOnly={readOnly}
-                  textReplacement={textReplacement}
-                  submitLabel={submitLabel}
+              {!isFullscreen && (
+                <View style={styles.teamComposerHeader}>
+                  <View style={styles.teamToolbarSlot}>{workspaceToolbar}</View>
+                  {composerCollapsed && (hasText || selectedAttachments.length > 0) && (
+                    <Text style={styles.teamDraftLabel}>{t("workspace.team.group.draft")}</Text>
+                  )}
+                  {composerCollapsed && queuedMessages.length > 0 && (
+                    <Text style={styles.teamDraftLabel}>{queuedMessages.length}</Text>
+                  )}
+                  {composerCollapsed && isAgentRunning && activeActionContent}
+                  {canCollapse && (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      testID="team-composer-toggle"
+                      onPress={toggleComposer}
+                    >
+                      {t(
+                        composerCollapsed
+                          ? "workspace.team.group.expandComposer"
+                          : "workspace.team.group.collapseComposer",
+                      )}
+                    </Button>
+                  )}
+                </View>
+              )}
+              {!isFullscreen && teamSender?.id === team?.captainId && <TeamGroupFeed />}
+              <View style={composerCollapsed ? styles.collapsedComposer : styles.expandedComposer}>
+                {recipient && (
+                  <TeamRecipients
+                    composerKey={teamComposerKey}
+                    recipient={recipient}
+                    members={team?.members ?? []}
+                    supported={teamContext?.supportsGroups ?? false}
+                    disabled={isSubmitLoadingVisible}
+                  />
+                )}
+                <ComposerAutocompleteBinding
+                  text={textSource}
+                  cursor={cursor}
+                  inputRef={messageInputRef}
+                  anchorRef={messageInputContainerRef}
+                  show={mode.showAutocomplete && !isFullscreen && !composerCollapsed}
+                  ref={autocompleteRef}
+                  configuration={autocompleteConfiguration}
                 />
-              </RenderProfile>
-              <Combobox
-                options={githubSearchOptions}
-                value=""
-                onSelect={noop}
-                keepOpenOnSelect
-                searchable
-                searchPlaceholder={t("composer.github.searchPlaceholder", {
-                  context: forgePresentation.changeRequestContext,
-                })}
-                title={t("composer.github.title", {
-                  context: forgePresentation.changeRequestContext,
-                })}
-                open={isGithubPickerOpen}
-                onOpenChange={handleGithubPickerOpenChange}
-                onSearchQueryChange={setGithubSearchQuery}
-                desktopPlacement="top-start"
-                anchorRef={attachButtonRef}
-                emptyText={githubEmptyText}
-                renderOption={renderGithubPickerOption}
-              />
-              {pluginAttachments.picker}
+                <ComposerForgeBinding
+                  text={textSource}
+                  configuration={forgeConfiguration}
+                  ref={forgeAutoAttachRef}
+                  onResolvingChange={setIsForgeResolving}
+                />
+
+                {/* MessageInput handles everything: text, dictation, attachments, all buttons */}
+                <RenderProfile id="MessageInput">{messageInputNode}</RenderProfile>
+                <Combobox
+                  options={githubSearchOptions}
+                  value=""
+                  onSelect={noop}
+                  keepOpenOnSelect
+                  searchable
+                  searchPlaceholder={t("composer.github.searchPlaceholder", {
+                    context: forgePresentation.changeRequestContext,
+                  })}
+                  title={t("composer.github.title", {
+                    context: forgePresentation.changeRequestContext,
+                  })}
+                  open={isGithubPickerOpen}
+                  onOpenChange={handleGithubPickerOpenChange}
+                  onSearchQueryChange={setGithubSearchQuery}
+                  desktopPlacement="top-start"
+                  anchorRef={attachButtonRef}
+                  emptyText={githubEmptyText}
+                  renderOption={renderGithubPickerOption}
+                />
+                {pluginAttachments.picker}
+              </View>
             </View>
           </View>
         </View>
@@ -2525,6 +2689,11 @@ const animatedStaticStyles = RNStyleSheet.create({
 });
 
 const styles = StyleSheet.create((theme: Theme) => ({
+  teamComposerHeader: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
+  teamToolbarSlot: { flex: 1, minWidth: 0 },
+  teamDraftLabel: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  collapsedComposer: { display: "none" },
+  expandedComposer: { minHeight: 0, flexShrink: 1 },
   borderSeparator: {
     height: theme.borderWidth[1],
     backgroundColor: theme.colors.border,
@@ -2540,6 +2709,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingBottom: theme.spacing[4],
   },
+  inputAreaCollapsed: { minHeight: 0, paddingBottom: theme.spacing[2] },
   inputAreaLocked: {
     opacity: 0.6,
   },
@@ -2567,6 +2737,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     width: "100%",
     gap: theme.spacing[3],
   },
+  messageInputWithToolbar: { gap: theme.spacing[1] },
   cancelButton: {
     width: 28,
     height: 28,

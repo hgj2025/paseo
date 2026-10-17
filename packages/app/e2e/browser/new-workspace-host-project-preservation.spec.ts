@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
 const PRIMARY_HOST_LABEL = "Primary host";
 const SECONDARY_HOST_LABEL = "Secondary host";
@@ -43,6 +44,7 @@ interface CrossHostProjectScenario {
     serverId: string;
     label: string;
     port: number;
+    paseoHome: string;
   };
 }
 
@@ -167,6 +169,7 @@ const test = base.extend<{ crossHostProject: CrossHostProjectScenario }>({
           serverId: secondaryDaemon.serverId,
           label: SECONDARY_HOST_LABEL,
           port: secondaryDaemon.port,
+          paseoHome: secondaryDaemon.paseoHome,
         },
       });
     } finally {
@@ -196,8 +199,11 @@ test.describe("New workspace host project preservation", () => {
     crossHostProject,
   }, testInfo) => {
     page.setDefaultTimeout(15_000);
-    const primary = await connectSeedClient();
-    const secondary = await connectSeedClient({ port: crossHostProject.secondaryHost.port });
+    const primary = (await connectSeedClient()) as SeedDaemonClient &
+      Pick<DaemonClient, "workspaceTeam">;
+    const secondary = (await connectSeedClient({
+      port: crossHostProject.secondaryHost.port,
+    })) as SeedDaemonClient & Pick<DaemonClient, "fetchAgentTimeline">;
     const bridgeHome = await mkdtemp(join(tmpdir(), "cross-host-tools-"));
     try {
       const localWorkspace = (await primary.fetchWorkspaces()).entries.find(
@@ -209,6 +215,15 @@ test.describe("New workspace host project preservation", () => {
       await writeFile(
         join(localWorkspace.workspaceDirectory, "scope-probe.txt"),
         "LOCAL_FILE_ONLY",
+      );
+      // A long file list used to push the matching member outside the visible popup.
+      await Promise.all(
+        Array.from({ length: 30 }, (_, index) =>
+          writeFile(
+            join(localWorkspace.workspaceDirectory, `reviewer-fixture-${index}.txt`),
+            "fixture",
+          ),
+        ),
       );
       await writeFile(
         join(remoteWorkspace.workspaceDirectory, "scope-probe.txt"),
@@ -232,6 +247,37 @@ test.describe("New workspace host project preservation", () => {
         model: "e2e-fast-stream",
         featureValues: { mockAssistantResponse: "REMOTE_ONLY_RESPONSE" },
       });
+      const teamHome = process.env.E2E_PASEO_HOME;
+      if (!teamHome) throw new Error("Missing isolated team daemon home");
+      const rpcAdapter = join(bridgeHome, "client.mjs");
+      await writeFile(
+        rpcAdapter,
+        `import { connectToDaemon as connect } from ${JSON.stringify(pathToFileURL(resolve(__dirname, "../../../cli/dist/utils/client.js")).href)};
+export const connectToDaemon = () => connect({target:{kind:'endpoint',host:${JSON.stringify(`127.0.0.1:${crossHostProject.secondaryHost.port}`)}}});`,
+      );
+      const rpcBridge = join(bridgeHome, "rpc-bridge.cjs");
+      await writeFile(
+        rpcBridge,
+        `const {spawn}=require('node:child_process');
+if(process.argv[2]!=='--rpc-worker')throw new Error('Expected persistent worker');
+const child=spawn(process.execPath,['--input-type=module','-e',Buffer.from(process.argv[3],'base64').toString(),${JSON.stringify(rpcAdapter)},${JSON.stringify(crossHostProject.secondaryHost.paseoHome)}],{stdio:'inherit'});
+process.on('SIGTERM',()=>child.kill());
+child.on('exit',code=>process.exit(code??1));`,
+      );
+      await writeFile(
+        join(teamHome, "collaboration-hosts.json"),
+        JSON.stringify({
+          version: 1,
+          hosts: [
+            {
+              id: crossHostProject.secondaryHost.serverId,
+              label: SECONDARY_HOST_LABEL,
+              transport: "persistent",
+              command: [process.execPath, rpcBridge],
+            },
+          ],
+        }),
+      );
       await openProjectDirectoryWithHosts(page, {
         hosts: [crossHostProject.secondaryHost],
         primaryLabel: PRIMARY_HOST_LABEL,
@@ -271,7 +317,32 @@ test.describe("New workspace host project preservation", () => {
       const inputs = page
         .getByRole("textbox", { name: "Message agent..." })
         .filter({ visible: true });
+      await expect(page.getByTestId(`team-member-card-${remote.id}`)).toBeVisible();
+      await expect(inputs).toHaveCount(1);
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.screenshot({ path: testInfo.outputPath("team-collapsed-dark.png") });
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.getByTestId("team-composer-toggle").last().click();
       await expect(inputs).toHaveCount(2);
+      await inputs.last().fill("Preserved member draft");
+      await page.getByTestId("team-composer-toggle").last().click();
+      await expect(inputs).toHaveCount(1);
+      await expect(page.getByText("Draft", { exact: true })).toBeVisible();
+      await page.getByTestId("team-composer-toggle").last().click();
+      await expect(inputs.last()).toHaveValue("Preserved member draft");
+      // Both local and remote scope controls stay beside their own composer, not the tab header.
+      const scopeBars = page.getByTestId("workspace-pane-scope-bar").filter({ visible: true });
+      await expect(scopeBars).toHaveCount(2);
+      for (let index = 0; index < 2; index++) {
+        const bar = await scopeBars.nth(index).boundingBox();
+        const input = await inputs.nth(index).boundingBox();
+        expect(bar).not.toBeNull();
+        expect(input).not.toBeNull();
+        expect(bar!.height).toBeLessThanOrEqual(32);
+        expect(bar!.y + bar!.height).toBeLessThanOrEqual(input!.y);
+        expect(input!.y - bar!.y - bar!.height).toBeLessThan(64);
+      }
+      await page.screenshot({ path: testInfo.outputPath("team-composer-toolbar.png") });
       await inputs.last().fill("Remote host routing probe");
       await page
         .getByRole("button", { name: "Send message", exact: true })
@@ -292,19 +363,100 @@ test.describe("New workspace host project preservation", () => {
       await expect(page.getByText("LOCAL_ONLY_RESPONSE", { exact: true })).toBeVisible({
         timeout: 20_000,
       });
+      const remoteCard = page
+        .getByTestId(`team-member-card-${remote.id}`)
+        .filter({ visible: true });
+      await expect(remoteCard).toBeVisible();
+      await page.getByTestId("workspace-header-menu-trigger").filter({ visible: true }).click();
+      await page.getByTestId("workspace-team-open").click();
+      const dashboard = page.getByTestId("team-dashboard");
+      await expect(dashboard.getByText("No team tasks yet", { exact: true })).toBeVisible();
+      await page.getByTestId("team-tab-members").click();
+      await expect(dashboard.getByText(SECONDARY_HOST_LABEL, { exact: false })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dashboard).not.toBeVisible();
+      await remoteCard.getByTestId("team-member-configure").click();
+      await page.getByTestId("team-member-name").fill("Reviewer");
+      await page.getByTestId("team-member-role").fill("Read-only Go analysis");
+      await page.getByTestId("team-member-skills").fill("Go, API");
+      await page.getByTestId("team-member-save").click();
+      await expect(remoteCard).toContainText("@Reviewer");
+      const tester = await primary.createAgent({
+        provider: "mock",
+        cwd: localWorkspace.workspaceDirectory,
+        workspaceId: localWorkspace.id,
+        title: "Local tester",
+        modeId: "load-test",
+        model: "e2e-fast-stream",
+        featureValues: { mockAssistantResponse: "TESTER_ONLY_RESPONSE" },
+      });
+      const joined = await primary.workspaceTeam(localWorkspace.id, {
+        kind: "join",
+        serverId: getServerId(),
+        workspaceId: localWorkspace.id,
+        agentId: tester.id,
+      });
+      const testerMember = joined.members.find((member) => member.agentId === tester.id)!;
+      await primary.workspaceTeam(localWorkspace.id, {
+        kind: "edit",
+        memberId: testerMember.id,
+        alias: "Tester",
+        role: "Verification",
+        skills: [],
+        captain: false,
+        revision: joined.revision,
+      });
+      await primary.waitForFinish(local.id, 15_000);
+      await inputs.first().fill("@reviewer");
+      await expect(page.getByText("reviewer-fixture-0.txt", { exact: true })).toBeAttached();
+      await expect(
+        page.getByText("Team members · Read-only Go analysis", { exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath("team-member-autocomplete.png") });
+      await inputs.first().press("Enter");
+      await expect(page.getByTestId("team-recipient-chip")).toContainText("@Reviewer");
+      await inputs.first().fill("@tester");
+      await expect(page.getByText("Team members · Verification", { exact: true })).toBeInViewport();
+      await inputs.first().press("Enter");
+      await expect(page.getByTestId("team-recipient-chip")).toHaveCount(2);
+      await expect(page.getByTestId("team-recipients")).toContainText("@Tester");
+      await page.getByTestId("team-mode-broadcast").click();
+      await inputs.first().fill("Team mention routing probe");
+      await page.screenshot({ path: testInfo.outputPath("team-multi-recipient.png") });
       await page
-        .getByTestId("workspace-pane-set-coordinator")
+        .getByRole("button", { name: "Send to 2 members", exact: true })
         .filter({ visible: true })
         .first()
         .click();
+      await expect(page.getByTestId("team-recipient-chip")).toHaveCount(0);
+      await expect(remoteCard).toContainText("Completed", { timeout: 35_000 });
+      await expect(page.getByTestId("team-request-message")).toContainText(
+        "Team mention routing probe",
+        { timeout: 25_000 },
+      );
+      await page.getByTestId("workspace-header-menu-trigger").filter({ visible: true }).click();
+      await page.getByTestId("workspace-team-open").click();
+      await expect(dashboard).toContainText("2/2");
+      await expect(dashboard).toContainText("@Tester");
+      await page.screenshot({ path: testInfo.outputPath("team-request-group.png") });
+      await page.getByTestId("team-tab-tasks").click();
+      await expect(page.getByTestId("team-task-detail")).toContainText(
+        "Team mention routing probe",
+      );
+      await page.getByTestId("team-task-search").fill("absent task search");
+      await expect(dashboard.getByText("No matching tasks", { exact: true })).toBeVisible();
+      await page.getByTestId("team-task-search").fill("Reviewer");
+      await expect(page.getByTestId("team-task-detail")).toBeVisible();
+      await page.getByTestId("team-tab-activity").click();
       await expect(
-        page.getByTestId("workspace-pane-set-coordinator").filter({ visible: true }).first(),
-      ).toHaveText("Coordinator");
-      await page.getByTestId("workspace-pane-link-coordinator").filter({ visible: true }).click();
-      await expect(
-        page.getByText(new RegExp(`The user added this existing agent.*${remote.id}`)),
+        dashboard.getByText("Team mention routing probe", { exact: true }).first(),
       ).toBeVisible();
-      await primary.waitForFinish(local.id, 15_000);
+      await page.getByTestId("team-tab-members").click();
+      await expect(dashboard).toContainText("Read-only Go analysis");
+      await page.getByTestId("team-tab-tasks").click();
+      await page.screenshot({ path: testInfo.outputPath("team-dashboard-desktop.png") });
+      await page.keyboard.press("Escape");
+      await expect(dashboard).not.toBeVisible();
       await writeFile(
         join(bridgeHome, "collaboration-hosts.json"),
         JSON.stringify({
@@ -345,11 +497,63 @@ test.describe("New workspace host project preservation", () => {
       await expect(page.getByText("CLI cross-host delegation probe", { exact: true })).toHaveCount(
         1,
       );
+      const { RemoteAgentConnection } = await import(
+        pathToFileURL(
+          resolve(__dirname, "../../../server/dist/server/server/agent/remote-agent-connection.js"),
+        ).href
+      );
+      const rpcHost = {
+        id: crossHostProject.secondaryHost.serverId,
+        command: [process.execPath, rpcBridge],
+      };
+      const taskId = randomUUID();
+      const request = {
+        op: "send",
+        agentId: remote.id,
+        workspaceId: remoteWorkspace.id,
+        taskId,
+        prompt: "Persistent receipt probe",
+      };
+      let rpc = new RemoteAgentConnection(rpcHost, () => {});
+      try {
+        await rpc.request(request);
+        await rpc.request({ op: "wait", agentId: remote.id, timeoutSeconds: 15 }, 25000);
+        expect(await rpc.request({ op: "observe", agentId: remote.id, taskId })).toMatchObject({
+          status: "completed",
+          result: "REMOTE_ONLY_RESPONSE",
+        });
+        rpc.dispose();
+        rpc = new RemoteAgentConnection(rpcHost, () => {});
+        await rpc.request(request);
+        const timeline = await secondary.fetchAgentTimeline(remote.id, {
+          limit: 0,
+          projection: "projected",
+        });
+        expect(
+          timeline.entries.filter(
+            (entry) => entry.item.type === "user_message" && entry.item.clientMessageId === taskId,
+          ),
+        ).toHaveLength(1);
+        await secondary.sendAgentMessage(remote.id, "Another independent turn");
+        await secondary.waitForFinish(remote.id, 15000);
+        expect(await rpc.request({ op: "observe", agentId: remote.id, taskId })).toMatchObject({
+          status: "completed",
+          result: "REMOTE_ONLY_RESPONSE",
+        });
+        expect(
+          await rpc.request({ op: "observe", agentId: remote.id, taskId: randomUUID() }),
+        ).toMatchObject({ status: "uncertain" });
+      } finally {
+        rpc.dispose();
+      }
       await addConnectedHostsAndReload(page, [crossHostProject.secondaryHost], {
         primaryLabel: PRIMARY_HOST_LABEL,
       });
       await expect(page.getByText("REMOTE_ONLY_RESPONSE", { exact: true }).last()).toBeVisible();
       await expect(page.getByText("LOCAL_ONLY_RESPONSE", { exact: true }).last()).toBeVisible();
+      await expect(
+        page.getByTestId(`team-member-card-${remote.id}`).filter({ visible: true }),
+      ).toContainText("@Reviewer");
       await page.screenshot({ path: testInfo.outputPath("cross-host-agents.png") });
       await page.getByTestId("workspace-new-tab-button").filter({ visible: true }).last().click();
       await page.getByTestId("workspace-new-tab-menu-files").click();
@@ -389,7 +593,9 @@ test.describe("New workspace host project preservation", () => {
       )!.agent;
       expect(created.workspaceId).toBe(remoteWorkspace.id);
       expect(created.cwd).toBe(remoteWorkspace.workspaceDirectory);
-      expect((await primary.fetchAgents()).entries).toHaveLength(1);
+      expect((await primary.fetchAgents()).entries.map((entry) => entry.agent.id).sort()).toEqual(
+        [local.id, tester.id].sort(),
+      );
       await expect(
         page.getByTestId("workspace-pane-scope-bar").filter({ visible: true }).last(),
       ).toContainText(SECONDARY_HOST_LABEL);

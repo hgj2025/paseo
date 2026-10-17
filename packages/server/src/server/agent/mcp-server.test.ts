@@ -1,3 +1,6 @@
+import { WorkspaceTeamService } from "../workspace-team-service.js";
+import { getWorkspaceTeamService } from "../workspace-team-runtime.js";
+import { getOrCreateServerId } from "../server-id.js";
 import { parseAgentMessage } from "./agent-messages/index.js";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -586,6 +589,9 @@ class FakeBrowserToolsBroker {
 }
 
 class BoundaryAgentManagerFake {
+  subscribe() {
+    return () => {};
+  }
   private readonly agent = createManagedAgent({
     id: "agent-1",
     cwd: REPO_CWD,
@@ -1164,6 +1170,136 @@ describe("browser MCP tools", () => {
       },
       context: { agentId: "agent-1", cwd: REPO_CWD },
     });
+  });
+});
+
+describe("workspace team MCP tools", () => {
+  it("resolves named members and dispatches one remote task with a readable receipt", async () => {
+    const home = await mkdtemp(join(tmpdir(), "paseo-team-tools-"));
+    const callerAgentId = randomUUID();
+    const agentManager = new BoundaryAgentManagerFake() as AgentManager;
+    const agentStorage = new BoundaryAgentStorageFake() as AgentStorage;
+    const logger = createTestLogger();
+    const seed = new WorkspaceTeamService(home, getOrCreateServerId(home), {
+      inspect: async () => ({ provider: "claude", busy: false }),
+      send: async () => "acknowledged",
+      observe: async () => ({ status: "completed", result: "unused" }),
+      notify: async () => {},
+    });
+    await seed.execute("work", {
+      kind: "join",
+      serverId: seed.serverId,
+      workspaceId: "work",
+      agentId: callerAgentId,
+    });
+    const team = await seed.execute("work", {
+      kind: "join",
+      serverId: "vm",
+      workspaceId: "remote-work",
+      agentId: randomUUID(),
+    });
+    const script = join(home, "bridge.cjs");
+    const calls = join(home, "calls.jsonl");
+    const promptFile = join(home, "prompt.txt");
+    await writeFile(
+      script,
+      `const fs = require('node:fs');
+const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + String.fromCharCode(10));
+const action = args[1];
+if (action === 'send') fs.writeFileSync(${JSON.stringify(promptFile)}, args[args.indexOf('--prompt') + 1]);
+console.log(JSON.stringify(action === 'inspect' ? { Id: args[2], Provider: 'claude', Status: 'idle' } : action === 'send' ? {agentId: args[2], status: 'sent'} : {agentId: args[2], status: 'idle', message: fs.readFileSync(${JSON.stringify(promptFile)}, 'utf8') + String.fromCharCode(10) + 'Verified remote result'}));`,
+    );
+    await writeFile(
+      join(home, "collaboration-hosts.json"),
+      JSON.stringify({
+        version: 1,
+        hosts: [{ id: "vm", label: "Mac mini", command: [process.execPath, script] }],
+      }),
+    );
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager:
+        new BoundaryProviderSnapshotManagerFake() as unknown as ProviderSnapshotManager,
+      callerAgentId,
+      paseoHome: home,
+      logger,
+    });
+    const client = await connectInMemoryMcpClient(server);
+    try {
+      const listed = await client.callTool({ name: "list_team_members", arguments: {} });
+      expect(listed.isError).not.toBe(true);
+      expect(listed.structuredContent).toMatchObject({
+        teams: [{ workspaceId: "work", members: [{ alias: "Captain" }, { alias: "Claude" }] }],
+      });
+      const args = {
+        workspaceId: "work",
+        memberId: team.members[1]!.id,
+        taskId: randomUUID(),
+        prompt: "Read-only analysis",
+      };
+      const receipt = await client.callTool({ name: "send_team_task", arguments: args });
+      expect(receipt.isError, JSON.stringify(receipt)).not.toBe(true);
+      expect(receipt.structuredContent).toMatchObject({ id: args.taskId, status: "running" });
+      await client.callTool({ name: "send_team_task", arguments: args });
+      const result = await client.callTool({
+        name: "get_team_tasks",
+        arguments: { workspaceId: "work", taskId: args.taskId },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        tasks: [{ id: args.taskId, status: "completed" }],
+      });
+      const invocations = (await readFile(calls, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(invocations.filter((invocation: string[]) => invocation[1] === "send")).toHaveLength(
+        1,
+      );
+      const groupId = randomUUID();
+      const runtime = getWorkspaceTeamService({
+        paseoHome: home,
+        agentManager,
+        agentStorage,
+        logger,
+      });
+      await runtime.execute("work", {
+        kind: "start_group",
+        groupId,
+        senderId: team.members[0]!.id,
+        memberIds: [team.members[1]!.id],
+        mode: "coordinate",
+        prompt: "Review through a saved plan",
+      });
+      const ungrouped = await client.callTool({
+        name: "send_team_task",
+        arguments: { ...args, taskId: randomUUID() },
+      });
+      expect(ungrouped.isError).toBe(true);
+      const plan = await client.callTool({
+        name: "plan_team_request",
+        arguments: {
+          workspaceId: "work",
+          groupId,
+          steps: [
+            { memberId: team.members[1]!.id, prompt: "Review through a saved plan", dependsOn: [] },
+          ],
+        },
+      });
+      expect(plan.isError, JSON.stringify(plan)).not.toBe(true);
+      expect(plan.structuredContent).toMatchObject({
+        id: groupId,
+        status: "running",
+        steps: [{ memberId: team.members[1]!.id, status: "running" }],
+      });
+    } finally {
+      seed.dispose();
+      getWorkspaceTeamService({ paseoHome: home, agentManager, agentStorage, logger }).dispose();
+      await client.close();
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
 

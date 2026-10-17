@@ -115,7 +115,7 @@ and updating `next`, integrating it after a release, and releasing a hotfix from
 
 ## Critical rules
 
-- **NEVER restart the main Paseo daemon on port 6767 without permission** — it manages all running agents. If you're an agent, restarting it kills your own process.
+- **NEVER restart the main Paseo daemon on port 6767 without permission** — it interrupts agents and terminals managed by that daemon, including your own task if it runs there. An independent Codex app or CLI is not managed by this daemon.
 - **NEVER assume a timeout means the service needs restarting** — timeouts can be transient.
 - **NEVER add auth checks to tests** — agent providers handle their own auth.
 - **Before changing app routes, startup routing, remembered workspace restore, or active workspace selection, read [docs/expo-router.md](docs/expo-router.md).**

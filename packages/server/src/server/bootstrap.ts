@@ -1,3 +1,4 @@
+import { getWorkspaceTeamService } from "./workspace-team-runtime.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -960,6 +961,12 @@ export async function createPaseoDaemon(
       resolvePaseoToolPolicy(provider, daemonConfigStore.get().providers),
     logger,
   });
+  const workspaceTeams = getWorkspaceTeamService({
+    paseoHome: config.paseoHome,
+    agentManager,
+    agentStorage,
+    logger,
+  });
   const syncPluginProviders = () => {
     agentManager.updateProviderRegistry(
       providerSnapshotManager.replacePluginProviders(pluginRuntime.getProviderRegistrations()),
@@ -1819,6 +1826,7 @@ export async function createPaseoDaemon(
     unsubscribePluginProviders();
     await hubRelationships.stop();
     workspaceReconciliation.dispose();
+    workspaceTeams.dispose();
     scriptHealthMonitor.stop();
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();

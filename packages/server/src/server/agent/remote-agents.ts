@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { getRemoteAgentPool, type RemoteChange } from "./remote-agent-connection.js";
 
 const executeFile = promisify(execFile);
 const HostSchema = z.object({
@@ -11,6 +12,7 @@ const HostSchema = z.object({
   label: z.string().min(1),
   // Administrator-owned argv, never supplied by the agent or workspace files.
   command: z.array(z.string().min(1)).min(1),
+  transport: z.enum(["cli", "persistent"]).optional(),
 });
 const ConfigSchema = z.object({ version: z.literal(1), hosts: z.array(HostSchema) });
 const ReceiptSchema = z.object({
@@ -79,12 +81,37 @@ export class RemoteAgents {
     };
   }
 
+  subscribe(listener: (event: RemoteChange) => void) {
+    return getRemoteAgentPool(this.home).subscribe(listener);
+  }
+
+  async observeTask(hostId: string, agentId: string, taskId: string): Promise<unknown | null> {
+    z.string().uuid().parse(agentId);
+    z.string().uuid().parse(taskId);
+    const host = await this.host(hostId);
+    if (host.transport !== "persistent") return null;
+    const connection = getRemoteAgentPool(this.home).connection(host);
+    await connection.request({ op: "watch", agentId });
+    return connection.request({ op: "observe", agentId, taskId }, 30_000);
+  }
+
+  async inspect(hostId: string, agentId: string, workspaceId?: string): Promise<unknown> {
+    z.string().uuid().parse(agentId);
+    const host = await this.host(hostId);
+    if (host.transport === "persistent")
+      return getRemoteAgentPool(this.home)
+        .connection(host)
+        .request({ op: "inspect", agentId, workspaceId });
+    return this.run(host, ["agent", "inspect", agentId], 20_000);
+  }
+
   async send(input: {
     callerId: string;
     hostId: string;
     agentId: string;
     requestId: string;
     prompt: string;
+    workspaceId?: string;
   }): Promise<Receipt> {
     // Exact IDs prevent a CLI prefix match from dispatching to an unintended agent.
     z.string().uuid().parse(input.agentId);
@@ -94,7 +121,13 @@ export class RemoteAgents {
       .update(JSON.stringify([input.callerId, input.hostId, input.requestId]))
       .digest("hex");
     const fingerprint = createHash("sha256")
-      .update(JSON.stringify([input.agentId, input.prompt]))
+      .update(
+        JSON.stringify(
+          input.workspaceId
+            ? [input.agentId, input.prompt, input.workspaceId]
+            : [input.agentId, input.prompt],
+        ),
+      )
       .digest("hex");
     const directory = join(this.home, "remote-agent-dispatches");
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -117,11 +150,23 @@ export class RemoteAgents {
       return previous.state === "dispatching" ? { ...previous, state: "uncertain" } : previous;
     }
     try {
-      receipt.result = await this.run(
-        host,
-        ["agent", "send", input.agentId, "--no-wait", "--prompt", input.prompt],
-        25_000,
-      );
+      receipt.result =
+        host.transport === "persistent"
+          ? await getRemoteAgentPool(this.home).connection(host).request(
+              {
+                op: "send",
+                agentId: input.agentId,
+                taskId: input.requestId,
+                prompt: input.prompt,
+                workspaceId: input.workspaceId,
+              },
+              25_000,
+            )
+          : await this.run(
+              host,
+              ["agent", "send", input.agentId, "--no-wait", "--prompt", input.prompt],
+              25_000,
+            );
       const result = z
         .object({ agentId: z.string(), status: z.literal("sent") })
         .parse(receipt.result);
@@ -143,8 +188,13 @@ export class RemoteAgents {
   async wait(hostId: string, agentId: string, timeoutSeconds = 15): Promise<unknown> {
     z.string().uuid().parse(agentId);
     z.number().int().min(1).max(30).parse(timeoutSeconds);
+    const host = await this.host(hostId);
+    if (host.transport === "persistent")
+      return getRemoteAgentPool(this.home)
+        .connection(host)
+        .request({ op: "wait", agentId, timeoutSeconds }, (timeoutSeconds + 10) * 1000);
     return this.run(
-      await this.host(hostId),
+      host,
       ["agent", "wait", agentId, "--timeout", String(timeoutSeconds)],
       (timeoutSeconds + 10) * 1000,
     );

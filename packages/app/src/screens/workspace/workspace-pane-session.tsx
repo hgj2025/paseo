@@ -1,3 +1,5 @@
+import { useWorkspaceLayoutStore, collectAllPanes } from "@/stores/workspace-layout-store";
+import { EXPLORER_SIDEBAR_PANE_ID } from "@/stores/workspace-layout-actions";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type ComponentProps } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -6,6 +8,11 @@ import equal from "fast-deep-equal";
 import { StyleSheet } from "react-native-unistyles";
 import { resolveTerminalProfileLaunch } from "@getpaseo/protocol/terminal-profiles";
 import { Combobox } from "@/components/ui/combobox";
+import { Button } from "@/components/ui/button";
+import { ToolbarLabelSelectTrigger } from "@/components/ui/toolbar-label-trigger";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { MessagesSquare } from "lucide-react-native";
+import { WorkspaceToolbarProvider } from "@/composer/workspace-toolbar-context";
 import { HostStatusDotSlot } from "@/components/hosts/host-picker";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { ImportSessionSheet } from "@/components/import-session-sheet";
@@ -24,9 +31,10 @@ import { NewTabLauncherProvider, type NewTabLauncher } from "@/workspace-tabs/la
 import { scopeWorkspaceTabTarget } from "@/workspace-tabs/scope";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
-import { useWorkspaceCoordinationStore } from "@/stores/workspace-coordination-store";
+import { WorkspaceTeamProvider } from "./workspace-team-context";
+import { TeamMemberCard } from "./team-member-card";
+import { useWorkspaceTeamState } from "./use-workspace-team";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { useHostFeature } from "@/runtime/host-features";
 
 /** The outer workspace owns layout; all resource actions below use this tab's host. */
 export function WorkspacePaneSession({ children }: { children: ReactNode }) {
@@ -73,34 +81,13 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [creatingTerminal, setCreatingTerminal] = useState(false);
-  const [linking, setLinking] = useState(false);
-  const coordinator = useWorkspaceCoordinationStore((state) => state.coordinators[ownerKey]);
-  const supportsCoordination = useHostFeature(pane.serverId, "remoteAgentCoordination");
-  const isCoordinator = coordinator?.serverId === pane.serverId && coordinator.agentId === agentId;
-  const linkCoordinator = useStableEvent(async () => {
-    if (!coordinator || !agentId || linking) return;
-    const primary = getHostRuntimeStore().getSnapshot(coordinator.serverId);
-    if (primary?.connectionStatus !== "online" || !primary.client) {
-      toast.error(t("workspace.terminal.hostDisconnected"));
-      return;
-    }
-    setLinking(true);
-    try {
-      const target = { hostId: pane.serverId, workspaceId: pane.workspaceId, agentId, label };
-      const instructions =
-        coordinator.serverId === pane.serverId
-          ? "Use send_agent_prompt with the full agentId for later delegated tasks."
-          : "For later delegated tasks, verify this host with list_remote_agents, then use send_remote_agent_prompt with hostId, the full agentId and a fresh requestId UUID. Reuse the requestId for acknowledgement checks; use wait_remote_agent for status and recent output. Do not approve the target agent's permissions on the user's behalf.";
-      await primary.client.sendAgentMessage(
-        coordinator.agentId,
-        `The user added this existing agent to the collaboration workspace: ${JSON.stringify(target)}\n${instructions}\nRecord the collaborator and wait for the user's task. Do not start work just because a pane was linked. Each agent keeps its own host and working directory.`,
-      );
-      toast.show(t("workspace.crossHost.linked"));
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setLinking(false);
-    }
+  const { member, teamContext, retryTeam } = usePaneTeam({
+    pane,
+    ownerKey,
+    active,
+    isWorkspaceFocused,
+    agentId,
+    connected,
   });
   const agents = useStoreWithEqualityFn(
     useSessionStore,
@@ -123,7 +110,8 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
       })),
     [hosts, workspaces],
   );
-  const label = `${hosts.find((host) => host.serverId === pane.serverId)?.label || pane.serverId} · ${workspace?.name || pane.workspaceId}`;
+  const { label, fullScopeLabel } = getScopeLabels(pane, hosts, workspace?.name);
+  const hasComposer = pane.target.kind === "agent" || pane.target.kind === "draft";
   const activate = useStableEvent((target: WorkspaceTabTarget) => {
     if (pane.target.kind === "new_tab") pane.retargetCurrentTab(target);
     else pane.openTab(target);
@@ -179,18 +167,6 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
   const openScopes = useStableEvent(() => setScopeOpen(true));
   const openSessions = useStableEvent(() => setSessionsOpen(true));
   const closeImport = useStableEvent(() => setImportOpen(false));
-  const handleMakeCoordinator = useStableEvent(() => {
-    if (!agentId) return;
-    if (!supportsCoordination) {
-      toast.error(t("workspace.crossHost.upgrade"));
-      return;
-    }
-    useWorkspaceCoordinationStore.getState().setCoordinator(ownerKey, {
-      serverId: pane.serverId,
-      workspaceId: pane.workspaceId,
-      agentId,
-    });
-  });
   const handleImported = useStableEvent(
     (
       agent: Parameters<NonNullable<ComponentProps<typeof ImportSessionSheet>["onImported"]>>[0],
@@ -204,92 +180,85 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
         );
     },
   );
-  const renderToolbar = () =>
-    pane.host === "main" && (
-      <View style={styles.toolbar} testID="workspace-pane-scope-bar">
-        <Combobox
-          options={options}
-          value={JSON.stringify([pane.serverId, pane.workspaceId])}
-          anchorRef={scopeAnchor}
-          open={scopeOpen}
-          onOpenChange={setScopeOpen}
-          title={t("workspace.crossHost.chooseScope")}
-          desktopPlacement="bottom-start"
-          desktopMinWidth={320}
-          onSelect={handleSelectScope}
-        />
-        <View ref={scopeAnchor} collapsable={false} style={styles.scope}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t("workspace.crossHost.chooseScope")}
-            testID="workspace-pane-choose-scope"
-            onPress={openScopes}
-            style={styles.trigger}
-          >
-            <HostStatusDotSlot serverId={pane.serverId} />
-            <Text style={styles.label} numberOfLines={1}>
-              {label}
-            </Text>
-            <Text style={styles.label}>⌄</Text>
-          </Pressable>
+  const toolbar = pane.host === "main" && (
+    <View style={styles.toolbar} testID="workspace-pane-scope-bar">
+      {member && <TeamMemberCard member={member} />}
+      <Combobox
+        options={options}
+        value={JSON.stringify([pane.serverId, pane.workspaceId])}
+        anchorRef={scopeAnchor}
+        open={scopeOpen}
+        onOpenChange={setScopeOpen}
+        title={t("workspace.crossHost.chooseScope")}
+        desktopPlacement="top-start"
+        desktopMinWidth={320}
+        onSelect={handleSelectScope}
+      />
+      <View ref={scopeAnchor} collapsable={false} style={styles.scope}>
+        <HostStatusDotSlot serverId={pane.serverId} />
+        <View style={styles.scopeLabel}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToolbarLabelSelectTrigger
+                accessibilityRole="button"
+                accessibilityLabel={t("workspace.crossHost.chooseScope")}
+                accessibilityHint={fullScopeLabel}
+                testID="workspace-pane-choose-scope"
+                onPress={openScopes}
+                label={label}
+                open={scopeOpen}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <Text style={styles.tooltip}>{fullScopeLabel}</Text>
+            </TooltipContent>
+          </Tooltip>
         </View>
-        <Combobox
-          options={agents}
-          value={pane.target.kind === "agent" ? pane.target.agentId : ""}
-          anchorRef={sessionsAnchor}
-          open={sessionsOpen}
-          onOpenChange={setSessionsOpen}
-          title={t("workspace.crossHost.sessions")}
-          desktopPlacement="bottom-start"
-          desktopMinWidth={300}
-          onSelect={handleSelectAgent}
-        />
-        <View ref={sessionsAnchor} collapsable={false}>
-          <Pressable
-            accessibilityRole="button"
-            testID="workspace-pane-choose-session"
-            onPress={openSessions}
-            style={styles.trigger}
-          >
-            <Text style={styles.label}>{t("workspace.crossHost.sessions")}</Text>
-          </Pressable>
-        </View>
-        {agentId && (
-          <Pressable
-            accessibilityRole="button"
-            testID="workspace-pane-set-coordinator"
-            onPress={handleMakeCoordinator}
-            style={styles.trigger}
-          >
-            <Text style={styles.label}>
-              {t(
-                isCoordinator
-                  ? "workspace.crossHost.coordinator"
-                  : "workspace.crossHost.makeCoordinator",
-              )}
-            </Text>
-          </Pressable>
-        )}
-        {agentId && coordinator && !isCoordinator && (
-          <Pressable
-            accessibilityRole="button"
-            testID="workspace-pane-link-coordinator"
-            disabled={linking}
-            onPress={linkCoordinator}
-            style={styles.trigger}
-          >
-            <Text style={styles.label}>{t("workspace.crossHost.link")}</Text>
-          </Pressable>
-        )}
       </View>
-    );
+      <Combobox
+        options={agents}
+        value={pane.target.kind === "agent" ? pane.target.agentId : ""}
+        anchorRef={sessionsAnchor}
+        open={sessionsOpen}
+        onOpenChange={setSessionsOpen}
+        title={t("workspace.crossHost.sessions")}
+        desktopPlacement="top-start"
+        desktopMinWidth={300}
+        onSelect={handleSelectAgent}
+      />
+      <View ref={sessionsAnchor} collapsable={false}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={MessagesSquare}
+              accessibilityLabel={t("workspace.crossHost.sessions")}
+              testID="workspace-pane-choose-session"
+              onPress={openSessions}
+            />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <Text style={styles.tooltip}>{t("workspace.crossHost.sessions")}</Text>
+          </TooltipContent>
+        </Tooltip>
+      </View>
+    </View>
+  );
   const body = (
     <>
-      {renderToolbar()}
+      {teamContext?.error && (
+        <Pressable onPress={retryTeam}>
+          <Text style={styles.offline}>
+            {teamContext.error} · {t("workspace.team.retry")}
+          </Text>
+        </Pressable>
+      )}
       {pane.scopeBound && !connected && (
         <Text style={styles.offline}>{t("workspace.crossHost.offline")}</Text>
       )}
       <View style={styles.content}>{children}</View>
+      {!hasComposer && toolbar && <View style={styles.footer}>{toolbar}</View>}
       <ImportSessionSheet
         visible={isInteractive && importOpen}
         client={client}
@@ -304,34 +273,133 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
   );
   return (
     <PaneProvider value={value}>
-      {pane.scopeBound ? (
-        <NewTabLauncherProvider value={launcher}>{body}</NewTabLauncherProvider>
-      ) : (
-        body
-      )}
+      <WorkspaceTeamProvider value={teamContext}>
+        <WorkspaceToolbarProvider value={hasComposer ? toolbar : null}>
+          {pane.scopeBound ? (
+            <NewTabLauncherProvider value={launcher}>{body}</NewTabLauncherProvider>
+          ) : (
+            body
+          )}
+        </WorkspaceToolbarProvider>
+      </WorkspaceTeamProvider>
     </PaneProvider>
   );
+}
+
+function getScopeLabels(
+  pane: ReturnType<typeof usePaneContext>,
+  hosts: ReturnType<typeof useHosts>,
+  workspaceName: string | undefined,
+) {
+  const hostLabel = hosts.find((host) => host.serverId === pane.serverId)?.label || pane.serverId;
+  const fullScopeLabel = `${hostLabel} · ${workspaceName || pane.workspaceId}`;
+  const owner = pane.layoutOwner ?? pane;
+  const isOwnerScope = owner.serverId === pane.serverId && owner.workspaceId === pane.workspaceId;
+  return { label: isOwnerScope ? hostLabel : fullScopeLabel, fullScopeLabel };
+}
+
+function usePaneTeam({
+  pane,
+  ownerKey,
+  active,
+  isWorkspaceFocused,
+  agentId,
+  connected,
+}: {
+  pane: ReturnType<typeof usePaneContext>;
+  ownerKey: string;
+  active: boolean;
+  isWorkspaceFocused: boolean;
+  agentId: string | null;
+  connected: boolean;
+}) {
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const owner = pane.layoutOwner ?? pane;
+  const hasSplit = useWorkspaceLayoutStore((state) => {
+    const layout = state.layoutByWorkspace[ownerKey];
+    return Boolean(
+      layout &&
+      collectAllPanes(layout.root).filter(
+        (entry) => !entry.hidden && entry.id !== EXPLORER_SIDEBAR_PANE_ID,
+      ).length > 1,
+    );
+  });
+  const {
+    context,
+    connected: ownerConnected,
+    supported: supportsTeams,
+    retry,
+  } = useWorkspaceTeamState(owner.serverId, owner.workspaceId, active && isWorkspaceFocused);
+  const team = context?.team;
+  const executeTeam = context?.execute;
+  const member = team?.members.find(
+    (entry) => entry.serverId === pane.serverId && entry.agentId === agentId,
+  );
+  useEffect(() => {
+    if (
+      (!hasSplit && !team?.members.length) ||
+      !supportsTeams ||
+      !executeTeam ||
+      !team ||
+      member ||
+      !agentId ||
+      !connected ||
+      !ownerConnected ||
+      !active ||
+      !isWorkspaceFocused ||
+      joinError
+    )
+      return;
+    void executeTeam({
+      kind: "join",
+      serverId: pane.serverId,
+      workspaceId: pane.workspaceId,
+      agentId,
+    }).catch((error) => setJoinError(String(error)));
+  }, [
+    hasSplit,
+    supportsTeams,
+    team,
+    member,
+    agentId,
+    connected,
+    ownerConnected,
+    active,
+    isWorkspaceFocused,
+    joinError,
+    executeTeam,
+    pane.serverId,
+    pane.workspaceId,
+  ]);
+  const teamContext = useMemo(
+    () => (context ? { ...context, error: joinError || context.error } : null),
+    [context, joinError],
+  );
+  const retryTeam = useStableEvent(() => {
+    setJoinError(null);
+    retry();
+  });
+  return { member, teamContext, retryTeam };
 }
 
 const styles = StyleSheet.create((theme) => ({
   toolbar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    gap: theme.spacing[1],
+    minHeight: 28,
   },
-  scope: { flex: 1, minWidth: 0 },
-  trigger: {
+  scope: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: 5,
-    paddingHorizontal: 4,
+    gap: theme.spacing[1],
+    marginLeft: theme.spacing[1],
   },
-  label: { color: theme.colors.foregroundMuted, fontSize: 12, flexShrink: 1 },
+  scopeLabel: { minWidth: 0, flexShrink: 1 },
+  tooltip: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
+  footer: { padding: theme.spacing[4] },
   offline: { padding: 12, color: theme.colors.foregroundMuted },
   content: { flex: 1, minHeight: 0 },
 }));

@@ -1,3 +1,4 @@
+import { WorkspaceTeamRequestSchema, WorkspaceTeamResponseSchema } from "./workspace-team.js";
 import { AgentMessageSchema } from "./agent-message.js";
 import { PluginRegistryIdentitySchema } from "./plugin-registry.js";
 import { AgentProfileSchema, AgentSkillSelectionSchema } from "./agent-profile.js";
@@ -3197,6 +3198,7 @@ export const SubscriptionReleaseResponseSchema = z.object({
 });
 
 export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+  WorkspaceTeamRequestSchema,
   BrowserHostRegisterRequestSchema,
   SubscriptionReleaseRequestSchema,
   SessionEventsSetSubscriptionRequestSchema,
@@ -3677,6 +3679,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentDetach: z.boolean().optional(),
         // Private-fork capability: absent on upstream/older daemons.
         remoteAgentCoordination: z.boolean().optional(),
+        workspaceTeams: z.boolean().optional(),
+        workspaceTeamGroups: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -6846,6 +6850,7 @@ export const AgentSkillsImportLegacySelectionResponseSchema = z.object({
 });
 
 export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+  WorkspaceTeamResponseSchema,
   BrowserHostRegisterResponseSchema,
   SubscriptionReleaseResponseSchema,
   SessionEventsSetSubscriptionResponseSchema,

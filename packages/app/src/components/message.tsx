@@ -1,3 +1,4 @@
+import { TeamGroupCard, useTeamMessageGroup } from "@/screens/workspace/team-group-card";
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
 import { ASSISTANT_IMAGE_DEFAULT_ASPECT_RATIO } from "@/utils/assistant-image-metadata";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -443,6 +444,7 @@ export const UserMessage = memo(function UserMessage({
   isPending = false,
   disableOuterSpacing,
 }: UserMessageProps) {
+  const group = useTeamMessageGroup(message);
   const isCompact = useIsCompactFormFactor();
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
@@ -507,6 +509,13 @@ export const UserMessage = memo(function UserMessage({
     ],
     [showTrailingRow],
   );
+
+  if (group)
+    return (
+      <View style={containerStyle} testID="team-request-message">
+        <TeamGroupCard group={group} compact />
+      </View>
+    );
 
   return (
     <View style={containerStyle} testID="user-message" aria-busy={isPending}>

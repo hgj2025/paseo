@@ -1,3 +1,4 @@
+import { getWorkspaceTeamService } from "./workspace-team-runtime.js";
 import { AgentDirectory } from "./agent/directory.js";
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
@@ -2913,6 +2914,8 @@ export class Session {
     msg: SessionInboundMessage,
   ): Promise<void> | undefined {
     switch (msg.type) {
+      case "workspace.team.execute.request":
+        return this.handleWorkspaceTeam(msg);
       case "fetch_workspaces_request":
         return this.handleFetchWorkspacesRequest(msg);
       case "project.list.request":
@@ -3703,6 +3706,35 @@ export class Session {
           accepted: false,
           removedWorkspaceIds: [],
           error: getErrorMessageOr(error, "Failed to remove project"),
+        },
+      });
+    }
+  }
+
+  private async handleWorkspaceTeam(
+    msg: Extract<SessionInboundMessage, { type: "workspace.team.execute.request" }>,
+  ): Promise<void> {
+    try {
+      if (!(await this.workspaceRegistry.get(msg.workspaceId)))
+        throw new Error("Workspace not found.");
+      const service = getWorkspaceTeamService({
+        paseoHome: this.paseoHome,
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const team = await service.execute(msg.workspaceId, msg.action);
+      this.emit({
+        type: "workspace.team.execute.response",
+        payload: { requestId: msg.requestId, team, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "workspace.team.execute.response",
+        payload: {
+          requestId: msg.requestId,
+          team: null,
+          error: error instanceof Error ? error.message : String(error),
         },
       });
     }

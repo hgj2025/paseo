@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getAutocompleteFallbackIndex,
   getAutocompleteNextIndex,
@@ -11,7 +11,7 @@ interface AutocompleteKeyPressEvent {
 }
 
 interface UseAutocompleteInput<
-  TOption,
+  TOption extends { id: string },
   TKeyPressEvent extends AutocompleteKeyPressEvent = AutocompleteKeyPressEvent,
 > {
   isVisible: boolean;
@@ -28,41 +28,21 @@ interface UseAutocompleteResult<TKeyPressEvent extends AutocompleteKeyPressEvent
 }
 
 export function useAutocomplete<
-  TOption,
+  TOption extends { id: string },
   TKeyPressEvent extends AutocompleteKeyPressEvent = AutocompleteKeyPressEvent,
 >(input: UseAutocompleteInput<TOption, TKeyPressEvent>): UseAutocompleteResult<TKeyPressEvent> {
-  const [selectedIndex, setSelectedIndex] = useState(-1);
-  const previousQueryRef = useRef("");
-
+  const [selection, setSelection] = useState<{ query: string; id: string } | null>(null);
+  // Async file results can insert rows before members. Preserve an explicit choice by ID;
+  // otherwise follow the highest-priority row instead of keeping a stale numeric index.
+  let selectedIndex = getAutocompleteFallbackIndex(input.options.length, input.optionsPosition);
+  if (selection?.query === input.query) {
+    const index = input.options.findIndex((option) => option.id === selection.id);
+    if (index >= 0) selectedIndex = index;
+  }
+  if (!input.isVisible) selectedIndex = -1;
   useEffect(() => {
-    if (!input.isVisible) {
-      previousQueryRef.current = input.query;
-      setSelectedIndex(-1);
-      return;
-    }
-
-    const queryChanged = previousQueryRef.current !== input.query;
-    previousQueryRef.current = input.query;
-
-    setSelectedIndex((current) => {
-      if (input.options.length === 0) {
-        return -1;
-      }
-
-      const fallbackIndex = getAutocompleteFallbackIndex(
-        input.options.length,
-        input.optionsPosition,
-      );
-
-      if (queryChanged) {
-        return fallbackIndex;
-      }
-      if (current < 0 || current >= input.options.length) {
-        return fallbackIndex;
-      }
-      return current;
-    });
-  }, [input.isVisible, input.options.length, input.query, input.optionsPosition]);
+    if (!input.isVisible) setSelection(null);
+  }, [input.isVisible]);
 
   const onKeyPress = useCallback(
     (event: TKeyPressEvent) => {
@@ -70,27 +50,14 @@ export function useAutocomplete<
         return false;
       }
 
-      if (event.key === "ArrowUp") {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         event.preventDefault();
-        setSelectedIndex((current) =>
-          getAutocompleteNextIndex({
-            currentIndex: current,
-            itemCount: input.options.length,
-            key: "ArrowUp",
-          }),
-        );
-        return true;
-      }
-
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSelectedIndex((current) =>
-          getAutocompleteNextIndex({
-            currentIndex: current,
-            itemCount: input.options.length,
-            key: "ArrowDown",
-          }),
-        );
+        const index = getAutocompleteNextIndex({
+          currentIndex: selectedIndex,
+          itemCount: input.options.length,
+          key: event.key,
+        });
+        setSelection({ query: input.query, id: input.options[index].id });
         return true;
       }
 

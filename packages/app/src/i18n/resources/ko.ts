@@ -436,6 +436,7 @@ export const ko: TranslationResources = {
     },
   },
   workspace: {
+    team: en.workspace.team,
     crossHost: en.workspace.crossHost,
     route: {
       loading: "워크스페이스 불러오는 중",

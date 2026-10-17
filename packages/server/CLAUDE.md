@@ -145,7 +145,7 @@ Tests prove behavior, not structure. Every test should answer: "what user-visibl
 
 ## Critical Rules
 
-1. **NEVER restart the daemon on port 6767** — it kills your own process
+1. **Main daemon restarts:** follow the permission requirement in [the root critical rules](../../CLAUDE.md#critical-rules); a restart interrupts tasks managed by that daemon.
 2. **NEVER assume timeouts need a restart** — they can be transient
 3. **Always run `npm run typecheck` after changes**
 4. **NEVER add auth checks to tests** — agent providers handle their own auth
