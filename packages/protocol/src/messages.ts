@@ -3680,6 +3680,8 @@ export const ServerInfoStatusPayloadSchema = z
         // Private-fork capability: absent on upstream/older daemons.
         remoteAgentCoordination: z.boolean().optional(),
         workspaceTeams: z.boolean().optional(),
+        sessionTeams: z.boolean().optional(),
+        conversationExecution: z.boolean().optional(),
         workspaceTeamGroups: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),

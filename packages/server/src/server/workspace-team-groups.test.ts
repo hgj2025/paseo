@@ -68,6 +68,39 @@ describe("persisted team requests", () => {
       "another request",
     );
   });
+  it("persists distinct per-member prompts and rejects changed retry payloads", async () => {
+    const action = {
+      ...start(),
+      mode: "addressed" as const,
+      memberPrompts: { [first.id]: "Inspect Linux only", [second.id]: "Inspect Mac only" },
+    };
+    await execute(action);
+    const sent = vi
+      .mocked(transport.send)
+      .mock.calls.map(([member, task]) => [member.id, task.prompt]);
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        [first.id, "Inspect Linux only"],
+        [second.id, "Inspect Mac only"],
+      ]),
+    );
+    expect(sent).toHaveLength(2);
+    await execute(action);
+    expect(transport.send).toHaveBeenCalledTimes(2);
+    await expect(
+      execute({ ...action, memberPrompts: { ...action.memberPrompts, [first.id]: "Changed" } }),
+    ).rejects.toThrow("another request");
+    const persisted = await execute({ kind: "read" });
+    expect(persisted.groups?.[0]?.steps.find((step) => step.memberId === second.id)?.prompt).toBe(
+      "Inspect Mac only",
+    );
+  });
+  it("rejects missing member tasks before dispatch", async () => {
+    await expect(
+      execute({ ...start(), mode: "addressed", memberPrompts: { [first.id]: "Only one task" } }),
+    ).rejects.toThrow("nonempty task");
+    expect(transport.send).not.toHaveBeenCalled();
+  });
   it("lets Captain plan first, then passes completed dependency output to the next member", async () => {
     const action = start("coordinate");
     await execute(action);

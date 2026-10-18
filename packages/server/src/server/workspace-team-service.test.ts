@@ -43,6 +43,212 @@ describe("workspace team dispatch", () => {
     });
     return { team, captain: team.members[0]!, member: team.members[1]! };
   }
+  it("isolates conversations in the same workspace and preserves them across restart", async () => {
+    const a = randomUUID(),
+      b = randomUUID();
+    const first = await service.executeSession(workspace, a, {
+      kind: "join",
+      serverId: "host",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "main",
+      owned: true,
+    });
+    const second = await service.executeSession(workspace, b, {
+      kind: "join",
+      serverId: "host",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "main",
+      owned: true,
+    });
+    expect(first.members[0]!.alias).toBe("Captain");
+    expect(second.members[0]!.alias).toBe("Captain");
+    await expect(
+      service.executeSession(workspace, b, {
+        kind: "join",
+        serverId: "host",
+        workspaceId: workspace,
+        agentId: first.members[0]!.agentId,
+        paneId: "other",
+      }),
+    ).rejects.toThrow("another conversation");
+    await expect(
+      service.executeSession(workspace, a, {
+        kind: "join",
+        serverId: "host",
+        workspaceId: workspace,
+        agentId: randomUUID(),
+        paneId: "main",
+      }),
+    ).rejects.toThrow("pane already");
+    await expect(
+      service.executeSession(workspace, a, {
+        kind: "join",
+        serverId: "host",
+        workspaceId: workspace,
+        agentId: first.members[0]!.agentId,
+        paneId: "other",
+      }),
+    ).rejects.toThrow("another pane");
+    await expect(
+      service.executeSession(workspace, b, {
+        kind: "send",
+        memberId: first.members[0]!.id,
+        senderId: second.members[0]!.id,
+        taskId: randomUUID(),
+        prompt: "Do not leak across sessions",
+      }),
+    ).rejects.toThrow("member not found");
+    service.dispose();
+    service = new WorkspaceTeamService(home, "host", transport);
+    expect((await service.listSessions(workspace)).map((t) => t.sessionId).sort()).toEqual(
+      [a, b].sort(),
+    );
+    expect((await service.executeSession(workspace, a, { kind: "read" })).members).toEqual(
+      first.members,
+    );
+    expect((await service.execute(workspace, { kind: "read" })).members).toEqual([]);
+  });
+  it("keeps an ending conversation retryable when a remote host is offline", async () => {
+    const id = randomUUID();
+    await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "host",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "main",
+      owned: true,
+    });
+    const team = await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "remote",
+      workspaceId: "remote-workspace",
+      agentId: randomUUID(),
+      paneId: "remote",
+      owned: true,
+    });
+    transport.archive = vi.fn(async (member) => {
+      if (member.serverId === "remote") throw new Error("offline");
+    });
+    const ending = await service.executeSession(workspace, id, { kind: "end" });
+    expect(ending.status).toBe("ending");
+    expect(ending.archiveErrors?.[team.members[1]!.id]).toContain("offline");
+    await expect(
+      service.executeSession(workspace, id, {
+        kind: "send",
+        memberId: team.members[1]!.id,
+        senderId: team.members[0]!.id,
+        taskId: randomUUID(),
+        prompt: "must not run",
+      }),
+    ).rejects.toThrow("read-only");
+    transport.archive = vi.fn(async () => {});
+    const ended = await service.executeSession(workspace, id, { kind: "end" });
+    expect(ended.status).toBe("ended");
+    expect(ended.members).toEqual(team.members);
+    expect(ended.endedAt).toBeTruthy();
+    expect((await service.executeSession(workspace, id, { kind: "read" })).status).toBe("ended");
+    expect(await service.executeSession(workspace, id, { kind: "end" })).toEqual(ended);
+    expect(transport.archive).toHaveBeenCalledTimes(2);
+  });
+  it("reserves a member during failed archival and retains its identity after retry", async () => {
+    const id = randomUUID();
+    await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "host",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "main",
+      owned: true,
+    });
+    const team = await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "remote",
+      workspaceId: "worker",
+      agentId: randomUUID(),
+      paneId: "child",
+      owned: true,
+    });
+    const member = team.members[1]!;
+    transport.archive = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+    const remove = { kind: "remove" as const, memberId: member.id, revision: team.revision };
+    await expect(service.executeSession(workspace, id, remove)).rejects.toThrow("offline");
+    await expect(
+      service.executeSession(workspace, id, {
+        kind: "send",
+        memberId: member.id,
+        senderId: null,
+        taskId: randomUUID(),
+        prompt: "must not run",
+      }),
+    ).rejects.toThrow("removal is pending");
+    const result = await service.executeSession(workspace, id, remove);
+    expect(result.members.map((m) => m.id)).toEqual([team.captainId]);
+    expect(result.retiredMembers).toEqual([
+      expect.objectContaining({ id: member.id, agentId: member.agentId }),
+    ]);
+    expect(transport.send).not.toHaveBeenCalled();
+  });
+  it("ends an owned team when its Captain was archived outside the team UI", async () => {
+    const id = randomUUID();
+    const team = await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "host",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "main",
+      owned: true,
+    });
+    service.dispose();
+    transport.isArchived = vi.fn(async () => true);
+    transport.archive = vi.fn(async () => {});
+    service = new WorkspaceTeamService(home, "host", transport);
+    await service.resume();
+    const result = await service.executeSession(workspace, id, { kind: "read" });
+    expect(result.status).toBe("ended");
+    expect(result.members).toEqual(team.members);
+    expect(transport.archive).toHaveBeenCalledWith(team.members[0]);
+  });
+  it("keeps full conversation task history beyond the legacy recent-history limit", async () => {
+    const id = randomUUID();
+    let team = await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "host",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "main",
+    });
+    const captain = team.members[0]!;
+    team = await service.executeSession(workspace, id, {
+      kind: "join",
+      serverId: "remote",
+      workspaceId: "worker",
+      agentId: randomUUID(),
+      paneId: "worker",
+    });
+    const member = team.members[1]!;
+    for (let index = 0; index < 25; index++) {
+      const taskId = randomUUID();
+      await service.executeSession(workspace, id, {
+        kind: "send",
+        senderId: captain.id,
+        memberId: member.id,
+        taskId,
+        prompt: `Task ${index}`,
+      });
+      team = await service.executeSession(workspace, id, { kind: "refresh", taskId });
+    }
+    expect(team.tasks).toHaveLength(25);
+    const ended = await service.executeSession(workspace, id, { kind: "end" });
+    expect(ended.tasks.map((t) => [t.id, t.prompt, t.result, t.status])).toEqual(
+      team.tasks.map((t) => [t.id, t.prompt, t.result, t.status]),
+    );
+    expect(ended.members).toEqual(team.members);
+  });
   it("keeps stable identities across naming, duplicate enrollment and restart", async () => {
     const { team, captain, member } = await members();
     expect(captain.alias).toBe("Captain");

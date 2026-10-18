@@ -2,6 +2,10 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
+  conversation: en.conversation,
+  teamPanel: en.teamPanel,
+  paneAppearance: en.paneAppearance,
+
   paneFind: {
     connectionFailure:
       "このチャットを検索できませんでした。ホストへの接続を確認して再試行してください。",
@@ -31,6 +35,7 @@ export const ja: TranslationResources = {
     back: "戻る",
     loading: "読み込み中...",
     actions: {
+      confirm: "確認",
       save: "保存",
       back: "戻る",
       cancel: "キャンセル",
@@ -252,6 +257,12 @@ export const ja: TranslationResources = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "モデルのリクエストが制限されています",
+      quota: "モデルの割り当てが不足しています",
+      description:
+        "プロバイダーは残りの割り当てとリセット時刻を提供していません。後で再試行するか、下でモデルを切り替えてください。",
+    },
     states: {
       notFound: "エージェントが見つかりません",
       failedToLoad: "エージェントの読み込みに失敗しました",
@@ -440,6 +451,7 @@ export const ja: TranslationResources = {
     },
   },
   workspace: {
+    execution: en.workspace.execution,
     team: en.workspace.team,
     crossHost: en.workspace.crossHost,
     route: {

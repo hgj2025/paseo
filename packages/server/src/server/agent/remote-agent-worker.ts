@@ -239,9 +239,24 @@ export async function remoteAgentWorkerMain(): Promise<void> {
       await watch(agentId);
       return { ok: true };
     }
+    if (request.op === "archive") {
+      const response = await client.fetchAgent(agentId);
+      if (!response?.agent || response.agent.workspaceId !== request.workspaceId)
+        throw new Error("Agent workspace mismatch.");
+      if (response.agent.archivedAt) return { ok: true };
+      await client.archiveAgent(agentId);
+      return { ok: true };
+    }
     if (request.op === "inspect") {
       const a = await inspect(agentId, request.workspaceId);
+      const page = await client.fetchAgentTimeline(agentId, {
+        direction: "tail",
+        limit: 1,
+        projection: "projected",
+      });
       return {
+        HistoryEpoch: page.epoch,
+        HistorySeq: page.window.maxSeq,
         Id: a.id,
         Provider: a.provider,
         Status: a.status,

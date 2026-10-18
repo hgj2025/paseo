@@ -2,6 +2,38 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  conversation: {
+    new: "新建会话",
+    untitled: "会话 {{number}}",
+    addMember: "添加成员",
+    memberWorkspace: "成员的主机与工作区",
+    history: "协作历史",
+    end: "结束会话",
+    ended: "已结束",
+    readOnly: "会话已结束，可查看成员会话和协作历史。",
+    removeDescription: "移除此成员并归档其子会话？协作记录将保留。",
+    endDescription: "停止并归档此会话创建的 Agent，保留全部协作记录。其他会话不受影响。",
+  },
+  teamPanel: {
+    themeLocked: "跟随 Paseo 主题",
+    memberColor: "@{{name}} 的分屏颜色",
+    paneUnavailable: "尚未打开窗格",
+    hostUnknown: "主机暂不可用",
+    appearanceHint: "分屏颜色保存在当前设备，Captain 始终跟随 Paseo 主题。",
+    modelPending: "模型尚未加载",
+  },
+  paneAppearance: {
+    title: "分屏颜色",
+    auto: "自动分配",
+    theme: "跟随主题",
+    blue: "雾蓝",
+    teal: "鼠尾草",
+    amber: "暖沙",
+    violet: "淡紫",
+    pink: "玫瑰",
+    sky: "天青",
+  },
+
   paneFind: {
     connectionFailure: "无法搜索此聊天。请检查主机连接后重试。",
     historyChangedFailure: "搜索期间聊天已更改。请重新搜索。",
@@ -30,6 +62,7 @@ export const zhCN: TranslationResources = {
     back: "返回",
     loading: "加载中...",
     actions: {
+      confirm: "确认",
       save: "保存",
       back: "返回",
       cancel: "取消",
@@ -250,6 +283,11 @@ export const zhCN: TranslationResources = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "模型请求受限",
+      quota: "模型额度不足",
+      description: "上游未提供剩余额度或恢复时间。可稍后重试，或在下方切换模型。",
+    },
     states: {
       notFound: "未找到 Agent",
       failedToLoad: "加载 Agent 失败",
@@ -435,11 +473,20 @@ export const zhCN: TranslationResources = {
     },
   },
   workspace: {
+    execution: {
+      chooseHost: "选择执行主机",
+      busy: "请等当前任务和权限确认完成后再切换。",
+      upgrade: "请更新 Mac daemon，以在保留会话的情况下切换执行位置。",
+      tooLarge: "会话上下文过长，未执行切换；请先压缩上下文。",
+      historyUnavailable: "无法读取完整会话历史，已保留当前执行配置。",
+      changing: "正在切换执行配置…",
+    },
     team: {
       group: {
         legacyPending: "旧版本的请求尚未确认，请先在团队任务中核对，再移除成员标签。",
         coordinate: "Captain 分工",
         broadcast: "群发",
+        inlineInvalid: "请在每个 @成员 后填写任务，任务文字需放在成员名称之后。",
         coordinateHint: "Captain 按成员职责分配任务，并汇总结果。继续输入 @ 可添加成员。",
         broadcastHint: "同一内容分别发送给所选成员，完成后由 Captain 汇总。",
         updateHost: "请升级团队所在主机的 Paseo 服务后再使用多成员派发。",
@@ -519,7 +566,7 @@ export const zhCN: TranslationResources = {
       },
       memberSettings: "成员配置",
       name: "成员名字",
-      role: "职责",
+      role: "Prompt 约束",
       skills: "能力标签（逗号分隔）",
       makeCaptain: "设为 Captain",
       members: "小队成员",

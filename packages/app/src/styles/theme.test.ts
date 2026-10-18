@@ -1,3 +1,5 @@
+import { PANE_COLOR_NAMES, paneSurfaceColor } from "./pane-colors";
+import { parseHexColor } from "@/utils/color";
 import { describe, expect, it } from "vitest";
 import {
   darkPureBlackTheme,
@@ -92,5 +94,44 @@ describe("Built-in light theme", () => {
         brightBlack: "#3f3f46",
       },
     });
+  });
+});
+
+describe("Pane colors", () => {
+  function luminance(hex: string) {
+    const channels = parseHexColor(hex)!;
+    const linear = channels.map((value) =>
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+    );
+    return linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722;
+  }
+  it("keeps body and secondary text readable across every built-in theme", () => {
+    for (const option of THEME_OPTIONS) {
+      if (!("theme" in option)) continue;
+      for (const color of PANE_COLOR_NAMES) {
+        for (const header of [false, true]) {
+          const background = paneSurfaceColor(option.theme, color, header);
+          for (const foreground of [
+            option.theme.colors.foreground,
+            option.theme.colors.foregroundMuted,
+          ]) {
+            const a = luminance(foreground),
+              b = luminance(background);
+            expect(
+              (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+              `${option.name}/${color}/${foreground}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
+    }
+  });
+  it("offers distinct pane backgrounds and preserves Follow theme exactly", () => {
+    for (const theme of [lightTheme, darkTheme]) {
+      expect(new Set(PANE_COLOR_NAMES.map((color) => paneSurfaceColor(theme, color))).size).toBe(
+        PANE_COLOR_NAMES.length,
+      );
+      expect(paneSurfaceColor(theme, "theme")).toBe(theme.colors.surface0);
+    }
   });
 });

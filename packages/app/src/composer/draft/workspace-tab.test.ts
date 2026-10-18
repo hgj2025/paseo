@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { shouldAllowEmptyDraftText, validateDraftSubmission } from "./workspace-tab-core";
+import {
+  canAutoCreateTeamDraft,
+  shouldAllowEmptyDraftText,
+  validateDraftSubmission,
+} from "./workspace-tab-core";
 
 const baseComposerState = {
   providerDefinitions: [{ id: "codewhale" }],
@@ -67,5 +71,42 @@ describe("workspace draft empty text readiness", () => {
         attachments: [],
       }),
     ).toBe(false);
+  });
+});
+
+describe("team draft host readiness", () => {
+  test("does not create with the old host's provider while resolving devbox", () => {
+    expect(
+      canAutoCreateTeamDraft({
+        hydrated: true,
+        loading: false,
+        provider: "opencode",
+        providers: [{ id: "claude" }],
+      }),
+    ).toBe(false);
+    expect(
+      canAutoCreateTeamDraft({
+        hydrated: true,
+        loading: true,
+        provider: "claude",
+        providers: [{ id: "claude" }],
+      }),
+    ).toBe(false);
+    expect(
+      canAutoCreateTeamDraft({
+        hydrated: false,
+        loading: false,
+        provider: "claude",
+        providers: [{ id: "claude" }],
+      }),
+    ).toBe(false);
+    expect(
+      canAutoCreateTeamDraft({
+        hydrated: true,
+        loading: false,
+        provider: "claude",
+        providers: [{ id: "claude" }],
+      }),
+    ).toBe(true);
   });
 });

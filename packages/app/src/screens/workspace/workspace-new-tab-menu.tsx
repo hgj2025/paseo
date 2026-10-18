@@ -1,3 +1,5 @@
+import { Users } from "lucide-react-native";
+import { useTranslation } from "react-i18next";
 import { useCallback, useMemo, type ComponentType, type ReactElement } from "react";
 import { View } from "react-native";
 import { withUnistyles } from "react-native-unistyles";
@@ -20,7 +22,9 @@ import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import type { PaneHost } from "@/panels/panel-manifest";
 import type { PanelIconProps } from "@/panels/panel-registry";
 
+const ThemedUsers = withUnistyles(Users);
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const teamIcon = <ThemedUsers size={14} uniProps={mutedColorMapping} />;
 
 function LaunchItemIconGlyph({
   Icon,
@@ -88,6 +92,7 @@ export function WorkspaceNewTabMenuContent({
   panePanelKinds,
   paneId,
   scopeBound,
+  onOpenTeam,
 }: {
   serverId: string;
   purpose: WorkspaceTabLaunchPurpose;
@@ -95,7 +100,9 @@ export function WorkspaceNewTabMenuContent({
   panePanelKinds: readonly WorkspaceTabTarget["kind"][];
   paneId?: string;
   scopeBound?: boolean;
+  onOpenTeam?: () => void;
 }) {
+  const { t } = useTranslation();
   const groups = useWorkspaceTabLaunchCatalog({
     serverId,
     scopeBound,
@@ -113,6 +120,18 @@ export function WorkspaceNewTabMenuContent({
       minWidth={200}
       testID="workspace-new-tab-menu"
     >
+      {onOpenTeam && (
+        <>
+          <DropdownMenuItem
+            testID="workspace-new-tab-menu-team"
+            onSelect={onOpenTeam}
+            leading={teamIcon}
+          >
+            {t("workspace.team.dashboard.title")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
       {groups.map((group, index) => (
         <View key={group.id}>
           {index > 0 ? <DropdownMenuSeparator /> : null}

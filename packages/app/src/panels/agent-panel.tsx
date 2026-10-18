@@ -1,3 +1,10 @@
+import { useModelHostContext } from "@/screens/workspace/model-host-context";
+import { useConversationHistory } from "@/screens/workspace/conversation-history-context";
+import { ModelLimitNotice } from "./model-limit-notice";
+import { activeConversation } from "@/stores/conversation-layout";
+import { useToast } from "@/contexts/toast-api-context";
+import { useWorkspaceTeam } from "@/screens/workspace/workspace-team-context";
+import { PaneCanvas, usePaneSurfaceStyle } from "@/panels/pane-appearance";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -89,7 +96,7 @@ import {
   type Agent,
   useSessionStore,
 } from "@/stores/session-store";
-import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { useWorkspaceLayoutStore, collectAllTabs } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
 import { useSettings } from "@/hooks/use-settings";
@@ -212,7 +219,7 @@ function buildChatAgentFromState(
 function AgentLoadErrorView({ message, onRetry }: { message: string; onRetry: () => void }) {
   const { t } = useTranslation();
   return (
-    <View style={styles.container} testID="agent-load-error">
+    <PaneCanvas style={styles.container} testID="agent-load-error">
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>{t("agentPanel.states.failedToLoad")}</Text>
         <Text style={styles.statusText}>{message}</Text>
@@ -222,7 +229,7 @@ function AgentLoadErrorView({ message, onRetry }: { message: string; onRetry: ()
           </Button>
         </View>
       </View>
-    </View>
+    </PaneCanvas>
   );
 }
 
@@ -235,11 +242,11 @@ function renderChatAgentNonReadyView(args: {
   const { viewState, effectiveAgent, t, onRetryLoad } = args;
   if (viewState.tag === "not_found") {
     return (
-      <View style={styles.container} testID="agent-not-found">
+      <PaneCanvas style={styles.container} testID="agent-not-found">
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{t("agentPanel.states.notFound")}</Text>
         </View>
-      </View>
+      </PaneCanvas>
     );
   }
   if (viewState.tag === "error") {
@@ -247,11 +254,11 @@ function renderChatAgentNonReadyView(args: {
   }
   if (viewState.tag === "boot" || !effectiveAgent) {
     return (
-      <View style={styles.container} testID="agent-loading">
+      <PaneCanvas style={styles.container} testID="agent-loading">
         <View style={styles.errorContainer}>
           <ThemedLoadingSpinner size="large" uniProps={foregroundMutedColorMapping} />
         </View>
-      </View>
+      </PaneCanvas>
     );
   }
   return null;
@@ -399,7 +406,9 @@ function DraftPanel() {
     retargetCurrentTab,
     openPreferredTarget,
     scopeBound,
+    layoutOwner,
   } = usePaneContext();
+  const toast = useToast();
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "draft", "DraftPanel requires draft target");
   const handleOpenReview = useCallback(
@@ -409,12 +418,29 @@ function DraftPanel() {
 
   const handleCreated = useCallback(
     (agentSnapshot: Parameters<typeof normalizeAgentSnapshot>[0]) => {
+      const ownerKey = buildWorkspaceTabPersistenceKey(layoutOwner ?? { serverId, workspaceId })!;
+      const state = useWorkspaceLayoutStore.getState();
+      const current = activeConversation(state, ownerKey);
+      if (current) {
+        const origin = Object.values(state.conversationsByWorkspace[ownerKey] ?? {}).find((c) =>
+          collectAllTabs(
+            (c.id === current.id ? state.layoutByWorkspace[ownerKey]! : c.layout).root,
+          ).some((tab) => tab.tabId === tabId),
+        );
+        if (!origin || origin.endedAt) {
+          const client = useSessionStore.getState().sessions[serverId]?.client;
+          if (client)
+            void client.archiveAgent(agentSnapshot.id).catch((error) => toast.error(String(error)));
+          else toast.error(`Could not archive late member ${agentSnapshot.id}: host disconnected.`);
+          return;
+        }
+      }
       const normalized = normalizeAgentSnapshot(agentSnapshot, serverId);
       const agent = applyLegacyDaemonWorkspaceOwnership({ serverId, agent: normalized });
       getHostRuntimeStore().acceptAgentSnapshot(serverId, agent);
       retargetCurrentTab({ kind: "agent", agentId: agentSnapshot.id });
     },
-    [retargetCurrentTab, serverId],
+    [retargetCurrentTab, serverId, workspaceId, tabId, layoutOwner, toast],
   );
 
   return (
@@ -683,11 +709,11 @@ function AgentPanelBody({
 
   if (lookupState.tag === "not_found") {
     return (
-      <View style={styles.container} testID="agent-not-found">
+      <PaneCanvas style={styles.container} testID="agent-not-found">
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{t("agentPanel.states.notFound")}</Text>
         </View>
-      </View>
+      </PaneCanvas>
     );
   }
 
@@ -717,11 +743,11 @@ function AgentPanelBody({
 
   if (!agent) {
     return (
-      <View style={styles.container} testID="agent-loading">
+      <PaneCanvas style={styles.container} testID="agent-loading">
         <View style={styles.errorContainer}>
           <ThemedLoadingSpinner size="large" uniProps={foregroundMutedColorMapping} />
         </View>
-      </View>
+      </PaneCanvas>
     );
   }
 
@@ -736,6 +762,12 @@ function AgentPanelBody({
       onOpenWorkspaceFile={onOpenWorkspaceFile}
     />
   );
+}
+
+function useConversationRouteKey(serverId: string, agentId: string | null | undefined) {
+  const member = useModelHostContext()?.member;
+  const id = member?.agentId ?? agentId;
+  return id ? `${member?.serverId ?? serverId}:${id}` : null;
 }
 
 function ChatAgentContent({
@@ -918,7 +950,7 @@ function ChatAgentContent({
   });
 
   const effectiveAgent = viewState.tag === "ready" ? viewState.agent : null;
-  const routeEntryKey = agentId ? `${serverId}:${agentId}` : null;
+  const routeEntryKey = useConversationRouteKey(serverId, agentId);
   routeBottomAnchorRequestRef.current = deriveRouteBottomAnchorIntent({
     cachedIntent: routeBottomAnchorRequestRef.current,
     routeKey: routeEntryKey,
@@ -1169,7 +1201,16 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
 }) {
   const { t } = useTranslation();
   // The workspace sheet is for looking; Open as tab brings the agent back with its composer.
-  const showsComposer = usePaneContext().host !== "sheet";
+  const conversationTeam = useWorkspaceTeam()?.team;
+  const pane = usePaneContext();
+  const ownerKey = buildWorkspaceTabPersistenceKey(pane.layoutOwner ?? pane)!;
+  const conversationEnded = useWorkspaceLayoutStore((state) =>
+    Boolean(activeConversation(state, ownerKey)?.endedAt),
+  );
+  const showsComposer =
+    pane.host !== "sheet" &&
+    !conversationEnded &&
+    (!conversationTeam?.status || conversationTeam.status === "active");
   // The dock lays out fullscreen for the same session the composer edits in.
   const composerEditingSession = useComposerEditingSession("chat");
   const isComposerFullscreen = useComposerFullscreen(composerEditingSession);
@@ -1190,10 +1231,11 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     archiveFinishedStatus: archiveFinishedSubagents.status,
     hasPluginComposerPills,
   });
+  const draftAnchor = useModelHostContext()?.member;
   const rawAgentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
-      serverId,
-      agentId,
+      serverId: draftAnchor?.serverId ?? serverId,
+      agentId: draftAnchor?.agentId ?? agentId,
     }),
   });
   // Stabilize the agentInputDraft object identity so that memo(AgentComposerSection) can bail out
@@ -1238,6 +1280,11 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   );
   const composerSection = showsComposer ? (
     <RenderProfile id={`AgentComposerSection:${agentId}`}>
+      <ModelLimitNotice
+        status={agentState.status ?? "idle"}
+        error={agentState.lastError}
+        model={agentState.model}
+      />
       <AgentComposerSection
         agentId={agentId}
         serverId={serverId}
@@ -1302,9 +1349,9 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   const dockOverlay = (
     <>
       {showHistorySyncOverlay ? (
-        <View style={styles.historySyncOverlay} testID="agent-history-overlay">
+        <PaneCanvas style={styles.historySyncOverlay} testID="agent-history-overlay">
           <ThemedLoadingSpinner size="large" uniProps={foregroundMutedColorMapping} />
-        </View>
+        </PaneCanvas>
       ) : null}
 
       <TimelineSyncStatus sync={timelineSync} toast={toast} onDismiss={dismiss} />
@@ -1325,7 +1372,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       setText={agentInputDraft.replaceText}
       onRewindComplete={handleRewindComplete}
     >
-      <View style={styles.root}>
+      <PaneCanvas style={styles.root}>
         {dock}
 
         {isArchivingCurrentAgent ? (
@@ -1335,7 +1382,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
             <Text style={styles.archivingSubtitle}>{t("agentPanel.states.archivingSubtitle")}</Text>
           </View>
         ) : null}
-      </View>
+      </PaneCanvas>
     </RewindComposerRestoreProvider>
   );
 });
@@ -1349,8 +1396,9 @@ function ChatSurface({
   disabled: boolean;
   fullscreen: boolean;
 }) {
+  const surfaceStyle = usePaneSurfaceStyle();
   return (
-    <FileDropZone style={styles.container} disabled={disabled}>
+    <FileDropZone style={[styles.container, surfaceStyle]} disabled={disabled}>
       <ComposerDock fullscreen={fullscreen}>{children}</ComposerDock>
     </FileDropZone>
   );
@@ -1468,7 +1516,15 @@ const AgentStreamSection = memo(function AgentStreamSection({
         : { isActive: false, isCancelling: false, startedAt: null, turnId: null },
     ),
   );
-  const streamItems = streamItemsRaw ?? EMPTY_STREAM_ITEMS;
+  const conversationHistory = useConversationHistory();
+  const anchor = useModelHostContext()?.member;
+  const streamItems = useMemo(
+    () =>
+      conversationHistory.items.length
+        ? [...conversationHistory.items, ...(streamItemsRaw ?? EMPTY_STREAM_ITEMS)]
+        : (streamItemsRaw ?? EMPTY_STREAM_ITEMS),
+    [conversationHistory.items, streamItemsRaw],
+  );
   const pendingPermissionList = useStoreWithEqualityFn(
     useSessionStore,
     (state) => {
@@ -1501,11 +1557,12 @@ const AgentStreamSection = memo(function AgentStreamSection({
       ref={streamViewRef}
       agentId={agent.id}
       serverId={serverId}
+      conversationIdentity={anchor ? `${anchor.serverId}:${anchor.agentId}` : undefined}
       context={agent}
       streamItems={streamItems}
       pendingPermissions={pendingPermissions}
       routeBottomAnchorRequest={routeBottomAnchorRequest}
-      isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory}
+      isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory && !conversationHistory.loading}
       bottomOverlayTailClearance={bottomOverlayTailClearance}
       bottomOverlayControlClearance={bottomOverlayControlClearance}
       toast={toast}
@@ -1720,14 +1777,14 @@ function AgentSessionUnavailableState({
 }) {
   if (isUnknownDaemon) {
     return (
-      <View style={styles.container}>
+      <PaneCanvas style={styles.container}>
         <View style={styles.centerState}>
           <Text style={styles.errorText}>
             {t("agentPanel.unavailable.unknownHost", { serverLabel })}
           </Text>
           <Text style={styles.statusText}>{t("agentPanel.unavailable.addHost")}</Text>
         </View>
-      </View>
+      </PaneCanvas>
     );
   }
 
@@ -1735,7 +1792,7 @@ function AgentSessionUnavailableState({
   const isPreparingSession = connectionStatus === "online";
 
   return (
-    <View style={styles.container}>
+    <PaneCanvas style={styles.container}>
       <View style={styles.centerState}>
         {isConnecting || isPreparingSession ? (
           <>
@@ -1763,7 +1820,7 @@ function AgentSessionUnavailableState({
           </>
         )}
       </View>
-    </View>
+    </PaneCanvas>
   );
 }
 

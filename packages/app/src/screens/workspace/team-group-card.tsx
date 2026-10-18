@@ -41,7 +41,8 @@ function GroupStep({
   const [expanded, setExpanded] = useState(false);
   const toggle = useStableEvent(() => setExpanded((value) => !value));
   const retry = useStableEvent(() => onRetry(step.memberId));
-  const alias = (id: string) => `@${team.members.find((m) => m.id === id)?.alias ?? "?"}`;
+  const alias = (id: string) =>
+    `@${[...team.members, ...(team.retiredMembers ?? [])].find((m) => m.id === id)?.alias ?? "?"}`;
   return (
     <View style={styles.step} testID={`team-group-step-${step.memberId}`}>
       <View style={styles.row}>
@@ -56,7 +57,7 @@ function GroupStep({
             variant="outline"
             size="xs"
             onPress={retry}
-            disabled={pending}
+            disabled={pending || Boolean(team.status && team.status !== "active")}
             testID="team-group-retry"
           >
             {t("workspace.team.group.retry")}
@@ -141,7 +142,10 @@ export function TeamGroupCard({ group, compact = false }: { group: TeamGroup; co
       {!expanded && (
         <Text style={styles.meta} numberOfLines={1}>
           {group.memberIds
-            .map((id) => `@${team.members.find((m) => m.id === id)?.alias ?? "?"}`)
+            .map(
+              (id) =>
+                `@${[...team.members, ...(team.retiredMembers ?? [])].find((m) => m.id === id)?.alias ?? "?"}`,
+            )
             .join(" · ")}
         </Text>
       )}
@@ -172,7 +176,7 @@ export function TeamGroupCard({ group, compact = false }: { group: TeamGroup; co
               size="xs"
               variant="ghost"
               onPress={refresh}
-              disabled={pending}
+              disabled={pending || Boolean(team.status && team.status !== "active")}
               testID="team-group-refresh"
             >
               {t("workspace.team.group.refresh")}

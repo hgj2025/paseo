@@ -1,3 +1,4 @@
+import { executionMember } from "@getpaseo/protocol/workspace-team";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -23,6 +24,20 @@ const ended = (group: TeamGroup) => ["completed", "failed"].includes(group.statu
 export const pendingGroup = (group: TeamGroup) =>
   group.status !== "clarification" && (!ended(group) || group.notification !== "delivered");
 
+function validateMemberPrompts(
+  action: Extract<GroupAction, { kind: "start_group" }>,
+  memberIds: string[],
+) {
+  if (!action.memberPrompts && action.mode !== "addressed") return;
+  if (
+    !action.memberPrompts ||
+    action.mode !== "addressed" ||
+    Object.keys(action.memberPrompts).length !== memberIds.length ||
+    memberIds.some((id) => !action.memberPrompts![id]?.trim())
+  )
+    throw new Error("Each selected member needs exactly one nonempty task.");
+}
+
 /** Persist intent before network work. A stable task ID survives retries, disconnects and restarts. */
 export class WorkspaceTeamGroups {
   private readonly advancing = new Map<string, Promise<void>>();
@@ -47,7 +62,14 @@ export class WorkspaceTeamGroups {
     const memberIds = [...new Set(action.memberIds)].sort();
     const fingerprint = createHash("sha256")
       .update(
-        JSON.stringify([team.workspaceId, action.senderId, action.mode, memberIds, action.prompt]),
+        JSON.stringify([
+          team.workspaceId,
+          action.senderId,
+          action.mode,
+          memberIds,
+          action.prompt,
+          ...(action.memberPrompts ? [memberIds.map((id) => [id, action.memberPrompts![id]])] : []),
+        ]),
       )
       .digest("hex");
     const prior = team.groups?.find((group) => group.id === action.groupId);
@@ -67,15 +89,16 @@ export class WorkspaceTeamGroups {
     if (!team.captainId || !team.members.some((m) => m.id === action.senderId))
       throw new Error("A Captain and a valid sender are required.");
     for (const id of memberIds) {
-      if (!team.members.some((m) => m.id === id))
+      if (!team.members.some((m) => m.id === id && !m.removing))
         throw new Error("A selected member is no longer in this team.");
       if (id === team.captainId)
         throw new Error("Select collaborators; Captain coordinates and summarizes this request.");
     }
+    validateMemberPrompts(action, memberIds);
     const now = new Date().toISOString();
     const group: TeamGroup = {
       id: action.groupId,
-      mode: action.mode,
+      mode: action.mode === "addressed" ? "broadcast" : action.mode,
       prompt: action.prompt,
       memberIds,
       senderId: action.senderId,
@@ -83,9 +106,13 @@ export class WorkspaceTeamGroups {
       coordinatorTaskId: randomUUID(),
       status: action.mode === "coordinate" ? "planning" : "running",
       steps:
-        action.mode === "broadcast"
+        action.mode !== "coordinate"
           ? memberIds.map((memberId) =>
-              this.step({ memberId, prompt: action.prompt, dependsOn: [] }),
+              this.step({
+                memberId,
+                prompt: action.memberPrompts?.[memberId] ?? action.prompt,
+                dependsOn: [],
+              }),
             )
           : [],
       createdAt: now,
@@ -102,7 +129,9 @@ export class WorkspaceTeamGroups {
     await writeFile(receipt, JSON.stringify({ fingerprint }), { mode: 0o600, flag: "wx" });
     const groups = team.groups ?? [];
     const recent = new Set(
-      groups.filter((g) => ended(g) && g.notification === "delivered").slice(-29),
+      team.sessionId
+        ? groups
+        : groups.filter((g) => ended(g) && g.notification === "delivered").slice(-29),
     );
     team.groups = [
       ...groups.filter((g) => !ended(g) || g.notification !== "delivered" || recent.has(g)),
@@ -194,6 +223,7 @@ export class WorkspaceTeamGroups {
   private async advanceOnce(workspaceId: string) {
     const storage = this.storage(workspaceId);
     const snapshot = await storage.read();
+    if (snapshot.status && snapshot.status !== "active") return;
     for (const group of snapshot.groups ?? []) {
       if (!pendingGroup(group)) continue;
       if (!group.steps.length) await this.coordinate(storage, group);
@@ -318,13 +348,14 @@ export class WorkspaceTeamGroups {
   }
   private async report(storage: GroupStorage, groupId: string) {
     const snapshot = await storage.read();
+    if (snapshot.status && snapshot.status !== "active") return;
     const group = this.get(snapshot, groupId);
     if (!ended(group) || group.notification === "delivered" || group.notification === "sending")
       return;
     const captain = snapshot.members.find((m) => m.id === group.captainId);
     if (!captain) return;
     try {
-      if ((await this.transport.inspect(captain)).busy) return;
+      if ((await this.transport.inspect(executionMember(captain))).busy) return;
     } catch {
       return;
     }
@@ -352,7 +383,7 @@ export class WorkspaceTeamGroups {
     };
     let delivered = false;
     try {
-      await this.transport.notify(captain, report);
+      await this.transport.notify(executionMember(captain), report);
       delivered = true;
     } catch {
       /* Retry only this idempotent report, never the work. */

@@ -2,6 +2,10 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ko: TranslationResources = {
+  conversation: en.conversation,
+  teamPanel: en.teamPanel,
+  paneAppearance: en.paneAppearance,
+
   paneFind: {
     connectionFailure: "이 채팅을 검색할 수 없습니다. 호스트 연결을 확인하고 다시 시도하세요.",
     historyChangedFailure: "검색 중에 채팅이 변경되었습니다. 다시 검색하세요.",
@@ -30,6 +34,7 @@ export const ko: TranslationResources = {
     back: "뒤로",
     loading: "불러오는 중...",
     actions: {
+      confirm: "확인",
       save: "저장",
       back: "뒤로",
       cancel: "취소",
@@ -250,6 +255,12 @@ export const ko: TranslationResources = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "모델 요청이 제한되었습니다",
+      quota: "모델 할당량이 부족합니다",
+      description:
+        "제공자가 남은 할당량이나 초기화 시간을 제공하지 않았습니다. 나중에 재시도하거나 아래에서 모델을 변경하세요.",
+    },
     states: {
       notFound: "에이전트를 찾을 수 없습니다",
       failedToLoad: "에이전트를 불러오지 못했습니다",
@@ -436,6 +447,7 @@ export const ko: TranslationResources = {
     },
   },
   workspace: {
+    execution: en.workspace.execution,
     team: en.workspace.team,
     crossHost: en.workspace.crossHost,
     route: {

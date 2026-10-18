@@ -1,3 +1,6 @@
+import { digestStringAsync, CryptoDigestAlgorithm } from "expo-crypto";
+import { useWorkspaceLayoutStore, collectAllTabs } from "@/stores/workspace-layout-store";
+import { activeConversation } from "@/stores/conversation-layout";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -30,6 +33,7 @@ import { shouldAutoFocusWorkspaceDraftComposer } from "@/screens/workspace/works
 import {
   shouldAllowEmptyDraftText,
   validateDraftSubmission,
+  canAutoCreateTeamDraft,
 } from "@/composer/draft/workspace-tab-core";
 import type { AgentCapabilityFlags } from "@getpaseo/protocol/agent-types";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
@@ -115,8 +119,17 @@ function resolveDraftModeId(input: {
   return null;
 }
 
+function teamDraftTitle(role: "captain" | "member" | null, provider: string | null | undefined) {
+  if (role === "captain") return "Captain";
+  if (role === "member") return (provider ?? "Agent").replace(/^./, (c) => c.toUpperCase());
+  return undefined;
+}
+function optionalPrompt(text: string) {
+  return text.trim() ? { initialPrompt: text } : {};
+}
 async function submitDraftCreateRequest(input: {
   draftId: string;
+  title?: string;
   attempt: { clientMessageId: string };
   text: string;
   images?: UserMessageImageAttachment[];
@@ -176,16 +189,24 @@ async function submitDraftCreateRequest(input: {
   const attachmentsArray = Array.isArray(attachments) ? attachments : undefined;
   const imagesData = await encodeImages(images);
   const options = {
-    idempotencyKey: input.draftId,
-    config,
+    config: { ...config, ...(input.title ? { title: input.title } : {}) },
     workspaceId,
-    initialPrompt: text,
+    ...optionalPrompt(text),
     clientMessageId: attempt.clientMessageId,
     ...(imagesData && imagesData.length > 0 ? { images: imagesData } : {}),
     ...(attachmentsArray && attachmentsArray.length > 0 ? { attachments: attachmentsArray } : {}),
   };
+  const fingerprint = JSON.stringify(options, (_key, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+      : value,
+  );
+  const idempotencyKey = `${input.draftId}:${await digestStringAsync(CryptoDigestAlgorithm.SHA256, fingerprint)}`;
+  const keyedOptions = { ...options, idempotencyKey };
   const creation = useWorkspaceDraftSubmissionStore.getState().creationByDraftId[input.draftId];
-  const result = creation ? await creation.retry(options) : await client.createAgent(options);
+  const result = creation
+    ? await creation.retry(keyedOptions)
+    : await client.createAgent(keyedOptions);
 
   return {
     agentId: result.id,
@@ -293,6 +314,10 @@ function resolveImportPillPress(
   return onOpenImportSheet ?? null;
 }
 
+function isDraftSubmissionReady(requirements: unknown[]) {
+  return requirements.every(Boolean);
+}
+
 export function WorkspaceDraftAgentTab({
   serverId,
   workspaceId,
@@ -386,7 +411,20 @@ export function WorkspaceDraftAgentTab({
         : {}),
     };
   }, [pendingCreateAttempt]);
-  const allowsEmptyAutoSubmit = pendingAutoSubmit?.allowEmptyText === true;
+  const teamDraftRole = useWorkspaceLayoutStore((state) => {
+    for (const [key, layout] of Object.entries(state.layoutByWorkspace)) {
+      const conversation = activeConversation(state, key);
+      if (!conversation || conversation.endedAt) continue;
+      const entry = collectAllTabs(layout.root).find((tab) => {
+        const target = tab.target.kind === "scoped" ? tab.target.target : tab.target;
+        return target.kind === "draft" && target.draftId === draftId;
+      });
+      if (entry) return entry.tabId === conversation.rootTabId ? "captain" : "member";
+    }
+    return null;
+  });
+  const teamDraft = Boolean(teamDraftRole);
+  const allowsEmptyAutoSubmit = pendingAutoSubmit?.allowEmptyText === true || teamDraft;
   const isCompactFormFactor = useIsCompactFormFactor();
   const editingSession = useComposerEditingSession("chat");
   const isComposerFullscreen = useComposerFullscreen(editingSession);
@@ -485,6 +523,7 @@ export function WorkspaceDraftAgentTab({
       }
       return submitDraftCreateRequest({
         draftId,
+        title: teamDraftTitle(teamDraftRole, draftProvider),
         attempt,
         text,
         images,
@@ -506,6 +545,63 @@ export function WorkspaceDraftAgentTab({
       onCreated(result);
     },
   });
+  useEffect(() => {
+    if (!teamDraft || !draftInput.isHydrated) return;
+    const available = composerState.modelSelectorProviders.filter(
+      (p) => p.modelSelection.kind === "models" && p.modelSelection.rows.length > 0,
+    );
+    const selected = available.find((p) => p.id === draftProvider);
+    if (selected && composerState.effectiveModelId) return;
+    const provider = selected ?? available[0];
+    if (provider?.modelSelection.kind !== "models") return;
+    const rows = provider.modelSelection.rows;
+    const model = rows.find((row) => row.isDefault) ?? rows[0];
+    if (model) composerState.setProviderAndModelFromUser(provider.id, model.modelId);
+  }, [teamDraft, draftInput.isHydrated, composerState, draftProvider]);
+  const teamCreationStarted = useRef(false);
+  useEffect(() => {
+    teamCreationStarted.current = false;
+  }, [serverId, draftId, draftProvider, composerState.effectiveModelId]);
+  useEffect(() => {
+    if (
+      !teamDraft ||
+      !canAutoCreateTeamDraft({
+        hydrated: draftInput.isHydrated,
+        loading: composerState.isModelLoading,
+        provider: draftProvider,
+        providers: composerState.modelSelectorProviders,
+      }) ||
+      pendingAutoSubmit ||
+      teamCreationStarted.current ||
+      isSubmitting ||
+      !draftWorkingDirectory ||
+      !client
+    )
+      return;
+    const error = validateDraftSubmission({
+      text: "",
+      allowsEmptyAutoSubmit: true,
+      composerState,
+      autoSubmitConfig: null,
+      workspaceDirectory: draftWorkingDirectory,
+      hasClient: true,
+    });
+    if (error) return;
+    teamCreationStarted.current = true;
+    void handleCreateFromInput({ text: "", attachments: [], cwd: draftWorkingDirectory }).catch(
+      () => {},
+    );
+  }, [
+    teamDraft,
+    draftInput.isHydrated,
+    draftProvider,
+    pendingAutoSubmit,
+    isSubmitting,
+    draftWorkingDirectory,
+    client,
+    composerState,
+    handleCreateFromInput,
+  ]);
   const turnPresentation = useMemo(
     () => resolveTurnPresentation(TURN_LIVENESS_IDLE, pendingMessageSubmissions.length > 0),
     [pendingMessageSubmissions],
@@ -540,13 +636,13 @@ export function WorkspaceDraftAgentTab({
       },
     },
   });
-  const isReadyForPendingAutoSubmit = Boolean(
-    pendingAutoSubmit &&
-    draftInput.isHydrated &&
-    draftWorkingDirectory &&
-    client &&
+  const isReadyForPendingAutoSubmit = isDraftSubmissionReady([
+    pendingAutoSubmit,
+    draftInput.isHydrated,
+    draftWorkingDirectory,
+    client,
     !composerState.isModelLoading,
-  );
+  ]);
   const autoSubmitKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isReadyForPendingAutoSubmit) {
@@ -647,7 +743,7 @@ export function WorkspaceDraftAgentTab({
       <ComposerDock fullscreen={isComposerFullscreen}>
         {dockContent}
         <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
-          {importPillPress && !isComposerFullscreen ? (
+          {!teamDraft && importPillPress && !isComposerFullscreen ? (
             <View style={styles.importPillRow}>
               <View style={styles.importPillContent}>
                 <ComposerImportPill onPress={importPillPress} />
@@ -672,7 +768,9 @@ export function WorkspaceDraftAgentTab({
             cwd={composerState.workingDir}
             clearDraft={draftInput.clear}
             editingSession={editingSession}
-            autoFocus={shouldAutoFocusWorkspaceDraftComposer({ isPaneFocused, isSubmitting })}
+            autoFocus={
+              !teamDraft && shouldAutoFocusWorkspaceDraftComposer({ isPaneFocused, isSubmitting })
+            }
             autoFocusKey={String(draftInput.attachmentFocusRequestId)}
             onFocusInput={handleFocusInputCallback}
             commandDraft={composerState.commandDraft}

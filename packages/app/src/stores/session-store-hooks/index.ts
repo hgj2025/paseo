@@ -151,6 +151,7 @@ export function useWorkspaceScopeOptions(serverIds: string[]) {
             serverId,
             workspaceId: workspace.id,
             name: workspace.title || workspace.name,
+            directory: workspace.workspaceDirectory,
           })),
       ),
     workspaceEqualityFns.deep,

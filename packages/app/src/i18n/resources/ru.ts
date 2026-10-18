@@ -2,6 +2,10 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ru: TranslationResources = {
+  conversation: en.conversation,
+  teamPanel: en.teamPanel,
+  paneAppearance: en.paneAppearance,
+
   paneFind: {
     connectionFailure:
       "Не удалось выполнить поиск в чате. Проверьте подключение к хосту и повторите попытку.",
@@ -31,6 +35,7 @@ export const ru: TranslationResources = {
     back: "Назад",
     loading: "Загрузка...",
     actions: {
+      confirm: "Подтвердить",
       save: "Сохранить",
       back: "Назад",
       cancel: "Отмена",
@@ -252,6 +257,12 @@ export const ru: TranslationResources = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "Запросы к модели ограничены",
+      quota: "Квота модели недоступна",
+      description:
+        "Провайдер не указал остаток квоты и время сброса. Повторите позже или смените модель ниже.",
+    },
     states: {
       notFound: "Агент не найден",
       failedToLoad: "Не удалось загрузить агента",
@@ -439,6 +450,7 @@ export const ru: TranslationResources = {
     },
   },
   workspace: {
+    execution: en.workspace.execution,
     team: en.workspace.team,
     crossHost: en.workspace.crossHost,
     route: {

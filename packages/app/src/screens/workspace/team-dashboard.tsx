@@ -1,3 +1,9 @@
+import { executionMember } from "@getpaseo/protocol/workspace-team";
+import { Pencil, ArrowUpRight, RotateCw } from "lucide-react-native";
+import { SettingsCard, SettingsSection } from "@/components/settings";
+import { settingsStyles } from "@/styles/settings";
+import { useSessionStore } from "@/stores/session-store";
+import { TeamMemberAppearance } from "./team-member-appearance";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -96,6 +102,7 @@ export function TeamDashboard({
         <Button
           size="xs"
           variant="ghost"
+          leftIcon={RotateCw}
           disabled={!connected || pending}
           onPress={reload}
           testID="team-refresh"
@@ -112,8 +119,8 @@ export function TeamDashboard({
       visible
       onClose={onClose}
       header={header}
-      desktopMaxWidth={1040}
-      desktopHeight="85%"
+      desktopMaxWidth={880}
+      desktopHeight="80%"
       scrollable={false}
       contentStyle={styles.frame}
       snapPoints={["90%"]}
@@ -124,7 +131,7 @@ export function TeamDashboard({
       {team ? (
         <TeamContent
           team={team}
-          connected={connected}
+          connected={connected && (!team.status || team.status === "active")}
           pending={pending}
           onOpenMember={openMember}
           onRefresh={refresh}
@@ -154,20 +161,19 @@ function TeamContent({ team, connected, pending, onOpenMember, onRefresh }: Team
   const hosts = useHosts();
   const [view, setView] = useState<TaskView>(() => ({
     ...INITIAL_VIEW,
-    tab: team.groups?.length ? "groups" : "tasks",
+    tab: team.groups?.length ? "groups" : "members",
   }));
   const [editingId, setEditingId] = useState<string | null>(null);
   const setTab = useStableEvent((tab: Tab) => setView((v) => ({ ...v, tab })));
   const closeEditor = useStableEvent(() => setEditingId(null));
   const showTask = useStableEvent((id: string) => setView({ ...INITIAL_VIEW, selectedId: id }));
-  const editing = team.members.find((m) => m.id === editingId);
   const memberName = useStableEvent(
     (id: string | null) =>
-      team.members.find((m) => m.id === id)?.alias ||
+      [...team.members, ...(team.retiredMembers ?? [])].find((m) => m.id === id)?.alias ||
       t(id ? "workspace.team.dashboard.formerMember" : "workspace.team.dashboard.you"),
   );
   const hostName = useStableEvent(
-    (id: string) => hosts.find((h) => h.serverId === id)?.label || id,
+    (id: string) => hosts.find((h) => h.serverId === id)?.label || t("teamPanel.hostUnknown"),
   );
   const tasks = useMemo(
     () => [...team.tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -175,7 +181,7 @@ function TeamContent({ team, connected, pending, onOpenMember, onRefresh }: Team
   );
   const tabs = useMemo(
     () =>
-      (["groups", "tasks", "activity", "members"] as const).map((value) => ({
+      (["members", "groups", "tasks", "activity"] as const).map((value) => ({
         value,
         label: t(`workspace.team.dashboard.${value}`),
         testID: `team-tab-${value}`,
@@ -190,8 +196,6 @@ function TeamContent({ team, connected, pending, onOpenMember, onRefresh }: Team
     <>
       <View style={styles.toolbar}>
         <SegmentedControl options={tabs} value={view.tab} onValueChange={setTab} size="sm" />
-      </View>
-      <View style={styles.summary}>
         <Text style={styles.meta}>
           {t("workspace.team.dashboard.summary", {
             members: team.members.length,
@@ -204,23 +208,32 @@ function TeamContent({ team, connected, pending, onOpenMember, onRefresh }: Team
       {view.tab === "members" && (
         <ScrollView style={styles.grow}>
           <View style={styles.memberList}>
-            {team.members.length === 0 && (
-              <Empty
-                title={t("workspace.team.dashboard.noMembers")}
-                description={t("workspace.team.dashboard.noMembersHint")}
-              />
-            )}
-            {team.members.map((member) => (
-              <MemberRow
-                key={member.id}
-                member={member}
-                captain={member.id === team.captainId}
-                host={hostName(member.serverId)}
-                connected={connected}
-                onEdit={setEditingId}
-                onOpen={onOpenMember}
-              />
-            ))}
+            <SettingsSection
+              flush
+              title={t("workspace.team.dashboard.members")}
+              info={t("teamPanel.appearanceHint")}
+            >
+              {team.members.length === 0 && (
+                <Empty
+                  title={t("workspace.team.dashboard.noMembers")}
+                  description={t("workspace.team.dashboard.noMembersHint")}
+                />
+              )}
+              {team.members.map((member) => (
+                <MemberRow
+                  key={member.id}
+                  member={member}
+                  captain={member.id === team.captainId}
+                  host={hostName(executionMember(member).serverId)}
+                  connected={connected}
+                  onEdit={setEditingId}
+                  onOpen={onOpenMember}
+                  team={team}
+                  editing={editingId === member.id}
+                  onCloseEditor={closeEditor}
+                />
+              ))}
+            </SettingsSection>
           </View>
         </ScrollView>
       )}
@@ -260,46 +273,83 @@ function TeamContent({ team, connected, pending, onOpenMember, onRefresh }: Team
           onRefresh={onRefresh}
         />
       )}
-      {editing && (
-        <MemberEditor key={editing.id} member={editing} team={team} onClose={closeEditor} />
-      )}
     </>
   );
 }
 interface MemberRowProps {
   member: TeamMember;
+  team: WorkspaceTeam;
+  editing: boolean;
+  onCloseEditor(): void;
   captain: boolean;
   host: string;
   connected: boolean;
   onEdit(id: string): void;
   onOpen(member: TeamMember): void;
 }
-function MemberRow({ member, captain, host, connected, onEdit, onOpen }: MemberRowProps) {
+function MemberRow({
+  member,
+  team,
+  editing,
+  onCloseEditor,
+  captain,
+  host,
+  connected,
+  onEdit,
+  onOpen,
+}: MemberRowProps) {
   const { t } = useTranslation();
+  const model = useSessionStore(
+    (state) =>
+      state.sessions[executionMember(member).serverId]?.agents.get(executionMember(member).agentId)
+        ?.model,
+  );
   const edit = useStableEvent(() => onEdit(member.id));
   const open = useStableEvent(() => onOpen(member));
+  const defaultRole = captain && member.role === "Coordinate tasks and summarize results";
+  const role = defaultRole ? "" : member.role;
   return (
-    <View style={styles.memberRow} testID={`team-overview-member-${member.id}`}>
-      <View style={styles.grow}>
-        <View style={styles.inline}>
-          <Text style={styles.title}>@{member.alias}</Text>
-          {captain && <StatusBadge label="Captain" size="xs" />}
+    <SettingsCard testID={`team-overview-member-${member.id}`}>
+      <View style={settingsStyles.row}>
+        <View style={settingsStyles.rowContent}>
+          <View style={styles.inline}>
+            <Text style={settingsStyles.rowTitle}>@{member.alias}</Text>
+            {captain && member.alias.toLowerCase() !== "captain" && (
+              <StatusBadge label="Captain" size="xs" />
+            )}
+          </View>
+          <Text style={settingsStyles.rowHint} numberOfLines={1}>
+            {executionMember(member).provider} · {model || t("teamPanel.modelPending")} · {host}
+          </Text>
+          {Boolean(role) && (
+            <Text style={settingsStyles.rowHint} numberOfLines={2}>
+              {role}
+            </Text>
+          )}
         </View>
-        <Text style={styles.meta}>
-          {member.provider} · {host}
-        </Text>
-        <Text style={styles.body}>{member.role || t("workspace.team.dashboard.noRole")}</Text>
-        {member.skills.length > 0 && <Text style={styles.meta}>{member.skills.join(" · ")}</Text>}
+        <View style={styles.memberActions}>
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={Pencil}
+            disabled={!connected}
+            onPress={edit}
+            accessibilityLabel={t("workspace.team.memberSettings")}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={ArrowUpRight}
+            onPress={open}
+            accessibilityLabel={t("workspace.crossHost.sessions")}
+          />
+        </View>
       </View>
-      <View style={styles.memberActions}>
-        <Button variant="ghost" size="xs" disabled={!connected} onPress={edit}>
-          {t("workspace.team.memberSettings")}
-        </Button>
-        <Button variant="ghost" size="xs" onPress={open}>
-          {t("workspace.crossHost.sessions")}
-        </Button>
-      </View>
-    </View>
+      {editing && (
+        <MemberEditor key={member.id} member={member} team={team} onClose={onCloseEditor} />
+      )}
+      <TeamMemberAppearance member={member} />
+    </SettingsCard>
   );
 }
 interface TaskRowProps {
@@ -377,7 +427,9 @@ function TaskBrowser({
   });
   const selected =
     visible.find((task) => task.id === view.selectedId) ?? (!compact ? visible[0] : undefined);
-  const member = team.members.find((m) => m.id === selected?.memberId);
+  const member = [...team.members, ...(team.retiredMembers ?? [])].find(
+    (m) => m.id === selected?.memberId,
+  );
   return (
     <View style={[styles.taskLayout, compact && styles.compactLayout]}>
       {(!compact || !selected) && (
@@ -431,7 +483,7 @@ function TaskBrowser({
           member={member}
           sender={memberName(selected.senderId)}
           recipient={memberName(selected.memberId)}
-          host={member ? hostName(member.serverId) : ""}
+          host={member ? hostName(executionMember(member).serverId) : ""}
           compact={compact}
           onBack={back}
           {...actions}
@@ -547,19 +599,17 @@ function TaskDetail({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  frame: { padding: 0, flex: 1, minHeight: 0 },
+  frame: { padding: 0, gap: 0, flex: 1, minHeight: 0, backgroundColor: theme.colors.surface0 },
   grow: { flex: 1, minWidth: 0, minHeight: 0 },
   toolbar: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: theme.spacing[6],
-    paddingBottom: theme.spacing[3],
-    gap: theme.spacing[2],
-  },
-  summary: {
-    paddingHorizontal: theme.spacing[6],
-    paddingBottom: theme.spacing[3],
+    paddingVertical: theme.spacing[3],
+    gap: theme.spacing[3],
+    flexWrap: "wrap",
+
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
@@ -593,7 +643,7 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     lineHeight: 22,
   },
-  body: { fontSize: theme.fontSize.content, color: theme.colors.foreground, lineHeight: 24 },
+  body: { fontSize: theme.fontSize.base, color: theme.colors.foreground, lineHeight: 22 },
   meta: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted, lineHeight: 18 },
   hint: {
     fontSize: theme.fontSize.base,
@@ -626,15 +676,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[4],
     gap: theme.spacing[3],
   },
-  memberRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spacing[4],
-    paddingVertical: theme.spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  memberActions: { gap: theme.spacing[2] },
+  memberActions: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   error: {
     fontSize: theme.fontSize.sm,
     color: theme.colors.statusWarning,

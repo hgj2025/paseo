@@ -1,3 +1,8 @@
+import { useWorkspaceFilePanelToggle } from "./workspace-file-panel-context";
+import { useWorkspaceTeamMenu } from "./workspace-team-menu";
+import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
+import { PaneMemberHeader, usePaneHeaderMember } from "./pane-member-header";
+import { usePaneSurfaceStyle } from "@/panels/pane-appearance";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
   useCallback,
@@ -234,6 +239,11 @@ function WorkspaceNewTabButton({
   shortcutKeys,
   placement,
 }: WorkspaceNewTabButtonProps) {
+  const activeWorkspace = useActiveWorkspaceSelection();
+  const teamMenu = useWorkspaceTeamMenu(
+    activeWorkspace?.serverId ?? serverId,
+    activeWorkspace?.workspaceId ?? "",
+  );
   const { t } = useTranslation();
   const tooltipText = t("workspace.tabs.actions.newTab");
   const menu = (
@@ -249,6 +259,7 @@ function WorkspaceNewTabButton({
       </ToolbarButton>
       <WorkspaceNewTabMenuContent
         scopeBound={scopeBound}
+        onOpenTeam={host === "explorer" && teamMenu.supported ? teamMenu.show : undefined}
         serverId={serverId}
         purpose={launchPurpose}
         host={host}
@@ -258,7 +269,12 @@ function WorkspaceNewTabButton({
     </DropdownMenu>
   );
 
-  return placement === "inline" ? <View style={styles.inlineAddButton}>{menu}</View> : menu;
+  return (
+    <>
+      {placement === "inline" ? <View style={styles.inlineAddButton}>{menu}</View> : menu}
+      {teamMenu.content}
+    </>
+  );
 }
 
 function WorkspacePaneToolbarActions({
@@ -958,6 +974,11 @@ function TabChip({
 }
 
 export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
+  const { member: paneMember } = usePaneHeaderMember(
+    props.normalizedServerId,
+    props.normalizedWorkspaceId,
+    props.paneId,
+  );
   const [presentations, setPresentations] = useState(
     () => new Map<string, WorkspaceTabPresentation>(),
   );
@@ -995,9 +1016,20 @@ export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
     () =>
       props.tabs.flatMap((item) => {
         const presentation = presentations.get(item.tab.key);
-        return presentation ? [{ ...item, presentation }] : [];
+        const target = item.tab.target.kind === "scoped" ? item.tab.target.target : item.tab.target;
+        return presentation
+          ? [
+              {
+                ...item,
+                presentation:
+                  paneMember && target.kind === "agent" && target.agentId === paneMember.agentId
+                    ? { ...presentation, label: `@${paneMember.alias}` }
+                    : presentation,
+              },
+            ]
+          : [];
       }),
-    [presentations, props.tabs],
+    [presentations, props.tabs, paneMember],
   );
 
   return (
@@ -1051,7 +1083,9 @@ function ResolvedWorkspaceDesktopTabsRow({
   focusModeEnabled,
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
+  const filePanelToggle = useWorkspaceFilePanelToggle(paneId);
   const { t } = useTranslation();
+  const paneHeaderStyle = usePaneSurfaceStyle(true);
   const { serverId: launchServerId, scopeBound } = resolvePaneLaunchHost(tabs, normalizedServerId);
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
@@ -1346,7 +1380,7 @@ function ResolvedWorkspaceDesktopTabsRow({
 
   const row = (
     <View
-      style={styles.tabsContainer}
+      style={[styles.tabsContainer, paneHeaderStyle]}
       testID="workspace-tabs-row"
       onLayout={handleTabsContainerLayout}
     >
@@ -1415,6 +1449,11 @@ function ResolvedWorkspaceDesktopTabsRow({
           rightStyle={tabScrollBoundary.rightShadeStyle}
         />
       </View>
+      <PaneMemberHeader
+        serverId={normalizedServerId}
+        workspaceId={normalizedWorkspaceId}
+        paneId={paneId}
+      />
       <WorkspacePaneToolbarActions
         scopeBound={scopeBound}
         panePanelKinds={panePanelKinds}
@@ -1431,6 +1470,7 @@ function ResolvedWorkspaceDesktopTabsRow({
         onSplitDown={onSplitDown}
         onTogglePaneMaximized={onTogglePaneMaximized}
       />
+      {filePanelToggle}
     </View>
   );
 

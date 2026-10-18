@@ -3723,7 +3723,21 @@ export class Session {
         agentStorage: this.agentStorage,
         logger: this.sessionLogger,
       });
-      const team = await service.execute(msg.workspaceId, msg.action);
+      if (msg.listSessions) {
+        this.emit({
+          type: "workspace.team.execute.response",
+          payload: {
+            requestId: msg.requestId,
+            team: null,
+            teams: await service.listSessions(msg.workspaceId),
+            error: null,
+          },
+        });
+        return;
+      }
+      const team = msg.sessionId
+        ? await service.executeSession(msg.workspaceId, msg.sessionId, msg.action)
+        : await service.execute(msg.workspaceId, msg.action);
       this.emit({
         type: "workspace.team.execute.response",
         payload: { requestId: msg.requestId, team, error: null },

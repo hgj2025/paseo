@@ -117,6 +117,7 @@ export function resolveWindowChromeSafeArea(input: {
   obstruction: WindowChromeObstruction;
   corners: WindowChromeCorners;
   placement: WindowChromeSafeAreaPlacement;
+  topLeftAccessoryWidth?: number;
 }): WindowChromeSafeAreaStyle {
   const ownsTopLeft = input.corners === "top-left" || input.corners === "both";
   const ownsTopRight = input.corners === "top-right" || input.corners === "both";
@@ -125,7 +126,10 @@ export function resolveWindowChromeSafeArea(input: {
   if (input.placement === "below") {
     return { height: Math.max(topLeft?.height ?? 0, topRight?.height ?? 0) };
   }
-  return { paddingLeft: topLeft?.width ?? 0, paddingRight: topRight?.width ?? 0 };
+  return {
+    paddingLeft: topLeft ? topLeft.width + (input.topLeftAccessoryWidth ?? 0) : 0,
+    paddingRight: topRight?.width ?? 0,
+  };
 }
 
 export function WindowChromeProvider({ children }: { children: ReactNode }) {
@@ -296,18 +300,25 @@ export function useHasOwnedWindowChromeObstruction(corner: WindowChromeCorner): 
 type WindowChromeSafeAreaProps = ViewProps & {
   placement: WindowChromeSafeAreaPlacement;
   horizontalPadding?: number;
+  topLeftAccessoryWidth?: number;
 };
 
 export function WindowChromeSafeArea({
   placement,
   horizontalPadding = 0,
+  topLeftAccessoryWidth = 0,
   style,
   ...props
 }: WindowChromeSafeAreaProps) {
   const obstruction = useContext(WindowChromeContext);
   const corners = useContext(WindowChromeCornersContext);
   const safeAreaStyle = useMemo(() => {
-    const resolved = resolveWindowChromeSafeArea({ obstruction, corners, placement });
+    const resolved = resolveWindowChromeSafeArea({
+      obstruction,
+      corners,
+      placement,
+      topLeftAccessoryWidth,
+    });
     if (placement === "below") return resolved;
     const paddingLeft = "paddingLeft" in resolved ? resolved.paddingLeft : 0;
     const paddingRight = "paddingRight" in resolved ? resolved.paddingRight : 0;
@@ -315,7 +326,7 @@ export function WindowChromeSafeArea({
       paddingLeft: paddingLeft + horizontalPadding,
       paddingRight: paddingRight + horizontalPadding,
     };
-  }, [corners, horizontalPadding, obstruction, placement]);
+  }, [corners, horizontalPadding, obstruction, placement, topLeftAccessoryWidth]);
   const combinedStyle = useMemo(() => [style, safeAreaStyle], [safeAreaStyle, style]);
   return <View {...props} style={combinedStyle} />;
 }

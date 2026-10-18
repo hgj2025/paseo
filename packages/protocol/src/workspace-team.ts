@@ -1,6 +1,16 @@
 import { z } from "zod";
 
 export const TeamAliasSchema = z.string().regex(/^[A-Za-z0-9_\-\u4e00-\u9fff]{1,32}$/);
+// A member is a stable conversation anchor. Execution can move without changing that anchor.
+export const TeamExecutionSchema = z.object({
+  serverId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  agentId: z.string().uuid(),
+  provider: z.string().min(1),
+  model: z.string().nullable().optional(),
+  operationId: z.string().uuid().optional(),
+});
+export type TeamExecution = z.infer<typeof TeamExecutionSchema>;
 export const TeamMemberSchema = z.object({
   id: z.string().uuid(),
   alias: TeamAliasSchema,
@@ -10,6 +20,11 @@ export const TeamMemberSchema = z.object({
   provider: z.string(),
   role: z.string().max(1000),
   skills: z.array(z.string().max(40)).max(12),
+  paneId: z.string().optional(),
+  owned: z.boolean().optional(),
+  removing: z.boolean().optional(),
+  execution: TeamExecutionSchema.optional(),
+  executionHistory: z.array(TeamExecutionSchema).optional(),
 });
 export const TeamTaskSchema = z.object({
   id: z.string().uuid(),
@@ -59,6 +74,11 @@ export const TeamGroupSchema = z.object({
   retryIds: z.array(z.string().uuid()),
 });
 export const WorkspaceTeamSchema = z.object({
+  sessionId: z.string().uuid().optional(),
+  status: z.enum(["active", "ending", "ended"]).optional(),
+  endedAt: z.string().optional(),
+  archiveErrors: z.record(z.string(), z.string()).optional(),
+  retiredMembers: z.array(TeamMemberSchema).optional(),
   version: z.literal(1),
   workspaceId: z.string(),
   revision: z.number().int().nonnegative(),
@@ -69,11 +89,21 @@ export const WorkspaceTeamSchema = z.object({
 });
 export const TeamActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("read") }),
+  z.object({ kind: z.literal("end") }),
+  z.object({
+    kind: z.literal("configure_execution"),
+    memberId: z.string().uuid(),
+    revision: z.number().int(),
+    execution: TeamExecutionSchema.extend({ operationId: z.string().uuid() }),
+    sourceCursor: z.object({ epoch: z.string(), seq: z.number().int().nonnegative() }).optional(),
+  }),
   z.object({
     kind: z.literal("join"),
     serverId: z.string().min(1),
     workspaceId: z.string().min(1),
     agentId: z.string().uuid(),
+    paneId: z.string().optional(),
+    owned: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("edit"),
@@ -95,10 +125,11 @@ export const TeamActionSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("start_group"),
+    memberPrompts: z.record(z.string().uuid(), z.string().min(1).max(40000)).optional(),
     groupId: z.string().uuid(),
     senderId: z.string().uuid(),
     memberIds: z.array(z.string().uuid()).min(1).max(32),
-    mode: z.enum(["coordinate", "broadcast"]),
+    mode: z.enum(["coordinate", "broadcast", "addressed"]),
     prompt: z.string().min(1).max(40000),
   }),
   z.object({
@@ -129,6 +160,8 @@ export const WorkspaceTeamRequestSchema = z.object({
   type: z.literal("workspace.team.execute.request"),
   requestId: z.string(),
   workspaceId: z.string().min(1),
+  sessionId: z.string().uuid().optional(),
+  listSessions: z.boolean().optional(),
   action: TeamActionSchema,
 });
 export const WorkspaceTeamResponseSchema = z.object({
@@ -136,12 +169,31 @@ export const WorkspaceTeamResponseSchema = z.object({
   payload: z.object({
     requestId: z.string(),
     team: WorkspaceTeamSchema.nullable(),
+    teams: z.array(WorkspaceTeamSchema).optional(),
     error: z.string().nullable(),
   }),
 });
+export function teamStorageKey(team: Pick<WorkspaceTeam, "workspaceId" | "sessionId">): string {
+  return team.sessionId ? `${team.workspaceId}::session::${team.sessionId}` : team.workspaceId;
+}
+
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
 export type TeamTask = z.infer<typeof TeamTaskSchema>;
 export type WorkspaceTeam = z.infer<typeof WorkspaceTeamSchema>;
 export type TeamAction = z.infer<typeof TeamActionSchema>;
 export type TeamGroup = z.infer<typeof TeamGroupSchema>;
 export type TeamGroupStep = z.infer<typeof TeamGroupStepSchema>;
+
+/** Resolve a runner only at the transport edge. Member IDs and conversation anchors stay stable. */
+export function executionMember(member: TeamMember): TeamMember {
+  return member.execution ? { ...member, ...member.execution } : member;
+}
+export function memberExecutions(member: TeamMember): TeamExecution[] {
+  const bindings = [...(member.executionHistory ?? []), member.execution ?? member];
+  return bindings.filter(
+    (entry, index) =>
+      bindings.findIndex(
+        (other) => other.serverId === entry.serverId && other.agentId === entry.agentId,
+      ) === index,
+  );
+}

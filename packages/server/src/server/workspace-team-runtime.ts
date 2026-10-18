@@ -22,6 +22,8 @@ const Inspection = z.object({
   Provider: z.string(),
   Status: z.string(),
   Archived: z.boolean().optional(),
+  HistoryEpoch: z.string().optional(),
+  HistorySeq: z.number().optional(),
 });
 const Observation = z.object({
   agentId: z.string(),
@@ -64,6 +66,20 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
     dispose() {
       disposeRemoteAgentPool(paseoHome);
     },
+    async isArchived(member) {
+      if (member.serverId !== serverId) return false;
+      return Boolean((await agentStorage.get(member.agentId))?.archivedAt);
+    },
+    async archive(member) {
+      if (member.serverId !== serverId) {
+        await remote.archive(member.serverId, member.agentId, member.workspaceId);
+        return;
+      }
+      const agent = agentManager.getAgent(member.agentId);
+      if (agent && agent.workspaceId !== member.workspaceId)
+        throw new Error("Agent workspace changed.");
+      await agentManager.archiveAgent(member.agentId);
+    },
     async inspect(member) {
       if (member.serverId !== serverId) {
         const result = Inspection.parse(
@@ -71,7 +87,12 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
         );
         if (result.Id !== member.agentId || result.Archived)
           throw new Error("Remote agent is unavailable.");
-        return { provider: result.Provider, busy: !["idle", "closed"].includes(result.Status) };
+        return {
+          provider: result.Provider,
+          busy: !["idle", "closed", "error"].includes(result.Status),
+          historyEpoch: result.HistoryEpoch,
+          historySeq: result.HistorySeq,
+        };
       }
       const record = await agentStorage.get(member.agentId);
       if (
@@ -82,7 +103,15 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
       )
         throw new Error("Agent does not belong to this workspace.");
       const snapshot = agentManager.getAgent(member.agentId);
+      const page = snapshot
+        ? agentManager.fetchTimeline(member.agentId, {
+            direction: "tail",
+            limit: 1,
+          })
+        : null;
       return {
+        historyEpoch: page?.epoch,
+        historySeq: page?.window.maxSeq,
         provider: record.provider,
         busy:
           agentManager.hasInFlightRun(member.agentId) ||
@@ -90,7 +119,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
       };
     },
     async send(member, task) {
-      const prompt = `${teamTaskMarker(task)}\n${task.prompt}`;
+      const prompt = `${teamTaskMarker(task)}\n${member.role.trim() ? `Member prompt constraints (@${member.alias}):\n${member.role.trim()}\n\nTask:\n` : ""}${task.prompt}`;
       if (member.serverId !== serverId) {
         const receipt = await remote.send({
           callerId: "workspace-team",

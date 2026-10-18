@@ -50,3 +50,14 @@ export function validateDraftSubmission(input: {
   });
   return readiness.ok ? null : (readiness.reason ?? null);
 }
+
+export function canAutoCreateTeamDraft(input: {
+  hydrated: boolean;
+  loading: boolean;
+  provider: string | null;
+  providers: readonly { id: string }[];
+}): boolean {
+  return (
+    input.hydrated && !input.loading && input.providers.some((entry) => entry.id === input.provider)
+  );
+}

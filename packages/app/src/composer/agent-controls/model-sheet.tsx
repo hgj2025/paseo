@@ -1,4 +1,8 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useStableEvent } from "@/hooks/use-stable-event";
+import { ModelHostActions } from "@/screens/workspace/model-host-picker";
+import { useExecutionModelSelection } from "@/screens/workspace/use-execution-model-selection";
+import { useToast } from "@/contexts/toast-api-context";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Keyboard, ScrollView, Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -75,13 +79,17 @@ function resolveModelSheetProfileActions(
   };
 }
 
+function availableProfileAction<T>(previewing: boolean, action: T | undefined): T | undefined {
+  return previewing ? undefined : action;
+}
+
 export function CompactModelSheet({
-  providers,
-  selectedProvider,
-  selectedModel,
+  providers: baseProviders,
+  selectedProvider: baseProvider,
+  selectedModel: baseModel,
   thinkingLabel,
   onSelect,
-  isLoading,
+  isLoading: baseLoading,
   profiles = null,
   onApplyProfile,
   onEditProfiles,
@@ -92,12 +100,36 @@ export function CompactModelSheet({
   onRetryProvider,
   isRetryingProvider = false,
   disabled = false,
-  serverId = null,
+  serverId: baseServerId = null,
   glyphSize,
   canSwitchProvider,
   children,
 }: CompactModelSheetProps) {
   const { t } = useTranslation();
+  const toast = useToast();
+  const execution = useExecutionModelSelection({
+    providers: baseProviders,
+    provider: baseProvider,
+    model: baseModel,
+    serverId: baseServerId,
+    loading: baseLoading,
+  });
+  const {
+    providers,
+    currentModelLabel,
+    provider: selectedProvider,
+    model: selectedModel,
+    serverId,
+    loading: isLoading,
+    select: selectExecution,
+  } = execution;
+  const applyModel = useCallback(
+    async (provider: string, modelId: string) => {
+      if (selectExecution) await selectExecution(provider, modelId);
+      else onSelect(provider, modelId);
+    },
+    [selectExecution, onSelect],
+  );
   const usesBottomSheet = useIsCompactFormFactor();
   const modelBrowserScrolling = resolveModelBrowserScrolling({
     isNative,
@@ -106,18 +138,18 @@ export function CompactModelSheet({
   const [isOpen, setIsOpen] = useState(false);
   const [isModelBrowserOpen, setIsModelBrowserOpen] = useState(false);
   const availableProviders = useMemo(() => {
-    if (canSwitchProvider) return providers;
+    if (canSwitchProvider || selectExecution) return providers;
     const fixedProvider =
       providers.find((entry) => entry.id === selectedProvider) ?? providers[0] ?? null;
     return fixedProvider ? [fixedProvider] : [];
-  }, [canSwitchProvider, providers, selectedProvider]);
+  }, [canSwitchProvider, providers, selectedProvider, selectExecution]);
   const rootBrowser = useModelBrowser({
     providers: availableProviders,
     selectedProvider,
     selectedModel,
     isLoading,
     autoFocusSearch: isWeb && !usesBottomSheet,
-    profiles,
+    profiles: execution.isPreviewing ? null : profiles,
     serverId,
   });
   const modelBrowser = useModelBrowser({
@@ -126,14 +158,15 @@ export function CompactModelSheet({
     selectedModel,
     isLoading,
     autoFocusSearch: isWeb && !usesBottomSheet,
-    profiles,
+    profiles: execution.isPreviewing ? null : profiles,
     serverId,
   });
-  const ModelIcon = useProviderIcon(selectedProvider, serverId);
-  const hasSelectedProvider = selectedProvider.trim().length > 0;
+  const ModelIcon = useProviderIcon(baseProvider, baseServerId);
+  const hasSelectedProvider = baseProvider.trim().length > 0;
   const rootHeader = useMemo(
     () => ({
       ...rootBrowser.header,
+      actions: <ModelHostActions>{rootBrowser.header.actions}</ModelHostActions>,
       title: t("modelSelector.selectModel"),
       search:
         rootBrowser.header.search && !canSwitchProvider
@@ -153,21 +186,32 @@ export function CompactModelSheet({
     onOpen?.();
   }, [onOpen, rootBrowser]);
 
+  const resetForExecutionScope = useStableEvent(() => {
+    if (isOpen) rootBrowser.showAll();
+  });
+  useEffect(resetForExecutionScope, [serverId, selectedProvider, resetForExecutionScope]);
+
   const close = useCallback(() => {
     setIsModelBrowserOpen(false);
     setIsOpen(false);
     rootBrowser.reset();
     modelBrowser.reset();
+    execution.context?.selectCandidate(null);
     onClose?.();
-  }, [modelBrowser, onClose, rootBrowser]);
+  }, [modelBrowser, onClose, rootBrowser, execution.context]);
 
   const handleSearchSelect = useCallback(
-    (provider: string, modelId: string) => {
-      onSelect(provider, modelId);
+    async (provider: string, modelId: string) => {
+      try {
+        await applyModel(provider, modelId);
+      } catch (error) {
+        toast.error(String(error));
+        return;
+      }
       Keyboard.dismiss();
       rootBrowser.showAll();
     },
-    [onSelect, rootBrowser],
+    [applyModel, toast, rootBrowser],
   );
 
   const openModelBrowser = useCallback(() => {
@@ -191,19 +235,29 @@ export function CompactModelSheet({
   }, [modelBrowser]);
 
   const handleBrowserSelect = useCallback(
-    (provider: string, modelId: string) => {
-      onSelect(provider, modelId);
+    async (provider: string, modelId: string) => {
+      try {
+        await applyModel(provider, modelId);
+      } catch (error) {
+        toast.error(String(error));
+        return;
+      }
       closeModelBrowser();
     },
-    [closeModelBrowser, onSelect],
+    [closeModelBrowser, applyModel, toast],
   );
 
   const handleDesktopSelect = useCallback(
-    (provider: string, modelId: string) => {
-      onSelect(provider, modelId);
+    async (provider: string, modelId: string) => {
+      try {
+        await applyModel(provider, modelId);
+      } catch (error) {
+        toast.error(String(error));
+        return;
+      }
       close();
     },
-    [close, onSelect],
+    [close, applyModel, toast],
   );
 
   const handleApplyProfile = useCallback(
@@ -246,11 +300,11 @@ export function CompactModelSheet({
             icon={ModelIcon}
             surface="sheet"
             label={t("modelSelector.model")}
-            value={rootBrowser.selectedModelLabel}
+            value={currentModelLabel}
             disabled={disabled}
             onPress={openModelBrowser}
             accessibilityLabel={t("modelSelector.selectedModel", {
-              model: rootBrowser.selectedModelLabel,
+              model: currentModelLabel,
             })}
             testID="agent-controls-model"
           />
@@ -258,7 +312,7 @@ export function CompactModelSheet({
         </View>
       </View>
     ),
-    [ModelIcon, children, disabled, openModelBrowser, rootBrowser.selectedModelLabel, t],
+    [ModelIcon, children, disabled, openModelBrowser, currentModelLabel, t],
   );
 
   return (
@@ -270,7 +324,7 @@ export function CompactModelSheet({
         style={triggerStyle}
         accessibilityRole="button"
         accessibilityLabel={t("modelSelector.selectedModel", {
-          model: rootBrowser.selectedModelLabel,
+          model: currentModelLabel,
         })}
         testID="combined-model-selector"
         chevron={null}
@@ -282,7 +336,7 @@ export function CompactModelSheet({
         ) : null}
         <View style={styles.triggerLabels}>
           <Text style={styles.triggerText} numberOfLines={1}>
-            {shortModelLabel(rootBrowser.triggerLabel)}
+            {shortModelLabel(currentModelLabel)}
           </Text>
           {thinkingLabel ? (
             <Text style={styles.triggerThinking} numberOfLines={1}>
@@ -312,9 +366,12 @@ export function CompactModelSheet({
             state={rootBrowser}
             onSelect={usesBottomSheet ? handleSearchSelect : handleDesktopSelect}
             onApplyProfile={handleApplyProfile}
-            onEditProfiles={onEditProfiles ? handleEditProfiles : undefined}
-            onCreateProfile={profileActions.create}
-            onEditProfile={profileActions.edit}
+            onEditProfiles={availableProfileAction(
+              execution.isPreviewing,
+              onEditProfiles && handleEditProfiles,
+            )}
+            onCreateProfile={availableProfileAction(execution.isPreviewing, profileActions.create)}
+            onEditProfile={availableProfileAction(execution.isPreviewing, profileActions.edit)}
             onRetryProvider={onRetryProvider}
             isRetryingProvider={isRetryingProvider}
             scrolling={modelBrowserScrolling}
@@ -356,9 +413,15 @@ export function CompactModelSheet({
             <ModelBrowser
               state={modelBrowser}
               onSelect={handleBrowserSelect}
-              onEditProfiles={onEditProfiles ? handleEditProfiles : undefined}
-              onCreateProfile={profileActions.create}
-              onEditProfile={profileActions.edit}
+              onEditProfiles={availableProfileAction(
+                execution.isPreviewing,
+                onEditProfiles && handleEditProfiles,
+              )}
+              onCreateProfile={availableProfileAction(
+                execution.isPreviewing,
+                profileActions.create,
+              )}
+              onEditProfile={availableProfileAction(execution.isPreviewing, profileActions.edit)}
               onRetryProvider={onRetryProvider}
               isRetryingProvider={isRetryingProvider}
               scrolling={modelBrowserScrolling}

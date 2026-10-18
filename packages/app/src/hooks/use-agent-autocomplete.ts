@@ -514,7 +514,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
   );
 
   const options = useMemo<AgentAutocompleteOption[]>(() => {
-    if (mode !== "file" || !activeFileMention || !onTeamMemberSelected) return baseOptions;
+    if (mode !== "file" || !activeFileMention || !teamMembers?.length) return baseOptions;
     const query = activeFileMention.query.toLowerCase();
     const members = (teamMembers ?? [])
       .filter((member) => member.alias.toLowerCase().includes(query))
@@ -528,7 +528,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     // Above-input lists pin and select their last row. Keep members nearest the input,
     // ahead of file results in keyboard priority, including while file search is pending.
     return [...baseOptions, ...orderAutocompleteOptions(members)];
-  }, [baseOptions, mode, activeFileMention, teamMembers, onTeamMemberSelected, t]);
+  }, [baseOptions, mode, activeFileMention, teamMembers, t]);
 
   const onSelectOption = useCallback(
     (option: AutocompleteOption, snapshot?: AgentAutocompleteInputSnapshot) => {
@@ -541,10 +541,11 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
         activeFileMention,
       });
       if (selected.type === "team_member") {
-        if (!current.fileMention || !onTeamMemberSelected) return;
-        onTeamMemberSelected(selected.member);
+        if (!current.fileMention) return;
+        onTeamMemberSelected?.(selected.member);
         setUserInput(
           current.text.slice(0, current.fileMention.start) +
+            `@${selected.member.alias} ` +
             current.text.slice(current.fileMention.end),
         );
         onAutocompleteApplied?.();

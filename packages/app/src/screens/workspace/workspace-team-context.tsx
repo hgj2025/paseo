@@ -4,6 +4,7 @@ import type { TeamAction, WorkspaceTeam } from "@getpaseo/protocol/workspace-tea
 export interface WorkspaceTeamContextValue {
   team: WorkspaceTeam | null;
   supportsGroups: boolean;
+  supportsExecution?: boolean;
   ownerServerId: string;
   workspaceId: string;
   error: string | null;

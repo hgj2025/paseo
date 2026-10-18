@@ -1,4 +1,39 @@
 export const en = {
+  conversation: {
+    new: "New conversation",
+    untitled: "Conversation {{number}}",
+    addMember: "Add member",
+    memberWorkspace: "Member host and workspace",
+    history: "Collaboration history",
+    end: "End conversation",
+    ended: "Ended",
+    readOnly:
+      "This conversation has ended. Member conversations and collaboration history remain available.",
+    removeDescription:
+      "Remove this member and archive its child conversation? Its collaboration history will be kept.",
+    endDescription:
+      "Stop and archive agents created for this conversation. Collaboration history is kept. Other conversations are unaffected.",
+  },
+  teamPanel: {
+    themeLocked: "Follows Paseo theme",
+    memberColor: "Pane color for @{{name}}",
+    paneUnavailable: "No open pane",
+    hostUnknown: "Host unavailable",
+    appearanceHint: "Pane colors apply on this device. Captain always follows the Paseo theme.",
+    modelPending: "Model not loaded",
+  },
+  paneAppearance: {
+    title: "Pane color",
+    auto: "Automatic",
+    theme: "Follow theme",
+    blue: "Blue",
+    teal: "Sage",
+    amber: "Sand",
+    violet: "Lavender",
+    pink: "Rose",
+    sky: "Sky",
+  },
+
   paneFind: {
     connectionFailure: "Could not search this chat. Check the host connection and retry.",
     historyChangedFailure: "The chat changed while searching. Search again.",
@@ -26,6 +61,7 @@ export const en = {
     back: "Back",
     loading: "Loading...",
     actions: {
+      confirm: "Confirm",
       save: "Save",
       back: "Back",
       cancel: "Cancel",
@@ -246,6 +282,12 @@ export const en = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "Model requests are rate limited",
+      quota: "Model quota unavailable",
+      description:
+        "The provider did not supply remaining quota or a reset time. Try later or switch models below.",
+    },
     states: {
       notFound: "Agent not found",
       failedToLoad: "Failed to load agent",
@@ -432,12 +474,23 @@ export const en = {
     },
   },
   workspace: {
+    execution: {
+      chooseHost: "Choose execution host",
+      busy: "Wait for the current turn and permissions to finish before switching.",
+      upgrade: "Update the Mac daemon to switch execution without replacing the conversation.",
+      tooLarge:
+        "Conversation context is too large to transfer safely. Compact it before switching.",
+      historyUnavailable:
+        "Conversation history is unavailable. The current executor has been kept.",
+      changing: "Switching execution…",
+    },
     team: {
       group: {
         legacyPending:
           "This saved request predates team groups. Check its receipt in Tasks before removing the recipient.",
         coordinate: "Captain assigns",
         broadcast: "Broadcast",
+        inlineInvalid: "Write a task after each @member; put all task text after a member mention.",
         coordinateHint: "Captain assigns scoped work and summarizes. Type @ to add more members.",
         broadcastHint:
           "Send the same request to each selected member; Captain summarizes the results.",
@@ -523,7 +576,7 @@ export const en = {
       },
       memberSettings: "Team member",
       name: "Mention name",
-      role: "Responsibility",
+      role: "Prompt constraints",
       skills: "Skills (comma-separated)",
       makeCaptain: "Make Captain",
       members: "Team members",

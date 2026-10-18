@@ -3493,13 +3493,47 @@ export class DaemonClient {
   // Agent Interaction
   // ============================================================================
 
-  async workspaceTeam(workspaceId: string, action: TeamAction): Promise<WorkspaceTeam> {
+  async workspaceConversations(workspaceId: string): Promise<WorkspaceTeam[]> {
+    if (this.lastServerInfoMessage?.features?.sessionTeams !== true)
+      throw new Error("Update the conversation host to use session teams.");
+    const requestId = this.createRequestId();
+    const payload = await this.sendRequest({
+      requestId,
+      message: {
+        type: "workspace.team.execute.request",
+        requestId,
+        workspaceId,
+        listSessions: true,
+        action: { kind: "read" },
+      },
+      options: { skipQueue: true },
+      select: (msg) =>
+        msg.type === "workspace.team.execute.response" && msg.payload.requestId === requestId
+          ? msg.payload
+          : null,
+    });
+    if (payload.error) throw new Error(payload.error);
+    return payload.teams ?? [];
+  }
+  async workspaceTeam(
+    workspaceId: string,
+    action: TeamAction,
+    sessionId?: string,
+  ): Promise<WorkspaceTeam> {
+    if (sessionId && this.lastServerInfoMessage?.features?.sessionTeams !== true)
+      throw new Error("Update the conversation host to use session teams.");
     if (this.lastServerInfoMessage?.features?.workspaceTeams !== true)
       throw new Error("Update this host to use workspace teams.");
     const requestId = this.createRequestId();
     const payload = await this.sendRequest({
       requestId,
-      message: { type: "workspace.team.execute.request", requestId, workspaceId, action },
+      message: {
+        type: "workspace.team.execute.request",
+        requestId,
+        workspaceId,
+        action,
+        sessionId,
+      },
       options: { skipQueue: true },
       select: (msg) =>
         msg.type === "workspace.team.execute.response" && msg.payload.requestId === requestId

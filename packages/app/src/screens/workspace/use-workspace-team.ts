@@ -1,3 +1,4 @@
+import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,25 +14,37 @@ export function useWorkspaceTeamState(serverId: string, workspaceId: string, act
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
-  const supported = useHostFeature(serverId, "workspaceTeams");
+  const sessionId = useWorkspaceLayoutStore(
+    (state) => state.activeConversationByWorkspace[`${serverId}:${workspaceId}`],
+  );
+  const legacySupported = useHostFeature(serverId, "workspaceTeams");
+  const sessionSupported = useHostFeature(serverId, "sessionTeams");
+  const supported = sessionId ? sessionSupported : legacySupported;
+  const supportsExecution = useHostFeature(serverId, "conversationExecution");
   const supportsGroups = useHostFeature(serverId, "workspaceTeamGroups");
   const queryClient = useQueryClient();
   const queryKey = useMemo(
-    () => ["workspace-team", serverId, workspaceId],
-    [serverId, workspaceId],
+    () => ["workspace-team", serverId, workspaceId, sessionId ?? "legacy"],
+    [serverId, workspaceId, sessionId],
   );
   const query = useFetchQuery({
     dataShape: "value",
     staleTimeMs: 1000,
     queryKey,
-    queryFn: () => client!.workspaceTeam(workspaceId, { kind: "read" }),
-    enabled: supported && connected && Boolean(client) && active,
+    queryFn: () => client!.workspaceTeam(workspaceId, { kind: "read" }, sessionId),
+    enabled:
+      supported &&
+      connected &&
+      Boolean(client) &&
+      active &&
+      (!sessionSupported || Boolean(sessionId)),
     refetchInterval: active ? 5000 : false,
     retry: false,
   });
   const execute = useStableEvent(async (action: TeamAction) => {
+    if (sessionSupported && !sessionId) throw new Error("Conversation is loading.");
     if (!client || !connected) throw new Error(t("workspace.terminal.hostDisconnected"));
-    const result = await client.workspaceTeam(workspaceId, action);
+    const result = await client.workspaceTeam(workspaceId, action, sessionId);
     queryClient.setQueryData(queryKey, result);
     return result;
   });
@@ -44,13 +57,23 @@ export function useWorkspaceTeamState(serverId: string, workspaceId: string, act
         ? {
             team: query.data ?? null,
             supportsGroups,
+            supportsExecution,
             ownerServerId: serverId,
             workspaceId,
             error: query.error ? String(query.error) : null,
             execute,
           }
         : null,
-    [supported, supportsGroups, query.data, query.error, serverId, workspaceId, execute],
+    [
+      supported,
+      supportsGroups,
+      supportsExecution,
+      query.data,
+      query.error,
+      serverId,
+      workspaceId,
+      execute,
+    ],
   );
   return { context, supported, connected, retry };
 }

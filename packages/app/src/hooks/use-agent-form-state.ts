@@ -171,11 +171,12 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
     [updatePreferences],
   );
 
-  const [{ form: formState, userModified, resolution }, dispatch] = useReducer(resolveAgentForm, {
-    form: { provider: null, modeId: "", model: "", thinkingOptionId: "" },
-    userModified: INITIAL_USER_MODIFIED,
-    resolution: INITIAL_AGENT_FORM_RESOLUTION,
-  });
+  const [{ form: formState, userModified, resolution, inputs: resolvedInputs }, dispatch] =
+    useReducer(resolveAgentForm, {
+      form: { provider: null, modeId: "", model: "", thinkingOptionId: "" },
+      userModified: INITIAL_USER_MODIFIED,
+      resolution: INITIAL_AGENT_FORM_RESOLUTION,
+    });
 
   const {
     entries: snapshotEntries,
@@ -247,7 +248,10 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
   const availableModels = snapshotSelectedProviderModels;
   const modeOptions = snapshotSelectedProviderModes;
   const isModelSelectionLoading =
-    resolution.status === "pending" || snapshotIsLoading || selectedProviderIsLoading;
+    resolvedInputs?.serverId !== serverId ||
+    resolution.status === "pending" ||
+    snapshotIsLoading ||
+    selectedProviderIsLoading;
   const isAllModelsLoading = isModelSelectionLoading;
 
   useEffect(() => {

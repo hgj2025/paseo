@@ -1,3 +1,10 @@
+import {
+  conversationActions,
+  activeConversation,
+  routeConversationTab,
+  conversationTarget,
+  type ConversationState,
+} from "./conversation-layout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
@@ -123,7 +130,10 @@ export interface SheetTab {
   parentTabId: string | null;
 }
 
-interface WorkspaceLayoutStore {
+function isBoundConversationTarget(target: WorkspaceTabTarget | undefined) {
+  return Boolean(target && conversationTarget(target)?.kind === "agent");
+}
+export interface WorkspaceLayoutStore extends ConversationState {
   /** Published once by the app shell; callers never pass a form factor to open a tab. */
   layoutMode: WorkspaceLayoutMode;
   /**
@@ -945,6 +955,7 @@ export function createWorkspaceLayoutStore(
   return create<WorkspaceLayoutStore>()(
     persist(
       (set, get) => ({
+        ...conversationActions(set, get),
         autoOpenPullRequestTab: (workspaceKey, resolvePlacement) => {
           const key = trimNonEmpty(workspaceKey);
           if (!key || get().pullRequestTabAutoOpenedByWorkspace[key]) return null;
@@ -980,6 +991,23 @@ export function createWorkspaceLayoutStore(
           const normalizedTarget = normalizeWorkspaceTabTarget(input.target);
           if (!normalizedWorkspaceKey || !normalizedTarget) {
             return null;
+          }
+          const route = routeConversationTab(
+            get(),
+            normalizedWorkspaceKey,
+            normalizedTarget,
+            input.placement && "paneId" in input.placement ? input.placement.paneId : undefined,
+          );
+          if (
+            route.conversationId &&
+            route.conversationId !== get().activeConversationByWorkspace[normalizedWorkspaceKey]
+          )
+            get().selectConversation(normalizedWorkspaceKey, route.conversationId);
+          if (route.create) return get().newConversation(normalizedWorkspaceKey, normalizedTarget);
+          if (route.tab) {
+            if (input.intent !== "background")
+              get().focusTab(normalizedWorkspaceKey, route.tab.tabId);
+            return route.tab.tabId;
           }
           const parentTabId = resolveOpenParentTabId(
             get(),
@@ -1194,6 +1222,8 @@ export function createWorkspaceLayoutStore(
           });
         },
         ensureSidePane: (workspaceKey, options) => {
+          if (activeConversation(get(), workspaceKey))
+            return get().layoutByWorkspace[workspaceKey]?.focusedPaneId ?? null;
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
           if (!normalizedWorkspaceKey) {
             return null;
@@ -1394,6 +1424,49 @@ export function createWorkspaceLayoutStore(
           const normalizedTabId = trimNonEmpty(tabId);
           const normalizedTarget = normalizeWorkspaceTabTarget(target);
           if (!normalizedWorkspaceKey || !normalizedTabId || !normalizedTarget) return null;
+          const currentConversation = activeConversation(get(), normalizedWorkspaceKey);
+          if (currentConversation) {
+            const state = get();
+            const background = Object.values(
+              state.conversationsByWorkspace[normalizedWorkspaceKey] ?? {},
+            ).find(
+              (c) =>
+                c.id !== currentConversation.id &&
+                collectAllTabs(c.layout.root).some((t) => t.tabId === normalizedTabId),
+            );
+            if (background) {
+              const result = replaceTabTargetInLayout({
+                layout: background.layout,
+                tabId: normalizedTabId,
+                target: normalizedTarget,
+                createTabId: createWorkspaceTabInstanceId,
+                state: tabState,
+              });
+              if (!result) return null;
+              set({
+                conversationsByWorkspace: {
+                  ...state.conversationsByWorkspace,
+                  [normalizedWorkspaceKey]: {
+                    ...state.conversationsByWorkspace[normalizedWorkspaceKey],
+                    [background.id]: {
+                      ...background,
+                      layout: result.layout,
+                      rootTabId:
+                        background.rootTabId === normalizedTabId
+                          ? result.tabId
+                          : background.rootTabId,
+                    },
+                  },
+                },
+              });
+              return result.tabId;
+            }
+            const layout = get().layoutByWorkspace[normalizedWorkspaceKey];
+            const old =
+              layout &&
+              collectAllTabs(layout.root).find((t) => t.tabId === normalizedTabId)?.target;
+            if (isBoundConversationTarget(old)) return normalizedTabId;
+          }
           if (findSheet(get(), normalizedWorkspaceKey, normalizedTabId)) {
             const policy = resolveCompactSheetPolicy(normalizedWorkspaceKey, normalizedTarget);
             const next: WorkspaceLayoutStore = {
@@ -1471,42 +1544,56 @@ export function createWorkspaceLayoutStore(
           });
         },
         convertDraftToAgent: (workspaceKey, tabId, agentId) => {
-          const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
-          const normalizedTabId = trimNonEmpty(tabId);
-          const normalizedAgentId = trimNonEmpty(agentId);
-          if (!normalizedWorkspaceKey || !normalizedTabId || !normalizedAgentId) {
-            return null;
-          }
-
-          const layout = getWorkspaceLayout(get().layoutByWorkspace, normalizedWorkspaceKey);
+          if (!workspaceKey.trim() || !tabId.trim() || !agentId.trim()) return null;
+          const state = get();
+          const current = activeConversation(state, workspaceKey);
+          const owner = Object.values(state.conversationsByWorkspace[workspaceKey] ?? {}).find(
+            (c) =>
+              collectAllTabs(
+                (c.id === current?.id ? state.layoutByWorkspace[workspaceKey]! : c.layout).root,
+              ).some((tab) => tab.tabId === tabId),
+          );
+          const layout =
+            owner && owner.id !== current?.id
+              ? owner.layout
+              : getWorkspaceLayout(state.layoutByWorkspace, workspaceKey);
           const result = convertDraftToAgentInLayout({
             layout,
             explorerSidebarPaneId: resolveExplorerSidebarPaneId(
               layout,
-              get().explorerSidebarPaneIdByWorkspace[normalizedWorkspaceKey],
+              state.explorerSidebarPaneIdByWorkspace[workspaceKey],
             ),
-            tabId: normalizedTabId,
-            agentId: normalizedAgentId,
+            tabId,
+            agentId,
           });
-          if (!result) {
-            return null;
-          }
-
-          set((state) => ({
-            ...(result.layout.focusedPaneId !== null
-              ? (withoutFocusRestoration(state, normalizedWorkspaceKey) ?? {})
+          if (!result) return null;
+          set({
+            ...(owner && owner.id !== current?.id
+              ? {}
+              : {
+                  layoutByWorkspace: { ...state.layoutByWorkspace, [workspaceKey]: result.layout },
+                }),
+            ...(owner
+              ? {
+                  conversationsByWorkspace: {
+                    ...state.conversationsByWorkspace,
+                    [workspaceKey]: {
+                      ...state.conversationsByWorkspace[workspaceKey],
+                      [owner.id]: {
+                        ...owner,
+                        layout: result.layout,
+                        rootTabId: owner.rootTabId === tabId ? result.tabId : owner.rootTabId,
+                      },
+                    },
+                  },
+                }
               : {}),
             hiddenAgentIdsByWorkspace: removeAgentIdFromWorkspaceSet(
               state.hiddenAgentIdsByWorkspace,
-              normalizedWorkspaceKey,
-              normalizedAgentId,
+              workspaceKey,
+              agentId,
             ),
-            layoutByWorkspace: {
-              ...state.layoutByWorkspace,
-              [normalizedWorkspaceKey]: result.layout,
-            },
-          }));
-
+          });
           return result.tabId;
         },
         reconcileTabs: (workspaceKey, snapshot) => {
@@ -1526,6 +1613,8 @@ export function createWorkspaceLayoutStore(
               explorerSidebarPaneId,
               rawLayout.focusedPaneId,
             );
+            const conversation = activeConversation(state, normalizedWorkspaceKey);
+            if (conversation?.endedAt) return state;
             const nextState = reconcileWorkspaceTabs(
               {
                 layout: currentLayout,
@@ -1533,7 +1622,20 @@ export function createWorkspaceLayoutStore(
                 hiddenAgentIds: state.hiddenAgentIdsByWorkspace[normalizedWorkspaceKey] ?? null,
                 explorerSidebarPaneId,
               },
-              snapshot,
+              conversation
+                ? {
+                    ...snapshot,
+                    autoOpenAgentIds: new Set<string>(),
+                    standaloneTerminalIds: new Set<string>(),
+                    activeAgentIds: new Set([
+                      ...snapshot.activeAgentIds,
+                      ...collectAllTabs(currentLayout.root).flatMap((t) => {
+                        const target = conversationTarget(t.target);
+                        return target?.kind === "agent" ? [target.agentId] : [];
+                      }),
+                    ]),
+                  }
+                : snapshot,
             );
             const nextLayout = keepWorkspaceFocusOutOfExplorerSidebar(
               nextState.layout,
@@ -1607,6 +1709,11 @@ export function createWorkspaceLayoutStore(
           );
         },
         splitPane: (workspaceKey, input) => {
+          if (activeConversation(get(), workspaceKey))
+            return get().addConversationMember(workspaceKey, undefined, {
+              targetPaneId: input.targetPaneId,
+              position: input.position,
+            });
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
           const normalizedTabId = trimNonEmpty(input.tabId);
           const normalizedTargetPaneId = trimNonEmpty(input.targetPaneId);
@@ -1699,6 +1806,12 @@ export function createWorkspaceLayoutStore(
           const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
           const normalizedTabId = trimNonEmpty(tabId);
           const normalizedToPaneId = trimNonEmpty(toPaneId);
+          if (activeConversation(get(), workspaceKey)) {
+            const layout = get().layoutByWorkspace[workspaceKey];
+            const target =
+              layout && collectAllTabs(layout.root).find((t) => t.tabId === tabId)?.target;
+            if (target && conversationTarget(target)) return;
+          }
           if (!normalizedWorkspaceKey || !normalizedTabId || !normalizedToPaneId) {
             return;
           }
@@ -2130,6 +2243,9 @@ export function createWorkspaceLayoutStore(
             );
           }
           return {
+            conversationsByWorkspace: state.conversationsByWorkspace,
+            activeConversationByWorkspace: state.activeConversationByWorkspace,
+            legacyConversationLayouts: state.legacyConversationLayouts,
             layoutByWorkspace,
             pinnedAgentIdsByWorkspace: Object.fromEntries(
               Object.entries(state.pinnedAgentIdsByWorkspace).map(([key, agentIds]) => [
@@ -2177,6 +2293,9 @@ export function createWorkspaceLayoutStore(
           }
           return {
             ...currentState,
+            conversationsByWorkspace: result.data.conversationsByWorkspace ?? {},
+            activeConversationByWorkspace: result.data.activeConversationByWorkspace ?? {},
+            legacyConversationLayouts: result.data.legacyConversationLayouts ?? {},
             layoutByWorkspace,
             pinnedAgentIdsByWorkspace: Object.fromEntries(
               Object.entries(result.data.pinnedAgentIdsByWorkspace ?? {}).map(([key, agentIds]) => [

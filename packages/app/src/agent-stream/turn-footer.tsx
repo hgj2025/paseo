@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useMemo, type ReactNode } from "react";
 import { View } from "react-native";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { SPACING, type Theme } from "@/styles/theme";
+import { StyleSheet } from "react-native-unistyles";
+import { SPACING } from "@/styles/theme";
 import type { TurnTiming } from "@/timeline/turn-time";
 import type { StreamItem } from "@/types/stream";
 import {
@@ -17,11 +17,8 @@ import {
 } from "@/components/message";
 import type { TurnFooterHost } from "./layout";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
-import { SyncedLoader } from "@/components/synced-loader";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 
-const ThemedSyncedLoader = withUnistyles(SyncedLoader);
-const workingIndicatorColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 export const TURN_FOOTER_BOTTOM_SPACING = SPACING[8];
 
 export type TurnContentStrategy = StreamStrategy;
@@ -122,9 +119,6 @@ const WorkingIndicator = memo(function WorkingIndicator({
   const active = useRetainedPanelActive();
   return (
     <View style={stylesheet.turnFooterContent}>
-      <View style={stylesheet.workingLoader}>
-        <ThemedSyncedLoader size={14} uniProps={workingIndicatorColorMapping} />
-      </View>
       {/* Match the completed-turn footer: actions precede timing metadata. */}
       {onForkInFlightTurn ? <AssistantForkMenu onFork={onForkInFlightTurn} /> : null}
       {inFlightTurnStartedAt ? (
@@ -239,8 +233,5 @@ const stylesheet = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: STREAM_METADATA_FONT_SIZE,
     fontVariant: ["tabular-nums"],
-  },
-  workingLoader: {
-    marginLeft: -2,
   },
 }));

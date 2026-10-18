@@ -1,3 +1,8 @@
+import { usePaneHeaderMember } from "./pane-member-header";
+import { useWorkspaceLayoutStore, findPaneContainingTab } from "@/stores/workspace-layout-store";
+import { useProviderIcon } from "@/components/provider-icons";
+import { useSessionStore } from "@/stores/session-store";
+import { deriveSidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { Check, CircleAlert } from "lucide-react-native";
@@ -11,7 +16,6 @@ import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import type { SurfaceBackdrop } from "@/styles/surface-backdrop";
 import { getStatusDotColor } from "@/utils/status-dot-color";
 import { StatusRing } from "@/components/status-ring";
-import { getStatusRingOffset } from "@/components/status-ring/geometry";
 import {
   STATUS_INDICATOR_ALERT_SIZE,
   STATUS_INDICATOR_DOT_SIZE,
@@ -95,6 +99,33 @@ function WorkspaceTabPresentationResolverInner({
     tabId: tab.tabId,
   });
   const attributes = usePanelInstanceAttributes({ ...layoutOwner, tabId: tab.tabId });
+  const ownerKey = `${layoutOwner.serverId}:${layoutOwner.workspaceId}`;
+  const paneId = useWorkspaceLayoutStore((state) => {
+    const layout = state.layoutByWorkspace[ownerKey];
+    return tab.target.kind === "agent" && layout
+      ? findPaneContainingTab(layout.root, tab.tabId)?.id
+      : undefined;
+  });
+  const { member } = usePaneHeaderMember(layoutOwner.serverId, layoutOwner.workspaceId, paneId);
+  const execution = member?.execution;
+  const executionAgent = useSessionStore((state) =>
+    execution
+      ? (state.sessions[execution.serverId]?.agents.get(execution.agentId) ??
+        state.sessions[execution.serverId]?.agentDetails.get(execution.agentId))
+      : undefined,
+  );
+  const executionIcon = useProviderIcon(
+    execution?.provider ?? "codex",
+    execution?.serverId ?? serverId,
+  );
+  const executionStatus = executionAgent
+    ? deriveSidebarStateBucket({
+        status: executionAgent.status,
+        pendingPermissionCount: executionAgent.pendingPermissions.length,
+        requiresAttention: executionAgent.requiresAttention,
+        attentionReason: executionAgent.attentionReason,
+      })
+    : null;
 
   const presentation = useMemo(
     () => ({
@@ -106,10 +137,13 @@ function WorkspaceTabPresentationResolverInner({
       modified: attributes.modified,
       showCloseButton: scopeBound || registration.showCloseButton,
       titleState: descriptor.titleState,
-      icon: descriptor.icon,
-      statusBucket: descriptor.statusBucket,
+      icon: execution ? executionIcon : descriptor.icon,
+      statusBucket: execution ? executionStatus : descriptor.statusBucket,
     }),
     [
+      execution,
+      executionIcon,
+      executionStatus,
       descriptor.icon,
       descriptor.label,
       descriptor.tooltip,
@@ -183,7 +217,7 @@ export function WorkspaceTabIcon({
 
   return (
     <View style={agentIconWrapperStyle}>
-      <Icon size={size} color={iconColor} strokeWidth={strokeWidth} />
+      {!isRunning && <Icon size={size} color={iconColor} strokeWidth={strokeWidth} />}
       {isRunning ? (
         <View
           style={styles.statusRing}
@@ -292,9 +326,8 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: 1,
   },
   statusRing: {
-    position: "absolute",
-    right: getStatusRingOffset(DEFAULT_STATUS_DOT_OFFSET, STATUS_INDICATOR_DOT_SIZE),
-    bottom: getStatusRingOffset(DEFAULT_STATUS_DOT_OFFSET, STATUS_INDICATOR_DOT_SIZE),
+    alignItems: "center",
+    justifyContent: "center",
   },
   statusDotBorderDefault: {
     borderColor: theme.colors.surface0,

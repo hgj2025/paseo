@@ -5,7 +5,7 @@ import { darkTheme } from "./theme";
 describe("createMarkdownStyles", () => {
   it("uses the content size for conversation prose and list markers", () => {
     const styles = createMarkdownStyles(darkTheme);
-    const proseLineHeight = Math.round(darkTheme.fontSize.content * 1.4);
+    const proseLineHeight = Math.round(darkTheme.fontSize.content * 1.65);
 
     expect(styles.body).toMatchObject({
       fontSize: darkTheme.fontSize.content,
@@ -136,7 +136,7 @@ describe("createMarkdownStyles", () => {
       borderTopLeftRadius: 0,
       borderBottomLeftRadius: 0,
     });
-    expect(styles.paragraph.marginBottom).toBe(darkTheme.spacing[3]);
+    expect(styles.paragraph.marginBottom).toBe(darkTheme.spacing[4]);
     expect(styles.text).not.toHaveProperty("color");
   });
 });

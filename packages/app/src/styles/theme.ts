@@ -1,3 +1,4 @@
+import { buildPaneColors } from "./pane-colors";
 import { Platform } from "react-native";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
@@ -705,6 +706,7 @@ export function buildDarkTheme(semanticColors: ReturnType<typeof buildDarkSemant
       ...semanticColors,
       palette: baseColors,
       syntax: darkHighlightColors,
+      panes: buildPaneColors(semanticColors.surface0, "dark"),
     },
     shadow: darkShadow,
     ...commonTheme,
@@ -767,6 +769,7 @@ export function buildLightTheme(semanticColors: ReturnType<typeof buildLightSema
       ...semanticColors,
       palette: baseColors,
       syntax: lightHighlightColors,
+      panes: buildPaneColors(semanticColors.surface0, "light"),
     },
     shadow: lightShadow,
     ...commonTheme,

@@ -61,7 +61,7 @@ describe("useWebOverlayRegistration", () => {
 
     act(() => rerender({ active: false }));
 
-    expect(openerFocus).toHaveBeenCalled();
+    expect(openerFocus).toHaveBeenCalledWith({ preventScroll: true });
     unmount();
   });
 
@@ -80,7 +80,7 @@ describe("useWebOverlayRegistration", () => {
 
     unmount();
 
-    expect(openerFocus).toHaveBeenCalled();
+    expect(openerFocus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it("leaves IME composition keys with the focused editor", () => {

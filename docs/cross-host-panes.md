@@ -4,40 +4,82 @@ A workspace window can show agents from several paired hosts. Its layout belongs
 workspace that opened the window. Each scoped tab carries its own `serverId`, `workspaceId`,
 and resource target. Moving or reopening a tab retains that binding.
 
-## Using the window
+## Conversation-owned teams
 
-1. Open the host Mac's normal workspace and split its pane right or down.
-2. In the new pane, choose **host · workspace**. The picker lists existing workspaces on
-   paired hosts. It does not create a directory, copy code, or change an existing agent's cwd.
-3. Choose **Open agent** for an existing session, or **Agent** to start one in that workspace.
-   Provider discovery, messages, permissions, files, and terminals use that pane's host.
-4. Splitting a window enrolls the visible sessions in a workspace team. The first member on
-   the window's host becomes **Captain**; other members get unique provider-based names.
-   Click a member card to edit its name, responsibility and skills, or choose another local Captain.
-5. Type `@` and select a team member from autocomplete. The recipient chip confirms where the
-   next message will go. Sending dispatches that text to the selected session, using its own host
-   and workspace. Plain text that happens to contain an alias does not dispatch by itself.
-6. Alternatively ask Captain to delegate. Its native `list_team_members`, `send_team_task` and
-   `get_team_tasks` tools resolve stable member IDs, dispatch work and inspect saved results.
-   Member roles and skills guide the model's choice; there is no deterministic skill scheduler.
+On hosts advertising `sessionTeams`, a workspace contains multiple top-level conversations.
+Each conversation has its own team ID, Captain, child conversations, pane layout and saved
+collaboration history. The sidebar conversation list switches the entire team; @ recipients never
+come from another conversation in the same workspace.
 
-Pane headers show host and workspace names, not a second working-directory form. CLI processes
-still need a real cwd. A shared directory can have different paths on the two hosts; no mapping
-is inferred from equal workspace names. The Explorer dock continues to represent the window's
-workspace; use Files or Changes from a scoped pane's + menu to inspect that pane's workspace.
-File attachments only target a chat on the same host and in the same workspace as the file.
+- **New conversation** creates a Captain using the selected host's saved model or a model from
+  an existing session in that workspace. If no usable model exists, the draft asks for one.
+  Once a model is selected, the idle agent is created automatically, without sending a prompt.
+- **Add member** chooses a paired host and workspace, then creates a separate child conversation
+  in a new pane. Splitting has the same meaning, defaulting to the current workspace.
+  On owners advertising `conversationExecution`, the model panel contains the host picker.
+  Choosing a host stages a candidate; choosing a model commits the execution change. The
+  conversation, member identity, pane, draft and history remain attached to their original IDs.
+  The daemon saves the selected runner separately in `member.execution` and prior runners in
+  `member.executionHistory`. A same-host, same-provider model change updates the existing runner.
+  A host or provider change prepares a new runner with the paged transcript as quoted context,
+  then commits the binding only if the member revision and source history checkpoint still match.
+  Busy turns, unresolved team work, missing history and failed commits retain the previous binding.
+  A finished error turn can switch once no active turn or permission remains; its error stays
+  in the transcript. The toolbar keeps showing the committed model while the panel previews
+  a candidate host and its catalog.
+  No prior runner is archived by switching. Explicit member removal or conversation ending
+  archives owned runners. Captain can change providers/models on the owner host; moving Captain
+  to another host is blocked because its team tools and result delivery still live on the owner.
+- An agent tab stays in its member's pane. Another agent opened through navigation selects its
+  own top-level conversation. File, diff and terminal tabs are supporting views within member
+  panes; the Explorer remains a workspace tool, not a team member.
+- Each member has its own provider/model and real working directory on its own host. Names,
+  prompt constraints can be edited inline under **Team → Members**. Captain stays bound to the
+  main conversation.
+- Captain follows the normal Paseo theme. Other panes use distinct, muted automatic colors;
+  their **Team → Members → Pane color** control allows adjustment. The pane overflow menu only contains layout actions. Appearance is saved per conversation and
+  member pane on this client, so switching conversations does not reuse another team's colors.
+- **End conversation**, or closing Captain, archives agents created for that conversation.
+  History remains stored after the conversation ends. A remote archive failure leaves the
+  team in `ending` with a visible error and allows retry; it never reports a false success.
+  Closing the app or switching conversations does not end a team.
+- Removing a member archives its owned child session and retains the member identity in task
+  history. Members with unresolved team work cannot be removed until that work is resolved or
+  the conversation is ended. Independently attached legacy agents are not archived by team cleanup.
 
-Closing a scoped tab closes its view, preserving the remote agent or terminal. Stop an agent
-explicitly with its stop control when needed. Pane layout is client-local. Team configuration and
-receipts live under `$PASEO_HOME/workspace-teams` on the window's host; another client opening
-that workspace sees the same team. Closing a pane does not remove its member. Captain must run
-on this host; remote members retain their actual workspace and cwd.
+Layouts are client-local, atomically persisted with the active conversation index. Server-side
+team records in `$PASEO_HOME/conversation-teams` are keyed by workspace **and** conversation. A client without local layouts can
+restore a team's member panes from the daemon. Old workspace-wide records and layout snapshots
+are preserved; they are never copied into every new conversation or merged by matching cwd.
+Root-agent archive events also end their team, even when initiated outside the pane UI.
+
+Accept an `@member` suggestion to insert its alias in the input. Each accepted roster alias
+delimits that member’s instructions until the next mention; email addresses and file paths
+do not select recipients. Captain's native
+`list_team_members`, `send_team_task`, `get_team_tasks` and `plan_team_request` tools resolve the
+caller's conversation before dispatch. Member prompt constraints guide the model and are
+prepended to team tasks; direct messages do not receive that prefix. They do not enforce permissions.
+
+The client displays saved runner histories before the current runner's transcript and keeps its
+viewport keyed by the stable member. Reloading fetches those histories from their original hosts;
+if a host is unavailable, a visible retry notice replaces a false claim that all history is loaded.
+Transferred context is limited to 500,000 characters and is rejected rather than silently truncated.
+Native CLI sessions differ across providers and hosts: continuity is provided by Paseo's stable
+conversation and explicit transcript transfer. Workspaces are matched by exact directory path;
+if no path matches, the user chooses the destination directory. This does not copy files, provider
+credentials or live tools between hosts. The existing owner-to-worker bridge remains unchanged.
+
+Pane headers show host and workspace names, not a second directory form. A shared directory
+may have different paths on two hosts; equal workspace names do not imply a mapping. Files and
+attachments remain scoped to their actual host. The owner daemon needs the new feature;
+remote members continue using their existing creation, message and archive APIs.
 
 Accepted tasks are watched by the host daemon even when the window closes. On completion it
 reports to Captain once, waiting if Captain is busy. Permission requests stay with the user in the
 target pane. Offline hosts retain the task; ambiguous acknowledgements never trigger automatic
 resending. Daemon restart resumes saved watches and marks interrupted dispatches uncertain.
-Task-ID tombstones under `workspace-team-receipts` survive pruning of recent task history.
+Conversation task/group history is retained. Legacy workspace teams still bound recent history;
+Task-ID tombstones under `workspace-team-receipts` survive that pruning.
 Persistent bridges reconcile those uncertain tasks automatically from the remote message ID
 and timeline. Completion and permission events wake the owner immediately; a 30-second sweep
 repairs missed events. Network requests run outside the persistence lock, and independent task
@@ -48,7 +90,7 @@ resending. Older remote CLI versions expose recent activity rather than a durabl
 so an uncorrelated quick completion remains uncertain and requires inspecting the conversation.
 Do not manually interrupt or reuse a worker session while its team task is running.
 Team dispatch currently accepts text; use the recipient's own pane for attachments.
-The owner daemon must advertise `workspaceTeams`; older hosts can still be remote members.
+The owner daemon must advertise `workspaceTeams` and `sessionTeams` for conversation-owned teams; older hosts can still be remote members.
 
 Completion reports have a persisted message ID and a local delivery receipt. A lost report
 acknowledgement can be reconciled without starting another Captain turn. Reports created before
@@ -138,20 +180,18 @@ participate as ordinary remote agent panes.
 
 ## Team task overview
 
-The compact scope bar sits immediately above the message input; non-chat panes keep it in
-their footer. It shows the member alias, host/workspace selection and a session icon.
-The owner workspace name is omitted when it already matches the workspace header; remote
-scopes retain both host and workspace, with the full scope available on hover. Scope and
-session pickers open upward. Fullscreen message editing hides the bar.
+Member headers combine the alias, provider and read-only host status. Host selection lives in
+that member’s model panel. The Explorer toggle belongs to the rightmost visible pane, and its
+**+ → Team** item opens the layout owner’s team regardless of the focused member’s execution host.
+The sidebar lists main conversations under their workspace and supports custom names.
 
-The **Team** item in the workspace header’s **…** menu opens the layout owner’s team,
-independent of the focused pane or host. Matching `@members` appear nearest the composer,
-ahead of files in keyboard priority; asynchronous file results preserve a chosen member by ID.
-Tasks, Activity and
-Members share the same owner-host data; a remote pane does not switch the overview to that
-remote workspace. Tasks can be searched by prompt, member or ID, filtered by status, and opened
-in a list/detail view. Compact layouts show one view at a time. Member settings reuse the
-existing editor; **Open agent** retains the member’s host and workspace.
+Tasks, Activity and Members share owner-host data. Tasks can be searched by prompt, member or ID,
+filtered by status and opened in a list/detail view. Compact layouts show one view at a time.
+The Members tab has inline name/prompt editing, model/host metadata, pane colors and session
+shortcuts. Prompt constraints are injected at team-task dispatch; changing them does not rewrite
+already dispatched work. Existing protocol skills metadata is preserved when editing, but has no
+separate UI field. Captain’s color follows the theme; other pane colors are local to this client
+and conversation. **Open agent** retains the logical member while following its current executor.
 
 The detail shows the saved prompt, output, task status and Captain-report delivery status.
 Pending permission means an agent approval, not a clarification question; the user handles it
@@ -159,7 +199,7 @@ in the member’s own agent. Activity is explicitly the latest snapshot per task
 event log. Full conversations and tool output remain in the corresponding agent. Offline hosts
 keep the cached view and disable refresh/edit actions. Current polling remains five seconds.
 
-This view uses the existing v1 protocol and bounded recent task history. It does not add TaskRun,
+This view uses the existing v1 protocol. Conversation teams retain complete task history; legacy workspace teams keep bounded recent history. It does not add TaskRun,
 clarification/reply, acceptance review or a full event archive. Lower-level remote prompts are not
 retroactively converted into team tasks. The window’s host needs the team-enabled daemon; remote
 members do not need a GUI update for this overview.
@@ -171,14 +211,19 @@ footer and a **Message** button. Collapse preferences are saved by owner workspa
 the composer stays mounted, preserving drafts, attachments and model settings. The footer keeps
 an active agent's stop button. Permission requests remain in the member conversation.
 
-Accepting an `@member` adds a removable recipient chip instead of replacing the previous one.
-Selected members are removed from autocomplete suggestions. With no recipients, the message goes
-to the current agent. With recipients, the default **Captain assigns** mode creates one persisted
-request and asks Captain to call `plan_team_request`. The plan must assign exactly one task to
-each selected member. `dependsOn` refers to another selected member's stable ID; cycles and missing
-members are rejected before collaborator dispatch. **Broadcast** sends the same prompt separately
-to every selected member. This first version supports text requests; attachments are rejected
-explicitly instead of silently dropped.
+Member mentions stay in the input. Each exact standalone `@alias` starts a section for that
+member until the next mention. Repeated sections for the same member are combined in order.
+Empty sections and unaddressed preambles reject submission before any task is sent. This avoids
+silently assigning text to the wrong member. With no member mentions, the message goes to the
+current agent. Addressed submissions create one persisted request with separate member prompts;
+Captain receives the result but does not re-plan these instructions. Attachments are rejected
+explicitly for team requests.
+
+The API also retains coordinated and broadcast requests. Coordinated requests ask Captain to
+call `plan_team_request`, assigning exactly one task to each selected member. Dependencies use
+stable member IDs; cycles and missing members are rejected before dispatch. Broadcast requests
+send the same instructions to every selected member. These modes share the persisted task,
+retry and completion-report machinery with inline addressed requests.
 
 The owner daemon advertises `workspaceTeamGroups`. The feature needs an owner daemon and renderer
 upgrade; existing remote workers use the same send/observe bridge and do not need a group-aware
@@ -196,7 +241,7 @@ agent negotiation protocol.
 
 Group cards appear in Captain's conversation; a pending request appears above the composer until
 its timeline message arrives. **Team → Requests** retains all recent groups and expandable member
-instructions/results. **Tasks** retains individual attempts for diagnostics. The daemon keeps up to
+instructions/results. **Tasks** retains individual attempts for diagnostics. Conversation teams retain all groups; legacy workspace teams keep up to
 30 completed, reported groups plus unfinished requests. Request tombstones outlive visible history.
 A confirmed failed member can be retried with a new attempt ID; completed members are preserved.
 Uncertain delivery permits inspection only. Repeated submission/retry IDs are idempotent. When all

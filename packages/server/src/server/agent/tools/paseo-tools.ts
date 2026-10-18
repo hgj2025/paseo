@@ -1,3 +1,4 @@
+import { teamStorageKey, executionMember } from "@getpaseo/protocol/workspace-team";
 import { getWorkspaceTeamService } from "../../workspace-team-runtime.js";
 import { AgentDirectory } from "../directory.js";
 import { RemoteAgents } from "../remote-agents.js";
@@ -1864,14 +1865,24 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   const callerTeam = async (workspaceId: string) => {
     if (!callerAgentId) throw new Error("Team tools require an agent identity.");
     const service = teams();
-    const team = (await service.listForAgent(callerAgentId)).find(
-      (entry) => entry.workspaceId === workspaceId,
+    const candidates = (await service.listForAgent(callerAgentId)).filter(
+      (entry) => entry.workspaceId === workspaceId && entry.status !== "ended",
     );
+    const scoped = candidates.filter((entry) => entry.sessionId);
+    if (scoped.length > 1)
+      throw new Error(
+        "Agent belongs to multiple conversations; repair membership before dispatch.",
+      );
+    const team = scoped[0] ?? candidates.find((entry) => !entry.sessionId);
     if (!team) throw new Error("Caller is not a member of this team.");
     const member = team.members.find(
-      (entry) => entry.agentId === callerAgentId && entry.serverId === service.serverId,
-    )!;
-    return { service, team, member };
+      (entry) =>
+        executionMember(entry).agentId === callerAgentId &&
+        executionMember(entry).serverId === service.serverId,
+    );
+    if (!member)
+      throw new Error("This conversation now uses another executor. Open its current pane.");
+    return { service, team, member, key: teamStorageKey(team) };
   };
   registerTool(
     "list_team_members",
@@ -1901,9 +1912,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       },
     },
     async ({ workspaceId, memberId, taskId, prompt }) => {
-      const { service, member } = await callerTeam(workspaceId);
+      const { service, member, key } = await callerTeam(workspaceId);
       if (member.id === memberId) throw new Error("Assign work to another team member.");
-      const activeTeam = await service.execute(workspaceId, { kind: "read" });
+      const activeTeam = await service.execute(key, { kind: "read" });
       if (
         activeTeam.groups?.some(
           (g) => g.captainId === member.id && ["planning", "clarification"].includes(g.status),
@@ -1912,7 +1923,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         throw new Error(
           "Commit the pending request with plan_team_request instead of dispatching ungrouped work.",
         );
-      const team = await service.execute(workspaceId, {
+      const team = await service.execute(key, {
         kind: "send",
         memberId,
         taskId,
@@ -1947,8 +1958,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       },
     },
     async ({ workspaceId, groupId, steps }) => {
-      const { service, member } = await callerTeam(workspaceId);
-      const team = await service.execute(workspaceId, {
+      const { service, member, key } = await callerTeam(workspaceId);
+      const team = await service.execute(key, {
         kind: "plan_group",
         groupId,
         captainId: member.id,
@@ -1969,9 +1980,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       inputSchema: { workspaceId: z.string(), taskId: z.string().uuid().optional() },
     },
     async ({ workspaceId, taskId }) => {
-      const { service } = await callerTeam(workspaceId);
+      const { service, key } = await callerTeam(workspaceId);
       const team = await service.execute(
-        workspaceId,
+        key,
         taskId ? { kind: "refresh", taskId } : { kind: "read" },
       );
       return {

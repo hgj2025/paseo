@@ -24,6 +24,8 @@ export const SETTINGS_DESKTOP_SPLIT_MIN_WIDTH =
 // These buttons (close/minimize/maximize) overlay the top-left corner
 export const DESKTOP_TRAFFIC_LIGHT_WIDTH = 78;
 export const DESKTOP_TRAFFIC_LIGHT_HEIGHT = 45;
+// Width occupied by the floating sidebar toggle after the native window buttons.
+export const DESKTOP_SIDEBAR_TOGGLE_CLEARANCE = 40;
 
 // Custom desktop window controls (minimize/maximize/close) — top-right
 export const DESKTOP_WINDOW_CONTROLS_HEIGHT = HEADER_INNER_HEIGHT;

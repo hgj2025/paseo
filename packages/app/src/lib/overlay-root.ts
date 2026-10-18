@@ -238,7 +238,7 @@ function addWebOverlay(entry: WebOverlayEntry): (options?: RemoveWebOverlayOptio
       entry.restoreFocus &&
       document.contains(entry.restoreFocus)
     ) {
-      entry.restoreFocus.focus();
+      entry.restoreFocus.focus({ preventScroll: true });
     }
   };
 }

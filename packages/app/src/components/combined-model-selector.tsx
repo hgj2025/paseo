@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useStableEvent } from "@/hooks/use-stable-event";
+import { ModelHostActions } from "@/screens/workspace/model-host-picker";
+import { useExecutionModelSelection } from "@/screens/workspace/use-execution-model-selection";
+import { useToast } from "@/contexts/toast-api-context";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -65,12 +69,20 @@ interface CombinedModelSelectorProps {
   };
 }
 
+function availableProfileAction<T>(
+  previewing: boolean,
+  action: T | undefined,
+  handler: T,
+): T | undefined {
+  return !previewing && action ? handler : undefined;
+}
+
 export function CombinedModelSelector({
-  providers,
-  selectedProvider,
-  selectedModel,
+  providers: baseProviders,
+  selectedProvider: baseProvider,
+  selectedModel: baseModel,
   onSelect,
-  isLoading,
+  isLoading: baseLoading,
   profiles = null,
   onApplyProfile,
   onEditProfiles,
@@ -82,13 +94,30 @@ export function CombinedModelSelector({
   onRetryProvider,
   isRetryingProvider = false,
   disabled = false,
-  serverId = null,
+  serverId: baseServerId = null,
   desktopPlacement,
   desktopMinWidth,
   triggerFill = false,
   toolbar,
 }: CombinedModelSelectorProps) {
   const { t } = useTranslation();
+  const toast = useToast();
+  const execution = useExecutionModelSelection({
+    providers: baseProviders,
+    provider: baseProvider,
+    model: baseModel,
+    serverId: baseServerId,
+    loading: baseLoading,
+  });
+  const {
+    providers,
+    currentModelLabel,
+    provider: selectedProvider,
+    model: selectedModel,
+    serverId,
+    loading: isLoading,
+    select: selectExecution,
+  } = execution;
   const isCompact = useIsCompactFormFactor();
   const modelBrowserScrolling = resolveModelBrowserScrolling({ isNative, isCompact });
   const anchorRef = useRef<View>(null);
@@ -99,7 +128,7 @@ export function CombinedModelSelector({
     selectedProvider,
     selectedModel,
     isLoading,
-    profiles,
+    profiles: execution.isPreviewing ? null : profiles,
     serverId,
   });
   const { prepareToOpen, reset } = browser;
@@ -112,18 +141,29 @@ export function CombinedModelSelector({
         onOpen?.();
         return;
       }
+      execution.context?.selectCandidate(null);
       reset();
       onClose?.();
     },
-    [onClose, onOpen, prepareToOpen, reset],
+    [onClose, onOpen, prepareToOpen, reset, execution.context],
   );
 
+  const resetForExecutionScope = useStableEvent(() => {
+    if (isOpen) prepareToOpen();
+  });
+  useEffect(resetForExecutionScope, [serverId, selectedProvider, resetForExecutionScope]);
+
   const handleSelect = useCallback(
-    (provider: string, modelId: string) => {
-      onSelect(provider, modelId);
-      handleOpenChange(false);
+    async (provider: string, modelId: string) => {
+      try {
+        if (selectExecution) await selectExecution(provider, modelId);
+        else onSelect(provider, modelId);
+        handleOpenChange(false);
+      } catch (error) {
+        toast.error(String(error));
+      }
     },
-    [handleOpenChange, onSelect],
+    [handleOpenChange, onSelect, selectExecution, toast],
   );
 
   useEffect(() => {
@@ -192,14 +232,33 @@ export function CombinedModelSelector({
     [handleOpenChange, onEditProfile],
   );
 
+  const header = useMemo(
+    () => ({
+      ...browser.header,
+      actions: <ModelHostActions>{browser.header.actions}</ModelHostActions>,
+    }),
+    [browser.header],
+  );
   const selectorBody = isContentReady ? (
     <ModelBrowser
       state={browser}
-      onSelect={handleSelect}
+      onSelect={execution.pending ? noop : handleSelect}
       onApplyProfile={handleApplyProfile}
-      onEditProfiles={onEditProfiles ? handleEditProfiles : undefined}
-      onCreateProfile={onCreateProfile ? handleCreateProfile : undefined}
-      onEditProfile={onEditProfile ? handleEditProfile : undefined}
+      onEditProfiles={availableProfileAction(
+        execution.isPreviewing,
+        onEditProfiles,
+        handleEditProfiles,
+      )}
+      onCreateProfile={availableProfileAction(
+        execution.isPreviewing,
+        onCreateProfile,
+        handleCreateProfile,
+      )}
+      onEditProfile={availableProfileAction(
+        execution.isPreviewing,
+        onEditProfile,
+        handleEditProfile,
+      )}
       onRetryProvider={onRetryProvider}
       isRetryingProvider={isRetryingProvider}
       scrolling={modelBrowserScrolling}
@@ -222,13 +281,13 @@ export function CombinedModelSelector({
           style={triggerStyle}
           accessibilityRole="button"
           accessibilityLabel={t("modelSelector.selectedModel", {
-            model: browser.selectedModelLabel,
+            model: currentModelLabel,
           })}
           testID="combined-model-selector"
         >
           {({ pressed, hovered }: PressableStateCallbackType & { hovered?: boolean }) =>
             renderTrigger({
-              selectedModelLabel: browser.triggerLabel,
+              selectedModelLabel: currentModelLabel,
               onPress: handleTriggerPress,
               disabled,
               isOpen,
@@ -246,22 +305,22 @@ export function CombinedModelSelector({
           style={triggerStyle}
           accessibilityRole="button"
           accessibilityLabel={t("modelSelector.selectedModel", {
-            model: browser.selectedModelLabel,
+            model: currentModelLabel,
           })}
           testID="combined-model-selector"
           chevron={toolbar?.showCaret === false ? null : undefined}
         >
-          {selectedProvider.trim().length > 0 ? (
+          {baseProvider.trim().length > 0 ? (
             <View style={toolbar?.glyphSize === 20 ? styles.toolbarGlyph20 : styles.toolbarGlyph16}>
               <ModelProviderGlyph
-                provider={selectedProvider}
-                serverId={serverId}
+                provider={baseProvider}
+                serverId={baseServerId}
                 size={toolbar?.glyphSize ?? ICON_SIZE.md}
               />
             </View>
           ) : null}
           <Text style={styles.triggerText} numberOfLines={1} ellipsizeMode="tail">
-            {browser.triggerLabel}
+            {currentModelLabel}
           </Text>
         </ComboboxTrigger>
       )}
@@ -277,7 +336,7 @@ export function CombinedModelSelector({
         desktopLockWidth
         desktopFixedHeight={browser.desktopFixedHeight}
         desktopChildrenScrollEnabled={false}
-        header={browser.header}
+        header={header}
         mobileChildrenScrollEnabled={!browser.isProviderView || !isNative}
         mobileChildrenContentContainerStyle={styles.mobileBrowserContent}
       >

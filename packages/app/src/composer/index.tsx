@@ -1,11 +1,19 @@
+import { useModelHostContext } from "@/screens/workspace/model-host-context";
+import { executionMember } from "@getpaseo/protocol/workspace-team";
+import {
+  useWorkspaceLayoutStore,
+  collectAllPanes,
+  collectAllTabs,
+} from "@/stores/workspace-layout-store";
+import { conversationTarget } from "@/stores/conversation-layout";
+import { captainTeamContext } from "@/utils/captain-team-context";
 import { Button } from "@/components/ui/button";
 import { v4 as teamTaskUuid } from "uuid";
 import { useWorkspaceTeam } from "@/screens/workspace/workspace-team-context";
 import { useWorkspaceToolbar } from "./workspace-toolbar-context";
 import { recipientIds, useTeamComposerStore } from "@/stores/team-composer-store";
-import { TeamRecipients } from "./team-recipients";
+import { parseTeamMentions } from "./team-mentions";
 import { TeamGroupFeed } from "@/screens/workspace/team-group-card";
-import type { TeamMember } from "@getpaseo/protocol/workspace-team";
 import {
   useComposerEditingSession,
   useComposerFullscreen,
@@ -1280,39 +1288,66 @@ function ComposerContentImpl({
   const teamContext = useWorkspaceTeam();
   const workspaceToolbar = useWorkspaceToolbar();
   const team = teamContext?.team;
-  const teamComposerKey = `${teamContext?.ownerServerId ?? ""}:${teamContext?.workspaceId ?? ""}:${serverId}:${agentId}`;
-  const recipient = useTeamComposerStore((state) => state.recipients[teamComposerKey]);
-  const selectedMemberIds = useMemo(() => recipientIds(recipient), [recipient]);
   const teamSender = team?.members.find(
-    (member) => member.serverId === serverId && member.agentId === agentId,
+    (member) =>
+      executionMember(member).serverId === serverId && executionMember(member).agentId === agentId,
   );
+  const teamComposerKey = `${teamContext?.ownerServerId ?? ""}:${teamContext?.workspaceId ?? ""}:${teamSender?.serverId ?? serverId}:${teamSender?.agentId ?? agentId}`;
+  const savedRecipient = useTeamComposerStore((state) => state.recipients[teamComposerKey]);
+  const teamDraftText = useSyncExternalStore(
+    textSource.subscribe,
+    textSource.getSnapshot,
+    textSource.getSnapshot,
+  );
+  const inlineRecipients = useMemo(
+    () =>
+      parseTeamMentions(
+        teamDraftText,
+        team?.members.filter((m) => m.id !== team?.captainId && m.id !== teamSender?.id) ?? [],
+      ),
+    [teamDraftText, team, teamSender?.id],
+  );
+  const recipient = useMemo(
+    () =>
+      inlineRecipients.memberIds.length
+        ? {
+            ...savedRecipient,
+            memberIds: inlineRecipients.memberIds,
+            mode: "broadcast" as const,
+            taskId: savedRecipient?.taskId ?? null,
+            prompt: savedRecipient?.prompt ?? null,
+          }
+        : undefined,
+    [inlineRecipients.memberIds, savedRecipient],
+  );
+  const selectedMemberIds = useMemo(() => recipientIds(recipient), [recipient]);
+
   const teamCandidates = useMemo(
     () =>
       teamSender
         ? team?.members.filter(
-            (member) =>
-              member.id !== teamSender.id &&
-              member.id !== team?.captainId &&
-              !selectedMemberIds.includes(member.id),
+            (member) => member.id !== teamSender.id && member.id !== team?.captainId,
           )
         : undefined,
-    [team, teamSender, selectedMemberIds],
-  );
-  const selectTeamMember = useCallback(
-    (member: TeamMember) => {
-      const store = useTeamComposerStore.getState();
-      const current = store.recipients[teamComposerKey];
-      store.set(teamComposerKey, {
-        memberIds: [...new Set([...recipientIds(current), member.id])],
-        mode: current?.mode ?? "coordinate",
-        taskId: null,
-        prompt: null,
-      });
-    },
-    [teamComposerKey],
+    [team, teamSender],
   );
   const savedCollapsed = useTeamComposerStore((state) => state.collapsed[teamComposerKey]);
-  const canCollapse = Boolean(teamSender && team && team.members.length > 1 && workspaceToolbar);
+  const hasPeerPane = useWorkspaceLayoutStore((state) => {
+    if (!teamContext) return false;
+    const layout =
+      state.layoutByWorkspace[`${teamContext.ownerServerId}:${teamContext.workspaceId}`];
+    return Boolean(
+      layout &&
+      collectAllPanes(layout.root).filter(
+        (pane) =>
+          !pane.hidden &&
+          collectAllTabs({ kind: "pane", pane }).some((tab) => conversationTarget(tab.target)),
+      ).length > 1,
+    );
+  });
+  // Pane membership is stable while its selected execution host/model changes.
+  // Keep this control (and a collapsed composer) stable through that membership gap.
+  const canCollapse = Boolean(teamSender && team && (hasPeerPane || team.members.length > 1));
   const composerCollapsed =
     canCollapse && !isFullscreen && (savedCollapsed ?? team?.captainId !== teamSender?.id);
   const toggleComposer = useCallback(() => {
@@ -1434,7 +1469,9 @@ function ComposerContentImpl({
     workspaceId,
     agentId,
   });
-  const isComposerLocked = resolveIsComposerLocked(submitBehavior, isSubmitLoading);
+  const executionSwitching = useModelHostContext()?.switching === true;
+  const isComposerLocked =
+    executionSwitching || resolveIsComposerLocked(submitBehavior, isSubmitLoading);
   const keyboardHandlerIdRef = useRef(
     `message-input:${serverId}:${agentId}:${Math.random().toString(36).slice(2)}`,
   );
@@ -1449,6 +1486,19 @@ function ComposerContentImpl({
     },
     [onChangeText],
   );
+
+  useEffect(() => {
+    if (!savedRecipient || savedRecipient.inline || savedRecipient.taskId || !team) return;
+    const ids = recipientIds(savedRecipient);
+    const text = textSource.getSnapshot();
+    const migrated = ids
+      .map((id) => team.members.find((m) => m.id === id))
+      .filter((m) => Boolean(m))
+      .map((m) => `@${m!.alias} ${text}`)
+      .join("\n");
+    if (migrated) replaceUserInput(migrated);
+    useTeamComposerStore.getState().set(teamComposerKey, null);
+  }, [savedRecipient, team, textSource, replaceUserInput, teamComposerKey]);
 
   const runClientSlashCommand = useCallback(
     (command: ClientSlashCommand): boolean => {
@@ -1578,20 +1628,21 @@ function ComposerContentImpl({
       )
         throw new Error(t("workspace.team.group.unavailable"));
       if (!teamContext.supportsGroups) throw new Error(t("workspace.team.group.updateHost"));
-      if (recipient.memberId && !recipient.memberIds && recipient.taskId)
-        throw new Error(t("workspace.team.group.legacyPending"));
       if (submitAttachments.length) throw new Error(t("workspace.team.attachmentsUnsupported"));
+      if (inlineRecipients.empty.length || inlineRecipients.preamble)
+        throw new Error(t("workspace.team.group.inlineInvalid"));
       const groupId =
         recipient.prompt === text && recipient.taskId ? recipient.taskId : teamTaskUuid();
       useTeamComposerStore
         .getState()
-        .set(teamComposerKey, { ...recipient, taskId: groupId, prompt: text });
+        .set(teamComposerKey, { ...recipient, inline: true, taskId: groupId, prompt: text });
       const result = await teamContext.execute({
         kind: "start_group",
+        memberPrompts: inlineRecipients.prompts,
         groupId,
         memberIds: selectedMemberIds,
         senderId: teamSender.id,
-        mode: recipient.mode ?? "coordinate",
+        mode: "addressed",
         prompt: text,
       });
       if (!result.groups?.some((group) => group.id === groupId))
@@ -1601,6 +1652,7 @@ function ComposerContentImpl({
     },
     [
       recipient,
+      inlineRecipients,
       teamContext,
       teamSender,
       selectedMemberIds,
@@ -1612,9 +1664,10 @@ function ComposerContentImpl({
   );
   const submitMessage = useCallback(
     async (text: string, submitAttachments: ComposerAttachment[]) => {
+      if (executionSwitching) throw new Error(t("workspace.execution.changing"));
       if (recipient) return submitTeamRequest(text, submitAttachments);
       if (team && teamSender && team.captainId === teamSender.id) {
-        text += `\n\n[Team context] You are Captain for workspace ${team.workspaceId}. Use list_team_members to read current responsibilities and skills before assigning the user's requested work with send_team_task. Completion reports are automatic. Do not assign additional work beyond the user's request.`;
+        text += `\n\n${captainTeamContext(team.workspaceId)}`;
       }
       onMessageSent?.();
       if (onSubmitMessageRef.current) {
@@ -1633,6 +1686,7 @@ function ComposerContentImpl({
     },
     [
       appSettings.sendBehavior,
+      executionSwitching,
       cwd,
       onMessageSent,
       t,
@@ -2448,7 +2502,6 @@ function ComposerContentImpl({
   const autocompleteConfiguration = useMemo(
     () => ({
       teamMembers: teamCandidates,
-      onTeamMemberSelected: teamSender ? selectTeamMember : undefined,
       setUserInput: replaceUserInput,
       serverId,
       agentId,
@@ -2459,8 +2512,6 @@ function ComposerContentImpl({
     }),
     [
       teamCandidates,
-      teamSender,
-      selectTeamMember,
       replaceUserInput,
       serverId,
       agentId,
@@ -2474,7 +2525,11 @@ function ComposerContentImpl({
   const messageInputContainerRef = useRef<View>(null);
 
   const isSubmitLoadingVisible =
-    isProcessing || isSubmitLoading || isUploadingFile || pendingNativeImagePastes > 0;
+    executionSwitching ||
+    isProcessing ||
+    isSubmitLoading ||
+    isUploadingFile ||
+    pendingNativeImagePastes > 0;
   const isSubmitDisabled =
     isSubmitLoadingVisible || (waitForForgeAutoAttachOnSubmit && isForgeResolving);
 
@@ -2616,15 +2671,6 @@ function ComposerContentImpl({
               )}
               {!isFullscreen && teamSender?.id === team?.captainId && <TeamGroupFeed />}
               <View style={composerCollapsed ? styles.collapsedComposer : styles.expandedComposer}>
-                {recipient && (
-                  <TeamRecipients
-                    composerKey={teamComposerKey}
-                    recipient={recipient}
-                    members={team?.members ?? []}
-                    supported={teamContext?.supportsGroups ?? false}
-                    disabled={isSubmitLoadingVisible}
-                  />
-                )}
                 <ComposerAutocompleteBinding
                   text={textSource}
                   cursor={cursor}

@@ -104,6 +104,23 @@ const WorkspaceLayoutStorageSchema: z.ZodType<WorkspaceLayout> = z.strictObject(
   parentTabIdByTabId: z.record(z.string(), z.string()).optional(),
 });
 export const WorkspaceLayoutPersistedStateSchema = z.strictObject({
+  conversationsByWorkspace: z
+    .record(
+      z.string(),
+      z.record(
+        z.string(),
+        z.strictObject({
+          id: z.string().uuid(),
+          createdAt: z.number(),
+          rootTabId: z.string(),
+          layout: WorkspaceLayoutStorageSchema,
+          endedAt: z.string().optional(),
+        }),
+      ),
+    )
+    .optional(),
+  activeConversationByWorkspace: z.record(z.string(), z.string()).optional(),
+  legacyConversationLayouts: z.record(z.string(), WorkspaceLayoutStorageSchema).optional(),
   pinnedAgentIdsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   layoutByWorkspace: z.record(z.string(), WorkspaceLayoutStorageSchema),
   splitSizesByWorkspace: z.record(z.string(), z.record(z.string(), z.array(z.number()))).optional(),

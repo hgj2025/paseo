@@ -2,6 +2,10 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const es: TranslationResources = {
+  conversation: en.conversation,
+  teamPanel: en.teamPanel,
+  paneAppearance: en.paneAppearance,
+
   paneFind: {
     connectionFailure:
       "No se pudo buscar en este chat. Comprueba la conexión con el host y vuelve a intentarlo.",
@@ -31,6 +35,7 @@ export const es: TranslationResources = {
     back: "Atrás",
     loading: "Cargando...",
     actions: {
+      confirm: "Confirmar",
       save: "Guardar",
       back: "Atrás",
       cancel: "Cancelar",
@@ -252,6 +257,12 @@ export const es: TranslationResources = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "Solicitudes del modelo limitadas",
+      quota: "Cuota del modelo no disponible",
+      description:
+        "El proveedor no indicó la cuota restante ni cuándo se restablece. Inténtalo más tarde o cambia de modelo abajo.",
+    },
     states: {
       notFound: "Agentno encontrado",
       failedToLoad: "No se pudo cargar el agente",
@@ -440,6 +451,7 @@ export const es: TranslationResources = {
     },
   },
   workspace: {
+    execution: en.workspace.execution,
     team: en.workspace.team,
     crossHost: en.workspace.crossHost,
     route: {

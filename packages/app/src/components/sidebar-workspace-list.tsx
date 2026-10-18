@@ -1,3 +1,4 @@
+import { SidebarConversationList } from "@/components/sidebar/sidebar-conversation-list";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
   View,
@@ -1352,6 +1353,12 @@ function WorkspaceRowWithMenu({
         isPinned={isPinned}
         onTogglePin={onTogglePin}
         reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
+      />
+      <SidebarConversationList
+        serverId={workspace.serverId}
+        workspaceId={workspace.workspaceId}
+        workspaceSelected={selected}
+        onOpenWorkspace={onPress}
       />
       <WorkspaceRenameModal
         visible={isRenameOpen}

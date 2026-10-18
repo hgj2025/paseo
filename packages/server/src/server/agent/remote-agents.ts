@@ -105,6 +105,15 @@ export class RemoteAgents {
     return this.run(host, ["agent", "inspect", agentId], 20_000);
   }
 
+  async archive(hostId: string, agentId: string, workspaceId: string): Promise<void> {
+    z.string().uuid().parse(agentId);
+    const host = await this.host(hostId);
+    if (host.transport !== "persistent")
+      throw new Error("Conversation archival requires a persistent host connection.");
+    await getRemoteAgentPool(this.home)
+      .connection(host)
+      .request({ op: "archive", agentId, workspaceId }, 30000);
+  }
   async send(input: {
     callerId: string;
     hostId: string;

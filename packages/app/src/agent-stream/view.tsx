@@ -1,3 +1,4 @@
+import { usePaneSurfaceStyle } from "@/panels/pane-appearance";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -270,6 +271,7 @@ export interface AgentStreamViewHandle {
 }
 
 export interface AgentStreamViewProps {
+  conversationIdentity?: string;
   agentId: string;
   serverId?: string;
   context: AgentScreenAgent;
@@ -323,11 +325,16 @@ function resolveBottomOverlayControlOffset(clearance: number | undefined): numbe
   return Math.max(16, clearance ?? 0);
 }
 
+function resolveStreamServerId(serverId: string | undefined, contextServerId: string | undefined) {
+  return serverId ?? contextServerId ?? "";
+}
+
 const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamViewProps>(
   function AgentStreamView(
     {
       agentId,
       serverId,
+      conversationIdentity,
       context,
       streamItems,
       streamHead: providedStreamHead,
@@ -346,6 +353,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     ref,
   ) {
     const { t } = useTranslation();
+    const viewportIdentity = conversationIdentity ?? agentId;
+    const paneSurfaceStyle = usePaneSurfaceStyle();
     const autoExpandReasoning = useSettings((settings) => settings.autoExpandReasoning);
     const toolCallDetailLevel = useSettings((settings) => settings.toolCallDetailLevel);
     const chatOutlineEnabled = useSettings((settings) => settings.chatOutlineEnabled);
@@ -373,7 +382,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     );
 
     // Get serverId (fallback to agent's serverId if not provided)
-    const resolvedServerId = serverId ?? context.serverId ?? "";
+    const resolvedServerId = resolveStreamServerId(serverId, context.serverId);
     const transformTimelineItem = useInstalledTimelineTransform(resolvedServerId);
 
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
@@ -435,7 +444,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       setIsNearBottom(true);
       setExpandedInlineToolCallIds(new Set());
       setExpandedToolCallGroupIds(new Set());
-    }, [agentId]);
+    }, [viewportIdentity]);
 
     const handleInlinePathPress = useStableEvent(
       (target: InlinePathTarget, disposition: OpenFileDisposition) => {
@@ -560,7 +569,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       revealLoadedHistory,
       loadOlder,
     } = useStreamHistoryWindow({
-      agentId,
+      agentId: viewportIdentity,
       items: presentation.tail,
       loadRemoteOlder,
     });
@@ -1108,10 +1117,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <AssistantSelectionCopySurface style={stylesheet.container}>
+          <AssistantSelectionCopySurface style={[stylesheet.container, paneSurfaceStyle]}>
             <MessageOuterSpacingProvider disableOuterSpacing>
               {streamRenderStrategy.render({
-                agentId,
+                agentId: viewportIdentity,
                 segments: renderModel.segments,
                 historyRowRevision,
                 liveHeadRowRevision: expandedToolCallGroupIds,
@@ -1119,7 +1128,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 renderers,
                 listEmptyComponent,
                 viewportRef,
-                routeBottomAnchorRequest,
+                routeBottomAnchorRequest: routeBottomAnchorRequest
+                  ? { ...routeBottomAnchorRequest, agentId: viewportIdentity }
+                  : null,
                 isAuthoritativeHistoryReady,
                 onNearBottomChange: setIsNearBottom,
                 onReadingPositionChange: handleReadingPositionChange,
@@ -1255,6 +1266,8 @@ function agentStreamViewPropsEqual(
 ): boolean {
   const reasons: string[] = [];
   if (left.agentId !== right.agentId) reasons.push("agentId");
+  if (left.conversationIdentity !== right.conversationIdentity)
+    reasons.push("conversationIdentity");
   if (left.serverId !== right.serverId) reasons.push("serverId");
   reasons.push(...collectAgentScreenAgentDiffs(left.context, right.context));
   if (left.streamItems !== right.streamItems) reasons.push("streamItems");

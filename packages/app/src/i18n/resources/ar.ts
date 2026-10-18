@@ -2,6 +2,10 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ar: TranslationResources = {
+  conversation: en.conversation,
+  teamPanel: en.teamPanel,
+  paneAppearance: en.paneAppearance,
+
   paneFind: {
     connectionFailure: "تعذر البحث في هذه المحادثة. تحقق من الاتصال بالمضيف وأعد المحاولة.",
     historyChangedFailure: "تغيّرت المحادثة أثناء البحث. أعد البحث.",
@@ -30,6 +34,7 @@ export const ar: TranslationResources = {
     back: "خلف",
     loading: "تحميل...",
     actions: {
+      confirm: "تأكيد",
       save: "حفظ",
       back: "خلف",
       cancel: "يلغي",
@@ -250,6 +255,12 @@ export const ar: TranslationResources = {
     },
   },
   agentPanel: {
+    modelLimit: {
+      rate: "طلبات النموذج محدودة",
+      quota: "حصة النموذج غير متاحة",
+      description:
+        "لم يقدّم المزوّد الحصة المتبقية أو وقت إعادة التعيين. حاول لاحقًا أو بدّل النموذج أدناه.",
+    },
     states: {
       notFound: "لم يتم العثور على Agent",
       failedToLoad: "فشل تحميل الوكيل",
@@ -435,6 +446,7 @@ export const ar: TranslationResources = {
     },
   },
   workspace: {
+    execution: en.workspace.execution,
     team: en.workspace.team,
     crossHost: en.workspace.crossHost,
     route: {

@@ -1,3 +1,4 @@
+import { captainTeamContext } from "@/utils/captain-team-context";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import type { AgentStreamEventPayload } from "@getpaseo/protocol/messages";
@@ -595,5 +596,65 @@ describe("timeline presentation", () => {
       { ...source, text: "Please fix the voice chat." },
     ]);
     expect(projectTimelineItems([source], () => [])).toEqual([]);
+  });
+});
+
+describe("Captain context display", () => {
+  it.each(["tail", "head"] as const)(
+    "hides the generated suffix in %s without modifying the provider message",
+    (placement) => {
+      const text = "现在我选不了\n第二行";
+      const original = {
+        ...userMessage("captain", 1),
+        text: `${text}\n\n${captainTeamContext("wks_example")}`,
+      };
+      const result = rows(
+        createStreamPresentation()({
+          ...presentationOptions,
+          tail: placement === "tail" ? [original] : [],
+          head: placement === "head" ? [original] : [],
+          transform: undefined,
+        }),
+      );
+      expect(result).toEqual([{ ...original, text }]);
+      expect(original.text).toContain("[Team context]");
+      expect(result[0]!.id).toBe(original.id);
+    },
+  );
+  it("retains quoted examples and unrelated team text", () => {
+    const texts = [
+      "Explain [Team context] to me",
+      `Example:\n\n${captainTeamContext("wks_example")}\nPlease explain it.`,
+      "Hello\n\n[Team context] custom user content",
+    ];
+    for (const text of texts) {
+      const original = { ...userMessage("example", 1), text };
+      expect(
+        rows(
+          createStreamPresentation()({
+            ...presentationOptions,
+            tail: [original],
+            head: [],
+            transform: undefined,
+          }),
+        ),
+      ).toEqual([original]);
+    }
+  });
+  it("unwraps voice input before displaying a message with Captain context", () => {
+    const original = {
+      ...userMessage("voice-captain", 1),
+      text: `<spoken-input>请检查网络</spoken-input>\n\n${captainTeamContext("wks_example")}`,
+    };
+    expect(
+      rows(
+        createStreamPresentation()({
+          ...presentationOptions,
+          tail: [original],
+          head: [],
+          transform: undefined,
+        }),
+      ),
+    ).toEqual([{ ...original, text: "请检查网络" }]);
   });
 });

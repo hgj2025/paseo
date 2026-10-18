@@ -7,6 +7,7 @@ import { createValidatedPersistStorage } from "@/storage/validated-persist-stora
 const RecipientSchema = z.object({
   // COMPAT(team-recipient): added in v0.11.2 private build; remove after 2027-04-17.
   // Retain the former single recipient when restoring a saved draft.
+  inline: z.boolean().optional(),
   memberId: z.string().optional(),
   memberIds: z.array(z.string()).optional(),
   mode: z.enum(["coordinate", "broadcast"]).optional(),

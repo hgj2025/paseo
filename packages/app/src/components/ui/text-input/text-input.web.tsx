@@ -60,7 +60,11 @@ export const EditingTextInput = forwardRef<EditingTextInputHandle, EditingTextIn
     useImperativeHandle(
       ref,
       () => ({
-        focus: () => inputRef.current?.focus(),
+        focus: () => {
+          const input = inputRef.current;
+          if (input instanceof HTMLElement) input.focus({ preventScroll: true });
+          else input?.focus();
+        },
         blur: () => inputRef.current?.blur(),
         isFocused: () => document.activeElement === inputRef.current,
         getText: () => {

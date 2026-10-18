@@ -1,3 +1,4 @@
+import { withoutCaptainTeamContext } from "@/utils/captain-team-context";
 import type { AssistantMessageItem, StreamItem, UserMessageItem } from "@/types/stream";
 import type { TimelineItemTransform } from "@/plugins/timeline/model";
 import { projectPluginTimelineItems } from "@/plugins/timeline/projection";
@@ -62,11 +63,13 @@ export function createStreamPresentation() {
 
     // Recognize the complete voice envelope, including older messages without the
     // instruction suffix. Leave quoted examples and unrelated XML untouched.
+    const visibleText = withoutCaptainTeamContext(item.text);
     const spokenInput =
       /^\s*<spoken-input>([\s\S]*?)<\/spoken-input>(?:\s*<instruction>This message was spoken by the user\.[\s\S]*?<\/instruction>)?\s*$/.exec(
-        item.text,
+        visibleText,
       );
-    const projected = spokenInput ? { ...item, text: spokenInput[1].trim() } : item;
+    const text = spokenInput ? spokenInput[1].trim() : visibleText;
+    const projected = text === item.text ? item : { ...item, text };
     userMessageCache.set(item, projected);
     return projected;
   }

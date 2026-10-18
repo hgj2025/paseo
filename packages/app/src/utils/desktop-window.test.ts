@@ -48,6 +48,34 @@ describe("window chrome", () => {
     ).toEqual({ paddingLeft: 0, paddingRight: 48 });
   });
 
+  it("reserves sidebar-toggle width only for the owned, obstructed top-left corner", () => {
+    const obstruction = { topLeft: { width: 78, height: 45 }, topRight: null };
+    expect(
+      resolveWindowChromeSafeArea({
+        obstruction,
+        corners: "top-left",
+        placement: "inline",
+        topLeftAccessoryWidth: 40,
+      }),
+    ).toEqual({ paddingLeft: 118, paddingRight: 0 });
+    expect(
+      resolveWindowChromeSafeArea({
+        obstruction,
+        corners: "top-right",
+        placement: "inline",
+        topLeftAccessoryWidth: 40,
+      }),
+    ).toEqual({ paddingLeft: 0, paddingRight: 0 });
+    expect(
+      resolveWindowChromeSafeArea({
+        obstruction: { topLeft: null, topRight: null },
+        corners: "both",
+        placement: "inline",
+        topLeftAccessoryWidth: 40,
+      }),
+    ).toEqual({ paddingLeft: 0, paddingRight: 0 });
+  });
+
   it("intersects identical and empty corner claims", () => {
     expect(intersectWindowChromeCorners("both", "both")).toBe("both");
     expect(intersectWindowChromeCorners("top-left", "top-left")).toBe("top-left");

@@ -1,4 +1,15 @@
-import { useWorkspaceLayoutStore, collectAllPanes } from "@/stores/workspace-layout-store";
+import {
+  useConversationHistory,
+  ConversationHistoryProvider,
+} from "./conversation-history-context";
+import { ModelHostProvider } from "./model-host-context";
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { activeConversation } from "@/stores/conversation-layout";
+import {
+  useWorkspaceLayoutStore,
+  collectAllPanes,
+  findPaneContainingTab,
+} from "@/stores/workspace-layout-store";
 import { EXPLORER_SIDEBAR_PANE_ID } from "@/stores/workspace-layout-actions";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type ComponentProps } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -36,10 +47,85 @@ import { TeamMemberCard } from "./team-member-card";
 import { useWorkspaceTeamState } from "./use-workspace-team";
 import { useStableEvent } from "@/hooks/use-stable-event";
 
+function useScopeAgents(serverId: string, workspaceId: string) {
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    (state) =>
+      Array.from(state.sessions[serverId]?.agents.values() ?? [])
+        .filter((agent) => agent.workspaceId === workspaceId && !agent.archivedAt)
+        .map((agent) => ({
+          id: agent.id,
+          label: agent.title || agent.provider,
+          description: agent.provider,
+        })),
+    equal,
+  );
+}
+function isMemberBound(
+  pane: ReturnType<typeof usePaneContext>,
+  member: ReturnType<typeof usePaneTeam>["member"],
+  teamContext: ReturnType<typeof usePaneTeam>["teamContext"],
+  conversationSlot: boolean,
+) {
+  return (
+    Boolean(member && teamContext?.team?.sessionId) ||
+    (conversationSlot &&
+      pane.host === "main" &&
+      (pane.target.kind === "agent" || pane.target.kind === "draft"))
+  );
+}
+
 /** The outer workspace owns layout; all resource actions below use this tab's host. */
 export function WorkspacePaneSession({ children }: { children: ReactNode }) {
-  const pane = usePaneContext();
+  const compact = useIsCompactFormFactor();
+  const anchorPane = usePaneContext();
   const { isInteractive, isWorkspaceFocused } = usePaneFocus();
+  const active = useRetainedPanelActive();
+  const anchorConnected = useHostRuntimeIsConnected(anchorPane.serverId);
+  const ownerKey = buildWorkspaceTabPersistenceKey(anchorPane.layoutOwner ?? anchorPane)!;
+  const { member, teamContext, retryTeam, memberPaneId } = usePaneTeam({
+    pane: anchorPane,
+    ownerKey,
+    active,
+    isWorkspaceFocused,
+    agentId: anchorPane.target.kind === "agent" ? anchorPane.target.agentId : null,
+    connected: anchorConnected,
+  });
+  const execution = member?.execution;
+  const pane = useMemo(
+    () =>
+      execution && anchorPane.target.kind === "agent"
+        ? {
+            ...anchorPane,
+            serverId: execution.serverId,
+            workspaceId: execution.workspaceId,
+            scopeBound: true,
+            target: { kind: "agent" as const, agentId: execution.agentId },
+            openTab: (target: WorkspaceTabTarget) =>
+              anchorPane.openTab(scopeWorkspaceTabTarget(target, execution)),
+            openPreferredTarget: (
+              target: WorkspaceTabTarget,
+              source: Parameters<typeof anchorPane.openPreferredTarget>[1],
+            ) => anchorPane.openPreferredTarget(scopeWorkspaceTabTarget(target, execution), source),
+            openTargetToSide: anchorPane.openTargetToSide
+              ? (target: WorkspaceTabTarget) =>
+                  anchorPane.openTargetToSide!(scopeWorkspaceTabTarget(target, execution))
+              : undefined,
+            openFileInWorkspace: (
+              request: Parameters<typeof anchorPane.openFileInWorkspace>[0],
+            ) => {
+              const file = scopeWorkspaceTabTarget(
+                { kind: "file", ...request.location },
+                execution,
+              );
+              if (request.disposition === "side" && anchorPane.openTargetToSide)
+                anchorPane.openTargetToSide(file);
+              else anchorPane.openTab(file);
+            },
+          }
+        : anchorPane,
+    [anchorPane, execution],
+  );
   const { t } = useTranslation();
   const toast = useToast();
   const hosts = useHosts();
@@ -52,10 +138,8 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
   }));
   const client = useHostRuntimeClient(pane.serverId);
   const connected = useHostRuntimeIsConnected(pane.serverId);
-  const active = useRetainedPanelActive();
   const sync = useSessionStore((state) => state.sessions[pane.serverId]?.viewedTimelineSync);
   const agentId = pane.target.kind === "agent" ? pane.target.agentId : null;
-  const ownerKey = buildWorkspaceTabPersistenceKey(pane.layoutOwner ?? pane)!;
   useEffect(() => {
     if (!pane.scopeBound || !active || !isWorkspaceFocused || !agentId || !connected) return;
     const key = `scoped-pane:${ownerKey}:${pane.tabId}`;
@@ -81,26 +165,11 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [creatingTerminal, setCreatingTerminal] = useState(false);
-  const { member, teamContext, retryTeam } = usePaneTeam({
-    pane,
-    ownerKey,
-    active,
-    isWorkspaceFocused,
-    agentId,
-    connected,
-  });
-  const agents = useStoreWithEqualityFn(
-    useSessionStore,
-    (state) =>
-      Array.from(state.sessions[pane.serverId]?.agents.values() ?? [])
-        .filter((agent) => agent.workspaceId === pane.workspaceId && !agent.archivedAt)
-        .map((agent) => ({
-          id: agent.id,
-          label: agent.title || agent.provider,
-          description: agent.provider,
-        })),
-    equal,
+  const modelHostContext = useMemo(
+    () => conversationHostContext(pane, ownerKey, memberPaneId, member, teamContext),
+    [pane, ownerKey, memberPaneId, member, teamContext],
   );
+  const agents = useScopeAgents(pane.serverId, pane.workspaceId);
   const options = useMemo(
     () =>
       workspaces.map((w) => ({
@@ -111,7 +180,12 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
     [hosts, workspaces],
   );
   const { label, fullScopeLabel } = getScopeLabels(pane, hosts, workspace?.name);
+  const conversationSlot = useWorkspaceLayoutStore((state) =>
+    Boolean(activeConversation(state, ownerKey)),
+  );
+  const memberBound = isMemberBound(pane, member, teamContext, conversationSlot);
   const hasComposer = pane.target.kind === "agent" || pane.target.kind === "draft";
+  const toolbarPlacement = getPaneToolbarPlacement(memberBound, compact, hasComposer);
   const activate = useStableEvent((target: WorkspaceTabTarget) => {
     if (pane.target.kind === "new_tab") pane.retargetCurrentTab(target);
     else pane.openTab(target);
@@ -159,6 +233,7 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
   );
   const handleSelectScope = useStableEvent((id: string) => {
     const selected = workspaces.find((w) => JSON.stringify([w.serverId, w.workspaceId]) === id);
+    if (memberBound) return;
     if (selected) activate(scopeWorkspaceTabTarget({ kind: "new_tab" }, selected));
   });
   const handleSelectAgent = useStableEvent((selectedAgentId: string) =>
@@ -204,7 +279,7 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
                 accessibilityLabel={t("workspace.crossHost.chooseScope")}
                 accessibilityHint={fullScopeLabel}
                 testID="workspace-pane-choose-scope"
-                onPress={openScopes}
+                onPress={memberBound ? undefined : openScopes}
                 label={label}
                 open={scopeOpen}
               />
@@ -217,7 +292,7 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
       </View>
       <Combobox
         options={agents}
-        value={pane.target.kind === "agent" ? pane.target.agentId : ""}
+        value={agentId ?? ""}
         anchorRef={sessionsAnchor}
         open={sessionsOpen}
         onOpenChange={setSessionsOpen}
@@ -226,39 +301,38 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
         desktopMinWidth={300}
         onSelect={handleSelectAgent}
       />
-      <View ref={sessionsAnchor} collapsable={false}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              leftIcon={MessagesSquare}
-              accessibilityLabel={t("workspace.crossHost.sessions")}
-              testID="workspace-pane-choose-session"
-              onPress={openSessions}
-            />
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <Text style={styles.tooltip}>{t("workspace.crossHost.sessions")}</Text>
-          </TooltipContent>
-        </Tooltip>
-      </View>
+      {!memberBound && (
+        <View ref={sessionsAnchor} collapsable={false}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="xs"
+                leftIcon={MessagesSquare}
+                accessibilityLabel={t("workspace.crossHost.sessions")}
+                testID="workspace-pane-choose-session"
+                onPress={openSessions}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <Text style={styles.tooltip}>{t("workspace.crossHost.sessions")}</Text>
+            </TooltipContent>
+          </Tooltip>
+        </View>
+      )}
     </View>
   );
   const body = (
     <>
-      {teamContext?.error && (
-        <Pressable onPress={retryTeam}>
-          <Text style={styles.offline}>
-            {teamContext.error} · {t("workspace.team.retry")}
-          </Text>
-        </Pressable>
-      )}
-      {pane.scopeBound && !connected && (
-        <Text style={styles.offline}>{t("workspace.crossHost.offline")}</Text>
-      )}
+      {toolbarPlacement.top && <View style={styles.footer}>{toolbar}</View>}
+      <PaneConnectionNotice
+        context={teamContext}
+        retryTeam={retryTeam}
+        scopeBound={pane.scopeBound}
+        connected={connected}
+      />
       <View style={styles.content}>{children}</View>
-      {!hasComposer && toolbar && <View style={styles.footer}>{toolbar}</View>}
+      {toolbarPlacement.bottom && toolbar && <View style={styles.footer}>{toolbar}</View>}
       <ImportSessionSheet
         visible={isInteractive && importOpen}
         client={client}
@@ -271,18 +345,61 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
       />
     </>
   );
+  const scopedBody = pane.scopeBound ? (
+    <NewTabLauncherProvider value={launcher}>{body}</NewTabLauncherProvider>
+  ) : (
+    body
+  );
   return (
     <PaneProvider value={value}>
       <WorkspaceTeamProvider value={teamContext}>
-        <WorkspaceToolbarProvider value={hasComposer ? toolbar : null}>
-          {pane.scopeBound ? (
-            <NewTabLauncherProvider value={launcher}>{body}</NewTabLauncherProvider>
-          ) : (
-            body
-          )}
-        </WorkspaceToolbarProvider>
+        <ModelHostProvider value={modelHostContext}>
+          <ConversationHistoryProvider member={member}>
+            <ConversationHistoryNotice />
+            <WorkspaceToolbarProvider value={toolbarPlacement.composer ? toolbar : null}>
+              {scopedBody}
+            </WorkspaceToolbarProvider>
+          </ConversationHistoryProvider>
+        </ModelHostProvider>
       </WorkspaceTeamProvider>
     </PaneProvider>
+  );
+}
+
+function getPaneToolbarPlacement(memberBound: boolean, compact: boolean, hasComposer: boolean) {
+  return {
+    top: memberBound && compact,
+    bottom: !memberBound && !hasComposer,
+    composer: hasComposer && !memberBound,
+  };
+}
+
+function PaneConnectionNotice({
+  context,
+  retryTeam,
+  scopeBound,
+  connected,
+}: {
+  context: ReturnType<typeof usePaneTeam>["teamContext"];
+  retryTeam(): void;
+  scopeBound?: boolean;
+  connected: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {" "}
+      {context?.error && (
+        <Pressable onPress={retryTeam}>
+          <Text style={styles.offline}>
+            {context.error} · {t("workspace.team.retry")}
+          </Text>
+        </Pressable>
+      )}
+      {scopeBound && !connected && (
+        <Text style={styles.offline}>{t("workspace.crossHost.offline")}</Text>
+      )}
+    </>
   );
 }
 
@@ -315,6 +432,12 @@ function usePaneTeam({
 }) {
   const [joinError, setJoinError] = useState<string | null>(null);
   const owner = pane.layoutOwner ?? pane;
+  const conversation = useWorkspaceLayoutStore((state) => activeConversation(state, ownerKey));
+  const memberPaneId = useWorkspaceLayoutStore((state) => {
+    const layout = state.layoutByWorkspace[ownerKey];
+    return layout ? findPaneContainingTab(layout.root, pane.tabId)?.id : undefined;
+  });
+  const isRoot = conversation?.rootTabId === pane.tabId;
   const hasSplit = useWorkspaceLayoutStore((state) => {
     const layout = state.layoutByWorkspace[ownerKey];
     return Boolean(
@@ -335,9 +458,13 @@ function usePaneTeam({
   const member = team?.members.find(
     (entry) => entry.serverId === pane.serverId && entry.agentId === agentId,
   );
+  const joinBlocked =
+    (!conversation && !hasSplit && !team?.members.length) ||
+    Boolean(conversation?.endedAt) ||
+    Boolean(conversation && !isRoot && !team?.captainId);
   useEffect(() => {
     if (
-      (!hasSplit && !team?.members.length) ||
+      joinBlocked ||
       !supportsTeams ||
       !executeTeam ||
       !team ||
@@ -355,8 +482,13 @@ function usePaneTeam({
       serverId: pane.serverId,
       workspaceId: pane.workspaceId,
       agentId,
+      ...(conversation ? { paneId: memberPaneId, owned: true } : {}),
     }).catch((error) => setJoinError(String(error)));
   }, [
+    joinBlocked,
+    conversation,
+    isRoot,
+    memberPaneId,
     hasSplit,
     supportsTeams,
     team,
@@ -379,7 +511,7 @@ function usePaneTeam({
     setJoinError(null);
     retry();
   });
-  return { member, teamContext, retryTeam };
+  return { member, teamContext, retryTeam, memberPaneId };
 }
 
 const styles = StyleSheet.create((theme) => ({
@@ -403,3 +535,29 @@ const styles = StyleSheet.create((theme) => ({
   offline: { padding: 12, color: theme.colors.foregroundMuted },
   content: { flex: 1, minHeight: 0 },
 }));
+
+function conversationHostContext(
+  pane: ReturnType<typeof usePaneContext>,
+  ownerKey: string,
+  paneId: string | undefined,
+  member: ReturnType<typeof usePaneTeam>["member"],
+  teamContext: ReturnType<typeof usePaneTeam>["teamContext"],
+) {
+  if (!paneId || pane.host !== "main" || !teamContext?.team?.sessionId) return null;
+  return { ownerKey, paneId, serverId: pane.serverId, member, teamContext };
+}
+
+function ConversationHistoryNotice() {
+  const history = useConversationHistory();
+  const { t } = useTranslation();
+  if (!history.error && !history.loading) return null;
+  return (
+    <Pressable onPress={history.error ? history.retry : undefined}>
+      <Text style={styles.offline}>
+        {history.error
+          ? `${t("workspace.execution.historyUnavailable")} · ${t("workspace.team.retry")}`
+          : t("common.states.loading")}
+      </Text>
+    </Pressable>
+  );
+}
