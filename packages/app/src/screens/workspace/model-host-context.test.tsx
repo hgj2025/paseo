@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import React, { useEffect, useState, type ReactNode } from "react";
 import { act, cleanup, renderHook, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelHostProvider, useModelHostContext, type ModelHostAnchor } from "./model-host-context";
+import { loadModelHostDestinations } from "./model-host-destinations";
+
 const anchor: ModelHostAnchor = {
   ownerKey: "mac:work",
   paneId: "right",
@@ -104,5 +106,59 @@ describe("model panel host candidate", () => {
     );
     expect(screen.getByText("unsent draft:new-runner")).toBeTruthy();
     expect(mounts).toBe(1);
+  });
+});
+
+describe("model host destinations", () => {
+  it("offers registered projects when the remote host has no active workspaces", async () => {
+    const client = {
+      fetchWorkspaces: vi.fn().mockResolvedValue({
+        entries: [],
+        emptyProjects: [{ projectId: "video", projectRootPath: "/home/research/code/aigcvideo" }],
+        pageInfo: { hasMore: false, nextCursor: null },
+      }),
+    };
+    expect(await loadModelHostDestinations(client, "devbox")).toEqual([
+      {
+        kind: "project",
+        id: "project:video",
+        label: "/home/research/code/aigcvideo",
+        projectId: "video",
+        directory: "/home/research/code/aigcvideo",
+      },
+    ]);
+  });
+
+  it("loads all workspace pages and excludes workspaces being archived", async () => {
+    const client = {
+      fetchWorkspaces: vi
+        .fn()
+        .mockResolvedValueOnce({
+          entries: [{ id: "old", archivingAt: "now" }],
+          emptyProjects: [],
+          pageInfo: { hasMore: true, nextCursor: "page2" },
+        })
+        .mockResolvedValueOnce({
+          entries: [{ id: "active", workspaceDirectory: "/code" }],
+          emptyProjects: [],
+          pageInfo: { hasMore: false, nextCursor: null },
+        }),
+    };
+    expect(await loadModelHostDestinations(client, "devbox")).toEqual([
+      {
+        kind: "workspace",
+        id: "active",
+        label: "/code",
+        scope: { serverId: "devbox", workspaceId: "active", directory: "/code" },
+      },
+    ]);
+    expect(client.fetchWorkspaces).toHaveBeenNthCalledWith(2, {
+      page: { limit: 200, cursor: "page2" },
+    });
+  });
+
+  it("propagates connection failures instead of displaying an empty directory", async () => {
+    const client = { fetchWorkspaces: vi.fn().mockRejectedValue(new Error("Host disconnected")) };
+    await expect(loadModelHostDestinations(client, "devbox")).rejects.toThrow("Host disconnected");
   });
 });
