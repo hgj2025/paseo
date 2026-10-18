@@ -5,6 +5,7 @@ import type {
 } from "@/provider-selection/provider-selection";
 import {
   resolveInitialModelBrowserView,
+  groupModelBrowserProviders,
   resolveModelBrowserAllView,
   groupProfilesByProviderModel,
   resolveModelBrowserScrolling,
@@ -232,5 +233,46 @@ describe("model browser all view", () => {
         isSearchFocused: true,
       }),
     ).toEqual({ kind: "noSearchMatches" });
+  });
+});
+
+describe("Codex backend browsing", () => {
+  const native = modelRow("codex", "Codex", "gpt-6.1-sol", "GPT-6.1-Sol");
+  const free = modelRow("codex-magpie", "Codex", "group/paseo-free", "免费模型池");
+  const providers = [
+    provider("codex", "Codex", [native]),
+    provider("codex-magpie", "Codex", [free]),
+    provider("grokbot-main", "Grok Bot"),
+  ];
+
+  it("shows one Codex category while preserving the execution destination of each model", () => {
+    const grouped = groupModelBrowserProviders(providers);
+    expect(grouped.map((entry) => entry.id)).toEqual(["codex", "grokbot-main"]);
+    expect(grouped[0]?.modelSelection).toEqual({ kind: "models", rows: [native, free] });
+    expect(providers[0]?.modelSelection).toEqual({ kind: "models", rows: [native] });
+  });
+
+  it("opens Codex when a free-pool conversation is selected", () => {
+    expect(
+      resolveInitialModelBrowserView({
+        providers: groupModelBrowserProviders(providers),
+        selectedProvider: "codex-magpie",
+        selectedModel: free.modelId,
+        hasProfiles: false,
+      }),
+    ).toEqual({ kind: "provider", providerId: "codex", providerLabel: "Codex" });
+  });
+
+  it("keeps free models accessible while the native catalog is loading", () => {
+    const grouped = groupModelBrowserProviders([
+      { ...providers[0]!, modelSelection: { kind: "loading" } },
+      providers[1]!,
+    ]);
+    expect(grouped[0]?.modelSelection).toEqual({ kind: "models", rows: [free] });
+  });
+
+  it("leaves hosts without both backends unchanged", () => {
+    const remote = [provider("claude", "Claude Code")];
+    expect(groupModelBrowserProviders(remote)).toBe(remote);
   });
 });

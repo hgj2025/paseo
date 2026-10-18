@@ -57,6 +57,7 @@ import { useCurrentOverlayLayer } from "@/lib/overlay-root";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
   groupProfilesByProviderModel,
+  groupModelBrowserProviders,
   resolveInitialModelBrowserView,
   resolveModelBrowserAllView,
   type ModelBrowserView,
@@ -265,7 +266,7 @@ function resolveDesktopFixedHeight(
 }
 
 export function useModelBrowser({
-  providers,
+  providers: executionProviders,
   selectedProvider,
   selectedModel,
   isLoading,
@@ -273,6 +274,10 @@ export function useModelBrowser({
   profiles = null,
   serverId = null,
 }: ModelBrowserInput): ModelBrowserState {
+  const providers = useMemo(
+    () => groupModelBrowserProviders(executionProviders),
+    [executionProviders],
+  );
   const { t } = useTranslation();
   const [view, setView] = useState<ModelBrowserView>({ kind: "all" });
   const [searchQuery, setSearchQuery] = useState("");
@@ -380,12 +385,12 @@ export function useModelBrowser({
   const selectedModelLabel = useMemo(
     () =>
       resolveSelectedModelLabel({
-        providers,
+        providers: executionProviders,
         selectedProvider,
         selectedModel,
         isLoading,
       }),
-    [isLoading, providers, selectedModel, selectedProvider],
+    [isLoading, executionProviders, selectedModel, selectedProvider],
   );
 
   const triggerLabel = useMemo(() => {
@@ -1296,8 +1301,14 @@ function ProviderModelBrowserContent({
     [normalizedQuery, provider],
   );
   const providerProfileRows = useMemo(
-    () => profiles?.rows.filter((row) => row.provider === view.providerId) ?? [],
-    [profiles, view.providerId],
+    () =>
+      profiles?.rows.filter(
+        (row) =>
+          row.provider === view.providerId ||
+          (provider &&
+            getProviderModelRows(provider).some((model) => model.provider === row.provider)),
+      ) ?? [],
+    [profiles, provider, view.providerId],
   );
   const profileHeader = useMemo(
     () =>

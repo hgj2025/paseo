@@ -5,6 +5,38 @@ import {
   type ProviderSelectorProvider,
 } from "@/provider-selection/provider-selection";
 
+/** Browse Codex backends together; model rows retain their executable provider IDs. */
+export function groupModelBrowserProviders(
+  providers: ProviderSelectorProvider[],
+): ProviderSelectorProvider[] {
+  const codex = providers.find((provider) => provider.id === "codex");
+  const free = providers.find((provider) => provider.id === "codex-magpie");
+  if (!codex || !free) return providers;
+
+  const rows = getAllProviderModelRows([codex, free]);
+  let modelSelection = codex.modelSelection;
+  if (rows.length > 0) modelSelection = { kind: "models", rows };
+  else if (modelSelection.kind === "error") modelSelection = free.modelSelection;
+  const grouped = { ...codex, modelSelection };
+  return providers
+    .filter((provider) => provider.id !== free.id)
+    .map((provider) => (provider.id === codex.id ? grouped : provider));
+}
+
+export function findModelBrowserProvider(
+  providers: ProviderSelectorProvider[],
+  providerId: string,
+): ProviderSelectorProvider | undefined {
+  return (
+    providers.find((provider) => provider.id === providerId) ??
+    providers.find(
+      (provider) =>
+        provider.modelSelection.kind === "models" &&
+        provider.modelSelection.rows.some((row) => row.provider === providerId),
+    )
+  );
+}
+
 export type ModelBrowserView =
   | { kind: "all" }
   | { kind: "provider"; providerId: string; providerLabel: string };
@@ -101,7 +133,7 @@ export function resolveInitialModelBrowserView({
   }
 
   if (selectedProvider.length > 0 && selectedModel.length > 0) {
-    const provider = providers.find((entry) => entry.id === selectedProvider);
+    const provider = findModelBrowserProvider(providers, selectedProvider);
     if (provider) {
       return { kind: "provider", providerId: provider.id, providerLabel: provider.label };
     }
