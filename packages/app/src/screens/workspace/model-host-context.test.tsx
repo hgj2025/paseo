@@ -3,7 +3,7 @@ import React, { useEffect, useState, type ReactNode } from "react";
 import { act, cleanup, renderHook, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelHostProvider, useModelHostContext, type ModelHostAnchor } from "./model-host-context";
-import { loadModelHostDestinations } from "./model-host-destinations";
+import { loadModelHostDestinations, searchModelHostDirectories } from "./model-host-destinations";
 
 const anchor: ModelHostAnchor = {
   ownerKey: "mac:work",
@@ -160,5 +160,32 @@ describe("model host destinations", () => {
   it("propagates connection failures instead of displaying an empty directory", async () => {
     const client = { fetchWorkspaces: vi.fn().mockRejectedValue(new Error("Host disconnected")) };
     await expect(loadModelHostDestinations(client, "devbox")).rejects.toThrow("Host disconnected");
+  });
+});
+
+describe("remote directory selection", () => {
+  it("finds existing directories even when they are not registered projects", async () => {
+    const client = {
+      getDirectorySuggestions: vi.fn().mockResolvedValue({
+        entries: [
+          { path: "/home/research/code/rea", kind: "directory" },
+          { path: "/home/research/code/rea/README.md", kind: "file" },
+        ],
+      }),
+    };
+    expect(await searchModelHostDirectories(client, "rea")).toEqual([
+      {
+        kind: "directory",
+        id: "directory:/home/research/code/rea",
+        label: "/home/research/code/rea",
+        directory: "/home/research/code/rea",
+      },
+    ]);
+    expect(client.getDirectorySuggestions).toHaveBeenCalledWith({
+      query: "rea",
+      includeDirectories: true,
+      includeFiles: false,
+      limit: 30,
+    });
   });
 });

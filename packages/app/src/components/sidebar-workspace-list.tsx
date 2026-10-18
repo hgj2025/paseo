@@ -1,5 +1,8 @@
 import { SidebarConversationList } from "@/components/sidebar/sidebar-conversation-list";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { normalizeWorkspaceDescriptor } from "@/stores/session-store";
+import { generateDraftId } from "@/stores/draft-keys";
+import { prepareSidebarConversationWorkspace } from "@/utils/sidebar-project-conversation";
 import {
   View,
   Text,
@@ -24,7 +27,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { router, usePathname, type Href } from "expo-router";
+import { router, usePathname } from "expo-router";
 import {
   navigateToWorkspace,
   useActiveWorkspaceSelection,
@@ -53,7 +56,6 @@ import { useHostFeatureMap } from "@/runtime/host-features";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIcons } from "@/projects/icons";
 import {
-  buildNewWorkspaceRoute,
   buildProjectSettingsRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
@@ -119,7 +121,6 @@ import {
 import { DensityIcon } from "@/components/ui/density-icon";
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
@@ -408,8 +409,7 @@ function ProjectRowTrailingActions({
   projectPath,
   isHovered,
   isMobileBreakpoint,
-  isProjectActive,
-  onBeginWorkspaceSetup,
+  onNewConversation,
   onRemoveProject,
   removeProjectStatus,
 }: {
@@ -420,8 +420,7 @@ function ProjectRowTrailingActions({
   projectPath: string;
   isHovered: boolean;
   isMobileBreakpoint: boolean;
-  isProjectActive: boolean;
-  onBeginWorkspaceSetup: () => void;
+  onNewConversation: () => void;
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
@@ -429,11 +428,10 @@ function ProjectRowTrailingActions({
   return (
     <View style={styles.projectTrailingActions}>
       {worktreeTarget ? (
-        <NewWorktreeButton
+        <NewConversationButton
           displayName={displayName}
-          onPress={onBeginWorkspaceSetup}
+          onPress={onNewConversation}
           visible={actionsVisible}
-          showShortcutHint={isProjectActive}
           testID={`sidebar-project-new-worktree-${projectViewKey}`}
         />
       ) : null}
@@ -702,23 +700,20 @@ function WorkspaceRowRightGroup({
   );
 }
 
-function NewWorktreeButton({
+function NewConversationButton({
   displayName,
   onPress,
   visible,
   loading = false,
   testID,
-  showShortcutHint = false,
 }: {
   displayName: string;
   onPress: () => void;
   visible: boolean;
   loading?: boolean;
   testID: string;
-  showShortcutHint?: boolean;
 }) {
   const { t } = useTranslation();
-  const newWorktreeKeys = useShortcutKeys("new-worktree");
 
   const pressableStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
@@ -746,9 +741,7 @@ function NewWorktreeButton({
             onPress={handlePress}
             disabled={loading}
             accessibilityRole={platformIsWeb ? undefined : "button"}
-            accessibilityLabel={t("sidebar.workspace.actions.createWorkspaceFor", {
-              projectName: displayName,
-            })}
+            accessibilityLabel={`${t("conversation.new")} · ${displayName}`}
             testID={testID}
           >
             {({ hovered, pressed }) =>
@@ -767,12 +760,7 @@ function NewWorktreeButton({
         </TooltipTrigger>
         <TooltipContent side="bottom" align="center" offset={8}>
           <View style={styles.projectActionTooltipRow}>
-            <Text style={styles.projectActionTooltipText}>
-              {t("sidebar.workspace.actions.newWorkspace")}
-            </Text>
-            {showShortcutHint && newWorktreeKeys ? (
-              <Shortcut chord={newWorktreeKeys} style={styles.projectActionTooltipShortcut} />
-            ) : null}
+            <Text style={styles.projectActionTooltipText}>{t("conversation.new")}</Text>
           </View>
         </TooltipContent>
       </Tooltip>
@@ -856,7 +844,6 @@ function ProjectHeaderRow({
   chevron,
   onPress,
   worktreeTarget,
-  isProjectActive = false,
   onWorkspacePress,
   onWorktreeCreated: _onWorktreeCreated,
   shortcutNumber = null,
@@ -876,20 +863,35 @@ function ProjectHeaderRow({
   const localDaemonServerId = useLocalDaemonServerId();
   const projectPath = resolveSidebarProjectLocalPath(project, localDaemonServerId);
   const settingsTarget = project.hosts[0] ?? null;
-  const handleBeginWorkspaceSetup = useCallback(() => {
-    if (!worktreeTarget) {
-      return;
-    }
-    onWorkspacePress?.();
-    router.navigate(
-      buildNewWorkspaceRoute({
+  const toast = useToast();
+  const [creatingConversation, setCreatingConversation] = useState(false);
+  const handleNewConversation = useCallback(async () => {
+    if (!worktreeTarget || creatingConversation) return;
+    setCreatingConversation(true);
+    try {
+      const client = getHostRuntimeStore().getClient(worktreeTarget.serverId);
+      if (!client) throw new Error("Host disconnected");
+      const prepared = await prepareSidebarConversationWorkspace(
+        client,
+        worktreeTarget,
+        project.workspaces,
+      );
+      if (prepared.workspace)
+        getHostRuntimeStore().acceptWorkspaceSnapshots(worktreeTarget.serverId, [
+          normalizeWorkspaceDescriptor(prepared.workspace),
+        ]);
+      onWorkspacePress?.();
+      navigateToWorkspace({
         serverId: worktreeTarget.serverId,
-        sourceDirectory: worktreeTarget.iconWorkingDir,
-        displayName,
-        projectId: worktreeTarget.projectId,
-      }) as Href,
-    );
-  }, [displayName, onWorkspacePress, worktreeTarget]);
+        workspaceId: prepared.workspaceId,
+        target: { kind: "draft", draftId: generateDraftId() },
+      });
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setCreatingConversation(false);
+    }
+  }, [creatingConversation, onWorkspacePress, project.workspaces, toast, worktreeTarget]);
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,
@@ -968,8 +970,7 @@ function ProjectHeaderRow({
         projectPath={projectPath}
         isHovered={isHovered}
         isMobileBreakpoint={isMobileBreakpoint}
-        isProjectActive={isProjectActive}
-        onBeginWorkspaceSetup={handleBeginWorkspaceSetup}
+        onNewConversation={handleNewConversation}
         onRemoveProject={onRemoveProject}
         removeProjectStatus={removeProjectStatus}
       />

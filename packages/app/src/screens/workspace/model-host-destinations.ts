@@ -3,7 +3,8 @@ import type { ExecutionScope } from "./model-host-context";
 
 export type ModelHostDestination =
   | { kind: "workspace"; id: string; label: string; scope: ExecutionScope }
-  | { kind: "project"; id: string; label: string; projectId: string; directory: string };
+  | { kind: "project"; id: string; label: string; projectId: string; directory: string }
+  | { kind: "directory"; id: string; label: string; directory: string };
 
 export async function loadModelHostDestinations(
   client: Pick<DaemonClient, "fetchWorkspaces">,
@@ -38,4 +39,28 @@ export async function loadModelHostDestinations(
     cursor = page.pageInfo.hasMore ? (page.pageInfo.nextCursor ?? undefined) : undefined;
   } while (cursor);
   return destinations;
+}
+
+export async function searchModelHostDirectories(
+  client: Pick<DaemonClient, "getDirectorySuggestions">,
+  query: string,
+): Promise<ModelHostDestination[]> {
+  const payload = await client.getDirectorySuggestions({
+    query,
+    includeDirectories: true,
+    includeFiles: false,
+    limit: 30,
+  });
+  return (payload.entries ?? []).flatMap((entry) =>
+    entry.kind === "directory"
+      ? [
+          {
+            kind: "directory" as const,
+            id: `directory:${entry.path}`,
+            label: entry.path,
+            directory: entry.path,
+          },
+        ]
+      : [],
+  );
 }

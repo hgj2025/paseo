@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { prepareSidebarConversationWorkspace } from "./sidebar-project-conversation";
+import { describe, expect, it, vi } from "vitest";
 import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
@@ -282,5 +283,42 @@ describe("buildSidebarProjectRowModel", () => {
         target: { serverId: "srv", projectId: "project-srv", iconWorkingDir: "/repo" },
       },
     });
+  });
+});
+
+describe("project new conversation", () => {
+  const target = { serverId: "srv", projectId: "rea", iconWorkingDir: "/repo" };
+  it("reuses the directory workspace without creating another workspace", async () => {
+    const client = { createWorkspace: vi.fn() };
+    const existing = workspace();
+    expect(await prepareSidebarConversationWorkspace(client, target, [existing])).toEqual({
+      workspaceId: existing.workspaceId,
+      workspace: null,
+    });
+    expect(client.createWorkspace).not.toHaveBeenCalled();
+  });
+  it("creates a directory workspace only when the project has none", async () => {
+    const client = {
+      createWorkspace: vi.fn().mockResolvedValue({ workspace: { id: "rea-work" } }),
+    };
+    expect(await prepareSidebarConversationWorkspace(client, target, [])).toEqual({
+      workspaceId: "rea-work",
+      workspace: { id: "rea-work" },
+    });
+    expect(client.createWorkspace).toHaveBeenCalledWith({
+      idempotencyKey: expect.any(String),
+      source: { kind: "directory", path: "/repo", projectId: "rea" },
+    });
+  });
+  it("does not use a workspace on another host even if its path matches", async () => {
+    const client = { createWorkspace: vi.fn().mockResolvedValue({ workspace: { id: "remote" } }) };
+    expect(
+      (
+        await prepareSidebarConversationWorkspace(client, target, [
+          workspace({ serverId: "other" }),
+        ])
+      ).workspaceId,
+    ).toBe("remote");
+    expect(client.createWorkspace).toHaveBeenCalledTimes(1);
   });
 });
