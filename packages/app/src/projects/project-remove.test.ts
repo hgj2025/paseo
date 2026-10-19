@@ -17,6 +17,7 @@ function createProjectRemoveClient() {
   return {
     removedProjectKeys,
     client: {
+      isConnected: true,
       async removeProject(projectKey: string): Promise<{ removedWorkspaceIds: string[] }> {
         removedProjectKeys.push(projectKey);
         return { removedWorkspaceIds: [] };
@@ -29,6 +30,7 @@ describe("project remove policy", () => {
   it("requires every host to support project removal", () => {
     const readiness = getProjectRemoveReadiness({
       project,
+      isHostConnected: () => true,
       supportsProjectRemove: (serverId) => serverId === "host-a",
     });
 
@@ -43,6 +45,7 @@ describe("project remove policy", () => {
     const hostB = createProjectRemoveClient();
     const readiness = getProjectRemoveReadiness({
       project,
+      isHostConnected: () => true,
       supportsProjectRemove: () => true,
     });
 
@@ -82,4 +85,26 @@ describe("project remove policy", () => {
     expect(outcome).toEqual({ kind: "host_disconnected", serverIds: ["host-b"] });
     expect(hostA.removedProjectKeys).toEqual([]);
   });
+});
+
+it("reports an offline host rather than incorrectly asking to upgrade it", () => {
+  expect(
+    getProjectRemoveReadiness({
+      project,
+      isHostConnected: (id) => id === "host-a",
+      supportsProjectRemove: (id) => id === "host-a",
+    }),
+  ).toEqual({ kind: "host_disconnected", serverIds: ["host-b"] });
+});
+it("does not queue removal when an offline host still has a client object", async () => {
+  const a = createProjectRemoveClient(),
+    b = createProjectRemoveClient();
+  b.client.isConnected = false;
+  const result = await removeProjectFromHosts({
+    targets: project.hosts,
+    getClient: (id) => (id === "host-a" ? a.client : b.client),
+  });
+  expect(result).toEqual({ kind: "host_disconnected", serverIds: ["host-b"] });
+  expect(a.removedProjectKeys).toEqual([]);
+  expect(b.removedProjectKeys).toEqual([]);
 });

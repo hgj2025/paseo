@@ -1,5 +1,6 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useSessionStore } from "@/stores/session-store";
+import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { selectHostFeature } from "@/runtime/host-features";
 
 interface ProjectRemoveHost {
@@ -18,19 +19,24 @@ export interface ProjectRemoveTarget {
 
 export type ProjectRemoveReadiness =
   | { kind: "ready"; targets: ProjectRemoveTarget[] }
-  | { kind: "needs_host_update"; serverIds: string[] };
+  | { kind: "needs_host_update"; serverIds: string[] }
+  | { kind: "host_disconnected"; serverIds: string[] };
 
 export type ProjectRemoveOutcome =
   | { kind: "removed"; serverIds: string[] }
   | { kind: "host_disconnected"; serverIds: string[] }
   | { kind: "failed"; serverIds: string[] };
 
-type ProjectRemoveClient = Pick<DaemonClient, "removeProject">;
+type ProjectRemoveClient = Pick<DaemonClient, "removeProject" | "isConnected">;
 
 export function getProjectRemoveReadiness(input: {
   project: ProjectRemoveProject;
   supportsProjectRemove: (serverId: string) => boolean;
+  isHostConnected: (serverId: string) => boolean;
 }): ProjectRemoveReadiness {
+  const disconnected = input.project.hosts.filter((host) => !input.isHostConnected(host.serverId));
+  if (disconnected.length)
+    return { kind: "host_disconnected", serverIds: disconnected.map((host) => host.serverId) };
   const unsupportedServerIds: string[] = [];
   const targets: ProjectRemoveTarget[] = [];
 
@@ -58,6 +64,7 @@ export function getCurrentProjectRemoveReadiness(
   const sessionState = useSessionStore.getState();
   return getProjectRemoveReadiness({
     project,
+    isHostConnected: (serverId) => getHostRuntimeStore().getClient(serverId)?.isConnected === true,
     supportsProjectRemove: (serverId) => selectHostFeature(sessionState, serverId, "projectRemove"),
   });
 }
@@ -71,7 +78,7 @@ export async function removeProjectFromHosts(input: {
 
   for (const target of input.targets) {
     const client = input.getClient(target.serverId);
-    if (!client) {
+    if (!client?.isConnected) {
       disconnectedServerIds.push(target.serverId);
       continue;
     }
