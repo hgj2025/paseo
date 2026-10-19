@@ -29,7 +29,7 @@ export function ModelHostActions({ children }: { children?: ReactNode }) {
 }
 function resolveHostSelection(context: ReturnType<typeof useModelHostContext>) {
   const actualHost = context?.member?.execution?.serverId ?? context?.serverId;
-  const selectedHost = context?.candidate?.serverId ?? actualHost;
+  const selectedHost = context?.previewHost ?? context?.candidate?.serverId ?? actualHost;
   const activeAgentId = context?.member?.execution?.agentId ?? context?.member?.agentId;
   return { actualHost, selectedHost, activeAgentId };
 }
@@ -68,6 +68,12 @@ function ModelHostPicker() {
   const { actualHost, selectedHost, activeAgentId } = resolveHostSelection(context);
   const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const { currentProject, currentWorkspace } = useModelHostProject(context, actualHost, serverIds);
+  useEffect(() => {
+    if (context?.scopeRequested && selectedHost) {
+      setChosenHost(selectedHost);
+      setOpen(true);
+    }
+  }, [context?.scopeRequested, selectedHost]);
   const currentDirectory = useSessionStore((state) => {
     const session = state.sessions[actualHost ?? ""];
     return (
@@ -177,6 +183,8 @@ function ModelHostPicker() {
         setOpen(false);
         return;
       }
+      context.selectHost(id);
+      setOpen(false);
       setDirectoryQuery("");
       setChosenHost(id);
       setDestinations([]);
@@ -214,7 +222,10 @@ function ModelHostPicker() {
     setOpen(true);
   });
   const changeOpen = useStableEvent((value: boolean) => {
-    if (!value) ++request.current;
+    if (!value) {
+      ++request.current;
+      context?.cancelScopeRequest();
+    }
     setOpen(value);
   });
   if (!context) return null;

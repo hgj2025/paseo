@@ -56,6 +56,41 @@ describe("model panel host candidate", () => {
     act(() => result.current!.selectCandidate(null));
     expect(result.current!.candidate).toBeNull();
   });
+  it("previews remote models without requiring an execution directory", async () => {
+    const { result } = renderHook(useModelHostContext, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <ModelHostProvider value={anchor}>{children}</ModelHostProvider>
+      ),
+    });
+    act(() => result.current!.selectHost("mac"));
+    expect(result.current!.previewHost).toBe("mac");
+    expect(result.current!.candidate).toBeNull();
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current!.requestScope();
+    });
+    expect(result.current!.scopeRequested).toBe(true);
+    const scope = { serverId: "mac", workspaceId: "work", directory: "/code" };
+    act(() => result.current!.selectCandidate(scope));
+    await expect(pending).resolves.toEqual(scope);
+    expect(result.current!.scopeRequested).toBe(false);
+  });
+  it("cancels directory selection without losing the preview host", async () => {
+    const { result } = renderHook(useModelHostContext, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <ModelHostProvider value={anchor}>{children}</ModelHostProvider>
+      ),
+    });
+    act(() => result.current!.selectHost("mac"));
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current!.requestScope();
+    });
+    act(() => result.current!.cancelScopeRequest());
+    await expect(pending).resolves.toBeNull();
+    expect(result.current!.previewHost).toBe("mac");
+    expect(result.current!.candidate).toBeNull();
+  });
   it("clears the candidate when a new execution binding commits, keeping the same anchor", () => {
     let value = anchor;
     const { result, rerender } = renderHook(useModelHostContext, {

@@ -17,7 +17,7 @@ function supportsExecution(context: ReturnType<typeof useModelHostContext>) {
 function useExecutionScope(serverId: string | null) {
   const context = useModelHostContext();
   const current = context?.member?.execution;
-  const host = context?.candidate?.serverId ?? current?.serverId ?? serverId;
+  const host = context?.previewHost ?? current?.serverId ?? serverId;
   const workspaceId =
     context?.candidate?.workspaceId ?? current?.workspaceId ?? context?.member?.workspaceId;
   const scopes = useWorkspaceScopeOptions(host ? [host] : []);
@@ -67,12 +67,14 @@ export function useExecutionModelSelection(input: {
   const pendingRef = useRef(false);
   const select = enabled
     ? async (provider: string, model: string) => {
-        if (!context?.member || !scope || !context.teamContext)
+        if (!context?.member || !context.teamContext)
           throw new Error("Execution workspace is unavailable.");
+        const destinationScope = scope ?? (await context.requestScope());
+        if (!destinationScope) return;
         if (pendingRef.current) throw new Error("An execution change is already in progress.");
         if (
           context.member.id === context.teamContext.team?.captainId &&
-          scope.serverId !== context.teamContext.ownerServerId
+          destinationScope.serverId !== context.teamContext.ownerServerId
         )
           throw new Error(
             "Captain execution must remain on the team host until remote team tools are supported.",
@@ -83,7 +85,7 @@ export function useExecutionModelSelection(input: {
         try {
           await prepareConversationExecutor({
             member: context.member,
-            scope,
+            scope: destinationScope,
             provider,
             model,
             operationId: uuid(),
@@ -141,7 +143,7 @@ export function useExecutionModelSelection(input: {
     serverId: host,
     loading: enabled ? snapshot.isLoading : input.loading,
     pending,
-    isPreviewing: Boolean(context?.candidate),
+    isPreviewing: Boolean(context?.previewHost),
     select,
   };
 }
