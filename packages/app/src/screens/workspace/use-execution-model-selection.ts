@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { isExecutionHostSupported } from "./model-host-destinations";
 import { useMemo, useState, useRef } from "react";
 import { v4 as uuid } from "uuid";
 import type { ProviderSelectorProvider } from "@/provider-selection/provider-selection";
@@ -51,6 +53,7 @@ export function useExecutionModelSelection(input: {
   serverId: string | null;
   loading: boolean;
 }) {
+  const { t } = useTranslation();
   const { context, current, host, scope, enabled, snapshot } = useExecutionScope(input.serverId);
   const providers = useMemo(
     () =>
@@ -73,12 +76,16 @@ export function useExecutionModelSelection(input: {
         if (!destinationScope) return;
         if (pendingRef.current) throw new Error("An execution change is already in progress.");
         if (
-          context.member.id === context.teamContext.team?.captainId &&
-          destinationScope.serverId !== context.teamContext.ownerServerId
-        )
-          throw new Error(
-            "Captain execution must remain on the team host until remote team tools are supported.",
-          );
+          !isExecutionHostSupported(
+            context.member.id,
+            context.teamContext.team?.captainId,
+            context.teamContext.ownerServerId,
+            destinationScope.serverId,
+          )
+        ) {
+          context.selectCandidate(null);
+          throw new Error(t("modelHostDirectory.captainHost"));
+        }
         pendingRef.current = true;
         context.setSwitching(true);
         setPending(true);

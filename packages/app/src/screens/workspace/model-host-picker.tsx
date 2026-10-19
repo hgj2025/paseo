@@ -1,7 +1,7 @@
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { v4 as uuid } from "uuid";
 import { normalizeWorkspaceDescriptor, useSessionStore } from "@/stores/session-store";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -9,7 +9,11 @@ import { Combobox } from "@/components/ui/combobox";
 import { ToolbarLabelSelectTrigger } from "@/components/ui/toolbar-label-trigger";
 import { HostStatusDotSlot } from "@/components/hosts/host-picker";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
-import { loadModelHostDestinations, type ModelHostDestination } from "./model-host-destinations";
+import {
+  isExecutionHostSupported,
+  loadModelHostDestinations,
+  type ModelHostDestination,
+} from "./model-host-destinations";
 import { ModelHostDirectoryBrowser } from "./model-host-directory-browser";
 import { useToast } from "@/contexts/toast-api-context";
 import { useModelHostContext } from "./model-host-context";
@@ -80,6 +84,18 @@ function ModelHostPicker() {
       toast.error(t("workspace.execution.upgrade"));
       return;
     }
+    if (
+      !isExecutionHostSupported(
+        context.member?.id,
+        context.teamContext.team?.captainId,
+        context.teamContext.ownerServerId,
+        chosenHost ?? id,
+      )
+    ) {
+      context.selectCandidate(null);
+      setLoadError(t("modelHostDirectory.captainHost"));
+      return;
+    }
     const generation = ++request.current;
     setBusy(true);
     setLoadError(null);
@@ -131,6 +147,15 @@ function ModelHostPicker() {
     }
     setOpen(value);
   });
+  const errorHeader = useMemo(
+    () =>
+      loadError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {loadError}
+        </Text>
+      ) : undefined,
+    [loadError],
+  );
   if (!context) return null;
   const label = hosts.find((h) => h.serverId === selectedHost)?.label || selectedHost || "";
   return (
@@ -166,6 +191,7 @@ function ModelHostPicker() {
                 ? []
                 : hosts.map((host) => ({ id: host.serverId, label: host.label || host.serverId }))
             }
+            stickyHeader={errorHeader}
             emptyText={busy ? t("common.loading") : (loadError ?? undefined)}
             value={selectedHost ?? ""}
             anchorRef={anchor}
@@ -191,5 +217,6 @@ const styles = StyleSheet.create((theme) => ({
     maxWidth: 160,
     minWidth: 0,
   },
+  error: { color: theme.colors.foreground, fontSize: theme.fontSize.sm, padding: theme.spacing[3] },
   label: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, flexShrink: 1 },
 }));

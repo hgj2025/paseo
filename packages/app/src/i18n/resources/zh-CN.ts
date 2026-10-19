@@ -3,6 +3,7 @@ import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
   modelHostDirectory: {
+    captainHost: "主会话（Captain）暂不支持跨主机切换。请添加 devbox 成员来使用远端模型。",
     title: "选择 {{host}} 上的目录",
     search: "筛选文件夹或输入完整路径…",
     empty: "没有子目录，可以选择当前目录。",

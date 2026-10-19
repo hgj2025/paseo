@@ -6,6 +6,7 @@ import { ModelHostProvider, useModelHostContext, type ModelHostAnchor } from "./
 import {
   loadModelHostDestinations,
   browseModelHostDirectory,
+  isExecutionHostSupported,
   parentModelHostDirectory,
   searchModelHostDirectories,
   resolveModelHostDestination,
@@ -321,5 +322,15 @@ describe("host filesystem browser", () => {
   it("keeps filesystem permission errors visible to the caller", async () => {
     const client = { listDirectory: vi.fn().mockRejectedValue(new Error("Permission denied")) };
     await expect(browseModelHostDirectory(client, "/private")).rejects.toThrow("Permission denied");
+  });
+});
+
+describe("execution host support", () => {
+  it("rejects remote Captain execution before opening directory or model choices", () => {
+    expect(isExecutionHostSupported("captain", "captain", "mac", "devbox")).toBe(false);
+    expect(isExecutionHostSupported("captain", "captain", "mac", "mac")).toBe(true);
+  });
+  it("allows ordinary members to execute on remote hosts", () => {
+    expect(isExecutionHostSupported("member", "captain", "mac", "devbox")).toBe(true);
   });
 });

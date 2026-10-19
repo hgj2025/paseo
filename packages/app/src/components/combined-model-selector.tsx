@@ -126,7 +126,7 @@ export function CombinedModelSelector({
   const browser = useModelBrowser({
     providers,
     selectedProvider,
-    selectedModel,
+    selectedModel: execution.isPreviewing ? "" : selectedModel,
     isLoading,
     profiles: execution.isPreviewing ? null : profiles,
     serverId,

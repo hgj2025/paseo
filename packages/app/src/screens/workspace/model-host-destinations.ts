@@ -110,3 +110,13 @@ export async function browseModelHostDirectory(
       return { kind: "directory", id: path, label: entry.name, directory: path };
     });
 }
+
+/** Captain needs owner-host team tools and completion routing. */
+export function isExecutionHostSupported(
+  memberId: string | undefined,
+  captainId: string | null | undefined,
+  ownerServerId: string | undefined,
+  targetServerId: string,
+): boolean {
+  return !memberId || memberId !== captainId || targetServerId === ownerServerId;
+}

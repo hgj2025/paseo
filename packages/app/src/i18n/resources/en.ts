@@ -1,5 +1,6 @@
 export const en = {
   modelHostDirectory: {
+    captainHost: "Captain must stay on the team host. Add a devbox member to use remote models.",
     title: "Choose a directory on {{host}}",
     search: "Filter folders or enter an absolute path…",
     empty: "No subfolders. You can select this directory.",
