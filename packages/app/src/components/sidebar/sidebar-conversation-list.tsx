@@ -60,7 +60,7 @@ export function SidebarConversationList({
   );
   if (!rows.length) return null;
   return (
-    <View style={styles.list} testID={`sidebar-conversations-${key}`}>
+    <View testID={`sidebar-conversations-${key}`}>
       {rows.map((row) => (
         <ConversationRow
           key={row.id}

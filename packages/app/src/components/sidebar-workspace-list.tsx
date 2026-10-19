@@ -2518,15 +2518,9 @@ const styles = StyleSheet.create((theme) => ({
   pinnedSection: {
     marginBottom: theme.spacing[1],
   },
-  // Three times the gap a row keeps from its neighbour, so the break between two groups reads as
-  // a break rather than as one more row of pitch. Kept equal to `statusGroupBlockExpanded` — the
-  // two groupings are the same list under a different heading and must not breathe differently.
-  //
-  // Padding on the block rather than margin, and only while it has children: the gap belongs to
-  // the rows underneath the header, so a collapsed project gives it back and a column of collapsed
-  // headers closes up to the pitch of a list instead of staying spaced for content that is gone.
+  // Keep one small gap between expanded projects; conversation rows add no trailing inset.
   projectBlockExpanded: {
-    paddingBottom: theme.spacing[3],
+    paddingBottom: theme.spacing[1],
   },
   workspaceListContainer: {},
   // Kept in step with `workspaceRow` above. It stands in a project's list where a workspace row
