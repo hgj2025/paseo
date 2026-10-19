@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelHostProvider, useModelHostContext, type ModelHostAnchor } from "./model-host-context";
 import {
   loadModelHostDestinations,
+  browseModelHostDirectory,
+  parentModelHostDirectory,
   searchModelHostDirectories,
   resolveModelHostDestination,
 } from "./model-host-destinations";
@@ -280,5 +282,44 @@ describe("project directory continuity", () => {
   });
   it("does not guess a different project when the selected host has no mapping", () => {
     expect(resolveModelHostDestination(choices, source, undefined)).toBeUndefined();
+  });
+});
+
+describe("host filesystem browser", () => {
+  it("lists unregistered directories using the target host filesystem", async () => {
+    const client = {
+      listDirectory: vi.fn().mockResolvedValue({
+        path: ".",
+        entries: [
+          { name: "rea", path: "rea", kind: "directory" },
+          { name: "README.md", path: "README.md", kind: "file" },
+          { name: "ip", path: "ip", kind: "directory" },
+        ],
+      }),
+    };
+    expect(await browseModelHostDirectory(client, "/home/research/code/")).toEqual([
+      {
+        kind: "directory",
+        id: "/home/research/code/ip",
+        label: "ip",
+        directory: "/home/research/code/ip",
+      },
+      {
+        kind: "directory",
+        id: "/home/research/code/rea",
+        label: "rea",
+        directory: "/home/research/code/rea",
+      },
+    ]);
+    expect(client.listDirectory).toHaveBeenCalledWith("/home/research/code/", ".");
+  });
+  it("navigates up without passing the filesystem root", () => {
+    expect(parentModelHostDirectory("/home/research/code/")).toBe("/home/research");
+    expect(parentModelHostDirectory("/home")).toBe("/");
+    expect(parentModelHostDirectory("/")).toBe("/");
+  });
+  it("keeps filesystem permission errors visible to the caller", async () => {
+    const client = { listDirectory: vi.fn().mockRejectedValue(new Error("Permission denied")) };
+    await expect(browseModelHostDirectory(client, "/private")).rejects.toThrow("Permission denied");
   });
 });

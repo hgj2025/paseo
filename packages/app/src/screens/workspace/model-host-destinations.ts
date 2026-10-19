@@ -90,3 +90,23 @@ export function resolveModelHostDestination(
     destinations.find((entry) => entry.kind === "project" && entry.directory === projectDirectory)
   );
 }
+
+export function parentModelHostDirectory(directory: string): string {
+  const path = directory.replace(/\/+$/, "");
+  return path.slice(0, path.lastIndexOf("/")) || "/";
+}
+
+/** List the chosen host's filesystem, not its registered projects. */
+export async function browseModelHostDirectory(
+  client: Pick<DaemonClient, "listDirectory">,
+  directory: string,
+): Promise<ModelHostDestination[]> {
+  const listing = await client.listDirectory(directory, ".");
+  return listing.entries
+    .filter((entry) => entry.kind === "directory")
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => {
+      const path = `${directory.replace(/\/+$/, "")}/${entry.name}`;
+      return { kind: "directory", id: path, label: entry.name, directory: path };
+    });
+}

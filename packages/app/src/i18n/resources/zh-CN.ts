@@ -2,6 +2,13 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  modelHostDirectory: {
+    title: "选择 {{host}} 上的目录",
+    search: "筛选文件夹或输入完整路径…",
+    empty: "没有子目录，可以选择当前目录。",
+    parent: "上一级目录",
+    select: "选择当前目录",
+  },
   conversation: {
     new: "新建会话",
     untitled: "会话 {{number}}",

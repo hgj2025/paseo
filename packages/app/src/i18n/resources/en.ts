@@ -1,4 +1,11 @@
 export const en = {
+  modelHostDirectory: {
+    title: "Choose a directory on {{host}}",
+    search: "Filter folders or enter an absolute path…",
+    empty: "No subfolders. You can select this directory.",
+    parent: "Parent directory",
+    select: "Select this directory",
+  },
   conversation: {
     new: "New conversation",
     untitled: "Conversation {{number}}",

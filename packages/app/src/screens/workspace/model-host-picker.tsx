@@ -1,7 +1,7 @@
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { v4 as uuid } from "uuid";
 import { normalizeWorkspaceDescriptor, useSessionStore } from "@/stores/session-store";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -9,11 +9,8 @@ import { Combobox } from "@/components/ui/combobox";
 import { ToolbarLabelSelectTrigger } from "@/components/ui/toolbar-label-trigger";
 import { HostStatusDotSlot } from "@/components/hosts/host-picker";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
-import {
-  loadModelHostDestinations,
-  searchModelHostDirectories,
-  type ModelHostDestination,
-} from "./model-host-destinations";
+import { loadModelHostDestinations, type ModelHostDestination } from "./model-host-destinations";
+import { ModelHostDirectoryBrowser } from "./model-host-directory-browser";
 import { useToast } from "@/contexts/toast-api-context";
 import { useModelHostContext } from "./model-host-context";
 export function ModelHostActions({ children }: { children?: ReactNode }) {
@@ -39,8 +36,6 @@ function ModelHostPicker() {
   const [open, setOpen] = useState(false);
   const [chosenHost, setChosenHost] = useState<string | null>(null);
   const [destinations, setDestinations] = useState<ModelHostDestination[]>([]);
-  const [directoryQuery, setDirectoryQuery] = useState("");
-  const [directoryChoices, setDirectoryChoices] = useState<ModelHostDestination[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const request = useRef(0);
@@ -51,52 +46,6 @@ function ModelHostPicker() {
       setOpen(true);
     }
   }, [context?.scopeRequested, selectedHost]);
-  useEffect(() => {
-    setDirectoryChoices([]);
-    if (!open || !chosenHost) return;
-    let canceled = false;
-    const timer = setTimeout(() => {
-      const client = getHostRuntimeStore().getClient(chosenHost);
-      if (!client) return;
-      void searchModelHostDirectories(client, directoryQuery).then(
-        (choices) => {
-          if (!canceled) {
-            setDirectoryChoices(choices);
-            setLoadError(null);
-          }
-          return choices;
-        },
-        (error) => {
-          if (!canceled) setLoadError(String(error));
-          return undefined;
-        },
-      );
-    }, 180);
-    return () => {
-      canceled = true;
-      clearTimeout(timer);
-    };
-  }, [chosenHost, directoryQuery, open]);
-  const allDestinations = useMemo(() => {
-    const paths = new Set(destinations.map((entry) => entry.label));
-    return [...destinations, ...directoryChoices.filter((entry) => !paths.has(entry.label))];
-  }, [destinations, directoryChoices]);
-  const options = useMemo(
-    () =>
-      chosenHost
-        ? allDestinations.map((destination) => ({
-            id: destination.id,
-            label: destination.label,
-            description:
-              destination.kind !== "workspace"
-                ? t("sidebar.workspace.actions.createWorkspaceFor", {
-                    projectName: destination.label,
-                  })
-                : undefined,
-          }))
-        : hosts.map((h) => ({ id: h.serverId, label: h.label || h.serverId })),
-    [chosenHost, allDestinations, hosts, t],
-  );
   const prepareDestination = useStableEvent(
     async (serverId: string, destination: ModelHostDestination) => {
       let scope;
@@ -137,7 +86,7 @@ function ModelHostPicker() {
     try {
       if (chosenHost) {
         const destination =
-          allDestinations.find((entry) => entry.id === id) ??
+          destinations.find((entry) => entry.id === id || entry.label === id) ??
           (id.startsWith("/")
             ? { kind: "directory" as const, id, label: id, directory: id }
             : null);
@@ -152,14 +101,13 @@ function ModelHostPicker() {
         setOpen(false);
         return;
       }
-      setDirectoryQuery("");
-      setChosenHost(id);
       setDestinations([]);
       const client = getHostRuntimeStore().getClient(id);
       if (!client) throw new Error(t("workspace.terminal.hostDisconnected"));
       const choices = await loadModelHostDestinations(client, id);
       if (generation !== request.current) return;
       setDestinations(choices);
+      setChosenHost(id);
     } catch (error) {
       if (generation !== request.current) return;
       setLoadError(String(error));
@@ -200,27 +148,37 @@ function ModelHostPicker() {
       ) : (
         <Text style={styles.label}>{label}</Text>
       )}
-      {open && (
-        <Combobox
-          key={chosenHost ?? "hosts"}
-          onSearchQueryChange={setDirectoryQuery}
-          allowCustomValue={Boolean(chosenHost && directoryQuery.startsWith("/") && !busy)}
-          customValuePrefix=""
-          customValueKind="directory"
-          options={busy ? [] : options}
-          emptyText={busy ? t("common.loading") : (loadError ?? undefined)}
-          value={selectedHost ?? ""}
-          anchorRef={anchor}
-          open={open}
-          onOpenChange={changeOpen}
-          onSelect={select}
-          keepOpenOnSelect
-          desktopPreventInitialFlash
-          desktopPlacement="bottom-start"
-          desktopMinWidth={240}
-          title={t("workspace.execution.chooseHost")}
-        />
-      )}
+      {open &&
+        (chosenHost ? (
+          <ModelHostDirectoryBrowser
+            serverId={chosenHost}
+            hostLabel={hosts.find((host) => host.serverId === chosenHost)?.label ?? chosenHost}
+            initialDirectory={destinations[0]?.label}
+            anchorRef={anchor}
+            busy={busy}
+            onSelect={select}
+            onOpenChange={changeOpen}
+          />
+        ) : (
+          <Combobox
+            options={
+              busy
+                ? []
+                : hosts.map((host) => ({ id: host.serverId, label: host.label || host.serverId }))
+            }
+            emptyText={busy ? t("common.loading") : (loadError ?? undefined)}
+            value={selectedHost ?? ""}
+            anchorRef={anchor}
+            open={open}
+            onOpenChange={changeOpen}
+            onSelect={select}
+            keepOpenOnSelect
+            desktopPreventInitialFlash
+            desktopPlacement="bottom-start"
+            desktopMinWidth={240}
+            title={t("workspace.execution.chooseHost")}
+          />
+        ))}
     </View>
   );
 }
