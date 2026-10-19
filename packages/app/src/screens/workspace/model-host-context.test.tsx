@@ -168,6 +168,22 @@ describe("model host destinations", () => {
     ]);
   });
 
+  it("shows each remote directory once even when multiple workspaces use it", async () => {
+    const client = {
+      fetchWorkspaces: vi.fn().mockResolvedValue({
+        entries: [
+          { id: "one", workspaceDirectory: "/code/video" },
+          { id: "two", workspaceDirectory: "/code/video" },
+        ],
+        emptyProjects: [],
+        pageInfo: { hasMore: false, nextCursor: null },
+      }),
+    };
+    const choices = await loadModelHostDestinations(client, "devbox");
+    expect(choices).toHaveLength(1);
+    expect(choices[0]).toMatchObject({ kind: "workspace", id: "one", label: "/code/video" });
+  });
+
   it("loads all workspace pages and excludes workspaces being archived", async () => {
     const client = {
       fetchWorkspaces: vi

@@ -38,7 +38,14 @@ export async function loadModelHostDestinations(
     }
     cursor = page.pageInfo.hasMore ? (page.pageInfo.nextCursor ?? undefined) : undefined;
   } while (cursor);
-  return destinations;
+  const byDirectory = new Map<string, ModelHostDestination>();
+  for (const destination of destinations) {
+    const existing = byDirectory.get(destination.label);
+    if (!existing || (existing.kind !== "workspace" && destination.kind === "workspace")) {
+      byDirectory.set(destination.label, destination);
+    }
+  }
+  return [...byDirectory.values()];
 }
 
 export async function searchModelHostDirectories(
