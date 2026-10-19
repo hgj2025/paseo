@@ -3,7 +3,11 @@ import React, { useEffect, useState, type ReactNode } from "react";
 import { act, cleanup, renderHook, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelHostProvider, useModelHostContext, type ModelHostAnchor } from "./model-host-context";
-import { loadModelHostDestinations, searchModelHostDirectories } from "./model-host-destinations";
+import {
+  loadModelHostDestinations,
+  searchModelHostDirectories,
+  resolveModelHostDestination,
+} from "./model-host-destinations";
 
 const anchor: ModelHostAnchor = {
   ownerKey: "mac:work",
@@ -187,5 +191,43 @@ describe("remote directory selection", () => {
       includeFiles: false,
       limit: 30,
     });
+  });
+});
+
+describe("project directory continuity", () => {
+  const source = "/Users/bytedance/vmcode/aigcvideo";
+  const target = "/home/research/code/aigcvideo";
+  const choices = [
+    {
+      kind: "workspace" as const,
+      id: "rea",
+      label: "/home/research/code/rea",
+      scope: { serverId: "devbox", workspaceId: "rea", directory: "/home/research/code/rea" },
+    },
+    {
+      kind: "workspace" as const,
+      id: "video",
+      label: target,
+      scope: { serverId: "devbox", workspaceId: "video", directory: target },
+    },
+  ];
+  it("selects the same project on another host without asking for a directory", () => {
+    expect(resolveModelHostDestination(choices, source, target)).toBe(choices[1]);
+  });
+  it("keeps an exact current workspace instead of falling back to its project root", () => {
+    expect(resolveModelHostDestination(choices, choices[0]!.label, target)).toBe(choices[0]);
+  });
+  it("prepares an empty same-project directory when there is no active workspace", () => {
+    const project = {
+      kind: "project" as const,
+      id: "project:video",
+      label: target,
+      projectId: "video",
+      directory: target,
+    };
+    expect(resolveModelHostDestination([choices[0]!, project], source, target)).toBe(project);
+  });
+  it("does not guess a different project when the selected host has no mapping", () => {
+    expect(resolveModelHostDestination(choices, source, undefined)).toBeUndefined();
   });
 });

@@ -64,3 +64,22 @@ export async function searchModelHostDirectories(
       : [],
   );
 }
+
+/** Reuse the same project's host-local directory instead of comparing cross-host paths. */
+export function resolveModelHostDestination(
+  destinations: readonly ModelHostDestination[],
+  directory: string | undefined,
+  projectDirectory: string | undefined,
+): ModelHostDestination | undefined {
+  const exact = destinations.find(
+    (entry) => entry.kind === "workspace" && entry.scope.directory === directory,
+  );
+  if (exact) return exact;
+  if (!projectDirectory) return undefined;
+  return (
+    destinations.find(
+      (entry) => entry.kind === "workspace" && entry.scope.directory === projectDirectory,
+    ) ??
+    destinations.find((entry) => entry.kind === "project" && entry.directory === projectDirectory)
+  );
+}

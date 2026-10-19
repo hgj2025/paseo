@@ -11,11 +11,14 @@ import { HostStatusDotSlot } from "@/components/hosts/host-picker";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import {
   loadModelHostDestinations,
+  resolveModelHostDestination,
   searchModelHostDirectories,
   type ModelHostDestination,
 } from "./model-host-destinations";
 import { useToast } from "@/contexts/toast-api-context";
 import { useModelHostContext } from "./model-host-context";
+import { useHostProjects } from "@/projects/host-projects";
+import { useWorkspaceFields } from "@/stores/session-store-hooks";
 export function ModelHostActions({ children }: { children?: ReactNode }) {
   return (
     <View style={styles.actions}>
@@ -29,6 +32,24 @@ function resolveHostSelection(context: ReturnType<typeof useModelHostContext>) {
   const selectedHost = context?.candidate?.serverId ?? actualHost;
   const activeAgentId = context?.member?.execution?.agentId ?? context?.member?.agentId;
   return { actualHost, selectedHost, activeAgentId };
+}
+function useModelHostProject(
+  context: ReturnType<typeof useModelHostContext>,
+  actualHost: string | undefined,
+  serverIds: string[],
+) {
+  const projects = useHostProjects(serverIds);
+  const currentWorkspace = useWorkspaceFields(
+    actualHost ?? null,
+    context?.member?.execution?.workspaceId ?? context?.member?.workspaceId ?? null,
+    (workspace) => ({ projectId: workspace.projectId, directory: workspace.workspaceDirectory }),
+  );
+  const currentProject = projects.find((project) =>
+    project.hosts.some(
+      (host) => host.serverId === actualHost && host.projectId === currentWorkspace?.projectId,
+    ),
+  );
+  return { currentProject, currentWorkspace };
 }
 function ModelHostPicker() {
   const context = useModelHostContext(),
@@ -45,11 +66,14 @@ function ModelHostPicker() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const request = useRef(0);
   const { actualHost, selectedHost, activeAgentId } = resolveHostSelection(context);
+  const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
+  const { currentProject, currentWorkspace } = useModelHostProject(context, actualHost, serverIds);
   const currentDirectory = useSessionStore((state) => {
     const session = state.sessions[actualHost ?? ""];
     return (
       session?.agents.get(activeAgentId ?? "")?.cwd ??
-      session?.agentDetails.get(activeAgentId ?? "")?.cwd
+      session?.agentDetails.get(activeAgentId ?? "")?.cwd ??
+      currentWorkspace?.directory
     );
   });
   useEffect(() => {
@@ -161,11 +185,16 @@ function ModelHostPicker() {
       const choices = await loadModelHostDestinations(client, id);
       if (generation !== request.current) return;
       setDestinations(choices);
-      const matching = choices.find(
-        (entry) => entry.kind === "workspace" && entry.scope.directory === currentDirectory,
+      const targetProject = currentProject?.hosts.find((host) => host.serverId === id);
+      const matching = resolveModelHostDestination(
+        choices,
+        currentDirectory,
+        targetProject?.iconWorkingDir,
       );
-      if (matching?.kind === "workspace") {
-        context.selectCandidate(matching.scope);
+      if (matching) {
+        const scope = await prepareDestination(id, matching);
+        if (generation !== request.current) return;
+        context.selectCandidate(scope);
         setOpen(false);
       }
     } catch (error) {
