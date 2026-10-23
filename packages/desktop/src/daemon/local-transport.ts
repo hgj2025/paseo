@@ -193,6 +193,28 @@ export function resolveSshFailureDetail(failure: string | null, stderr: string):
   return failure ?? (stderr.trim() || null);
 }
 
+/** Child stdio emits errors independently from ChildProcess (including EPIPE). */
+export function pipeSshStreams(
+  socket: Socket,
+  child: Pick<ChildProcessWithoutNullStreams, "stdin" | "stdout">,
+  onFailure: (error: Error) => void,
+): void {
+  const fail = (error: Error): void => {
+    onFailure(error);
+    socket.destroy(error);
+  };
+  child.stdin.on("error", fail);
+  child.stdout.on("error", fail);
+  socket.once("close", () => {
+    socket.unpipe(child.stdin);
+    child.stdout.unpipe(socket);
+    child.stdin.destroy();
+    child.stdout.destroy();
+  });
+  socket.pipe(child.stdin);
+  child.stdout.pipe(socket);
+}
+
 function createSshProxy(target: SshTransportTarget): Promise<TransportEndpoint> {
   let server: Server | null = null;
   let socket: Socket | null = null;
@@ -241,8 +263,9 @@ function createSshProxy(target: SshTransportTarget): Promise<TransportEndpoint> 
           child.kill();
         }
       });
-      acceptedSocket.pipe(child.stdin);
-      child.stdout.pipe(acceptedSocket);
+      pipeSshStreams(acceptedSocket, child, (error) => {
+        failure = resolveSshFailureDetail(null, stderr) ?? error.message;
+      });
     });
     server.once("error", (error) => {
       close();

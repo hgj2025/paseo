@@ -1,6 +1,10 @@
+import { Socket } from "node:net";
+import { PassThrough } from "node:stream";
+import { once } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildSshArgs,
+  pipeSshStreams,
   createLocalTransportManager,
   LOCAL_TRANSPORT_SETUP_TIMEOUT_MS,
   parseTransportTarget,
@@ -200,5 +204,52 @@ describe("local transport session lifecycle", () => {
     expect(endpoint.close).toHaveBeenCalledTimes(1);
     expect(createWebSocket).not.toHaveBeenCalled();
     expect(events).toEqual([]);
+  });
+});
+
+describe("SSH child pipe failures", () => {
+  it("handles EPIPE on child stdin without an uncaught exception", async () => {
+    const socket = new Socket();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const errors: Error[] = [];
+    socket.on("error", () => undefined);
+    pipeSshStreams(socket, { stdin, stdout }, (error) => errors.push(error));
+    const error = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    // Socket errors are expected, so await close without once() rejecting on error.
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    stdin.destroy(error);
+    await closed;
+    expect(errors).toEqual([error]);
+    expect(socket.destroyed).toBe(true);
+    expect(stdin.destroyed).toBe(true);
+    expect(stdout.destroyed).toBe(true);
+  });
+  it("handles child stdout errors and tears down both pipes", async () => {
+    const socket = new Socket();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const fail = vi.fn();
+    socket.on("error", () => undefined);
+    pipeSshStreams(socket, { stdin, stdout }, fail);
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    stdout.destroy(new Error("SSH output failed"));
+    await closed;
+    expect(fail).toHaveBeenCalledOnce();
+    expect(stdin.destroyed).toBe(true);
+    expect(stdout.destroyed).toBe(true);
+  });
+  it("cleans up child streams when the local socket closes first", async () => {
+    const socket = new Socket();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const fail = vi.fn();
+    pipeSshStreams(socket, { stdin, stdout }, fail);
+    const closed = once(socket, "close");
+    socket.destroy();
+    await closed;
+    expect(stdin.destroyed).toBe(true);
+    expect(stdout.destroyed).toBe(true);
+    expect(fail).not.toHaveBeenCalled();
   });
 });
