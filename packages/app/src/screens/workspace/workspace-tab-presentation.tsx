@@ -107,7 +107,14 @@ function WorkspaceTabPresentationResolverInner({
       : undefined;
   });
   const { member } = usePaneHeaderMember(layoutOwner.serverId, layoutOwner.workspaceId, paneId);
-  const execution = member?.execution;
+  const tabMember =
+    tab.target.kind === "agent" &&
+    member?.agentId === tab.target.agentId &&
+    member.serverId === serverId &&
+    member.workspaceId === workspaceId
+      ? member
+      : undefined;
+  const execution = tabMember?.execution;
   const executionAgent = useSessionStore((state) =>
     execution
       ? (state.sessions[execution.serverId]?.agents.get(execution.agentId) ??
@@ -131,16 +138,17 @@ function WorkspaceTabPresentationResolverInner({
     () => ({
       key: tab.key,
       kind: tab.kind,
-      label: descriptor.label,
+      label: tabMember ? `@${tabMember.alias}` : descriptor.label,
       subtitle: descriptor.subtitle,
-      tooltip: descriptor.tooltip,
+      tooltip: tabMember ? `@${tabMember.alias}` : descriptor.tooltip,
       modified: attributes.modified,
       showCloseButton: scopeBound || registration.showCloseButton,
-      titleState: descriptor.titleState,
+      titleState: tabMember ? ("ready" as const) : descriptor.titleState,
       icon: execution ? executionIcon : descriptor.icon,
       statusBucket: execution ? executionStatus : descriptor.statusBucket,
     }),
     [
+      tabMember,
       execution,
       executionIcon,
       executionStatus,

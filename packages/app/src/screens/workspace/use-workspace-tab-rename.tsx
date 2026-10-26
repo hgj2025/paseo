@@ -7,15 +7,21 @@ import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { useSessionStore } from "@/stores/session-store";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 
+import { useWorkspaceTeamState } from "./use-workspace-team";
+import { resolveWorkspaceTabScope } from "@/workspace-tabs/scope";
+
 interface RenamingTabState {
   kind: "terminal" | "agent";
   id: string;
   currentTitle: string;
+  memberId?: string;
+  sessionId?: string;
 }
 
 interface UseWorkspaceTabRenameInput {
   client: DaemonClient | null;
   normalizedServerId: string;
+  normalizedWorkspaceId: string;
   queryClient: QueryClient;
   terminalsData: ListTerminalsResponse["payload"] | undefined;
   terminalsQueryKey: readonly unknown[];
@@ -32,11 +38,36 @@ export function useWorkspaceTabRename(
   input: UseWorkspaceTabRenameInput,
 ): UseWorkspaceTabRenameResult {
   const { client, normalizedServerId, queryClient, terminalsData, terminalsQueryKey } = input;
+  const { context } = useWorkspaceTeamState(normalizedServerId, input.normalizedWorkspaceId, true);
   const { t } = useTranslation();
   const [renamingTab, setRenamingTab] = useState<RenamingTabState | null>(null);
 
   const handleRenameTab = useCallback(
     (tab: WorkspaceTabDescriptor) => {
+      const resolved = resolveWorkspaceTabScope(tab.target, {
+        serverId: normalizedServerId,
+        workspaceId: input.normalizedWorkspaceId,
+      });
+      const target = resolved.target;
+      const member =
+        target.kind === "agent"
+          ? context?.team?.members.find(
+              (entry) =>
+                entry.agentId === target.agentId &&
+                entry.serverId === resolved.scope.serverId &&
+                entry.workspaceId === resolved.scope.workspaceId,
+            )
+          : undefined;
+      if (member) {
+        setRenamingTab({
+          kind: "agent",
+          id: member.agentId,
+          currentTitle: member.alias,
+          memberId: member.id,
+          sessionId: context?.team?.sessionId,
+        });
+        return;
+      }
       if (tab.target.kind === "terminal") {
         const { terminalId } = tab.target;
         const terminal = terminalsData?.terminals.find((entry) => entry.id === terminalId) ?? null;
@@ -52,7 +83,7 @@ export function useWorkspaceTabRename(
         setRenamingTab({ kind: "agent", id: agentId, currentTitle });
       }
     },
-    [normalizedServerId, terminalsData],
+    [normalizedServerId, input.normalizedWorkspaceId, terminalsData, context],
   );
 
   const handleRenameModalSubmit = useCallback(
@@ -73,6 +104,23 @@ export function useWorkspaceTabRename(
         void queryClient.invalidateQueries({ queryKey: terminalsQueryKey });
         return;
       }
+      if (renamingTab.memberId) {
+        const team = context?.team;
+        const member = team?.members.find((entry) => entry.id === renamingTab.memberId);
+        if (!context || !team || !member || team.sessionId !== renamingTab.sessionId) {
+          throw new Error("Conversation member is no longer available.");
+        }
+        await context.execute({
+          kind: "edit",
+          memberId: member.id,
+          revision: team.revision,
+          alias: trimmed,
+          role: member.role,
+          skills: member.skills,
+          captain: team.captainId === member.id,
+        });
+        return;
+      }
       await client.updateAgent(renamingTab.id, { name: trimmed });
       void queryClient.invalidateQueries({
         queryKey: ["sidebarAgentsList", normalizedServerId],
@@ -81,7 +129,7 @@ export function useWorkspaceTabRename(
         queryKey: ["allAgents", normalizedServerId],
       });
     },
-    [client, normalizedServerId, queryClient, renamingTab, terminalsQueryKey, t],
+    [client, normalizedServerId, queryClient, renamingTab, terminalsQueryKey, t, context],
   );
 
   const handleRenameModalClose = useCallback(() => {
@@ -122,7 +170,7 @@ export function WorkspaceTabRenameModal({
       title={title}
       initialValue={initialValue}
       submitLabel={t("workspace.tabs.menu.rename")}
-      maxLength={200}
+      maxLength={renamingTab?.memberId ? 32 : 200}
       onClose={onClose}
       onSubmit={onSubmit}
       testID={testID}

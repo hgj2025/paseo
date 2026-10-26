@@ -1,7 +1,7 @@
 import { useWorkspaceFilePanelToggle } from "./workspace-file-panel-context";
 import { useWorkspaceTeamMenu } from "./workspace-team-menu";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import { PaneMemberHeader, usePaneHeaderMember } from "./pane-member-header";
+import { PaneMemberHeader } from "./pane-member-header";
 import { usePaneSurfaceStyle } from "@/panels/pane-appearance";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -974,11 +974,6 @@ function TabChip({
 }
 
 export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
-  const { member: paneMember } = usePaneHeaderMember(
-    props.normalizedServerId,
-    props.normalizedWorkspaceId,
-    props.paneId,
-  );
   const [presentations, setPresentations] = useState(
     () => new Map<string, WorkspaceTabPresentation>(),
   );
@@ -1016,20 +1011,16 @@ export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
     () =>
       props.tabs.flatMap((item) => {
         const presentation = presentations.get(item.tab.key);
-        const target = item.tab.target.kind === "scoped" ? item.tab.target.target : item.tab.target;
         return presentation
           ? [
               {
                 ...item,
-                presentation:
-                  paneMember && target.kind === "agent" && target.agentId === paneMember.agentId
-                    ? { ...presentation, label: `@${paneMember.alias}` }
-                    : presentation,
+                presentation,
               },
             ]
           : [];
       }),
-    [presentations, props.tabs, paneMember],
+    [presentations, props.tabs],
   );
 
   return (
