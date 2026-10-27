@@ -1226,6 +1226,8 @@ export const ptBR: TranslationResources = {
         none: "Oculto",
       },
       hostFilter: {
+        current: "Seguir conversa atual",
+        multiple: "Vários hosts",
         label: "Host",
         all: "Todos os hosts",
       },

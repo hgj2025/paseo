@@ -1200,6 +1200,8 @@ export const ar: TranslationResources = {
         none: "مخفي",
       },
       hostFilter: {
+        current: "اتّباع المحادثة الحالية",
+        multiple: "عدة مضيفين",
         label: "المضيف",
         all: "كل المضيفين",
       },

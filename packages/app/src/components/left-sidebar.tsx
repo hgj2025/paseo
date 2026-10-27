@@ -1,3 +1,4 @@
+import { SidebarHostFilter } from "@/components/sidebar/sidebar-host-filter";
 import { router } from "expo-router";
 import {
   CircleGauge,
@@ -807,6 +808,7 @@ function DesktopSidebar({
 function WorkspacesSectionHeader() {
   return (
     <SidebarSectionHeader title="Workspaces">
+      <SidebarHostFilter />
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
           <View>

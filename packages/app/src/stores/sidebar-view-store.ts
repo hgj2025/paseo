@@ -9,7 +9,19 @@ export type SidebarGroupMode = "project" | "status";
 
 const SIDEBAR_VIEW_STORAGE_KEY = "sidebar-view";
 const LEGACY_SIDEBAR_GROUP_MODE_STORAGE_KEY = "sidebar-group-mode";
-const SIDEBAR_VIEW_STORE_VERSION = 7;
+const SIDEBAR_VIEW_STORE_VERSION = 8;
+export const SIDEBAR_CURRENT_HOST = "@current";
+
+export function resolveSidebarHostFilters(
+  filters: readonly string[],
+  serverIds: readonly string[],
+  currentServerId?: string | null,
+): string[] {
+  if (!filters.includes(SIDEBAR_CURRENT_HOST))
+    return serverIds.filter((id) => filters.length === 0 || filters.includes(id));
+  const id = currentServerId ?? serverIds[0];
+  return id ? [id] : [];
+}
 
 /**
  * The key standing for "this workspace carries no labels at all".
@@ -48,7 +60,7 @@ function toggleFilterEntry(list: readonly string[], key: string): string[] {
 interface SidebarViewStoreState {
   groupMode: SidebarGroupMode;
   showBackground: boolean;
-  // Empty means "all hosts". A non-empty list pins the sidebar to those hosts.
+  // Empty means all hosts; @current follows the conversation owner; other IDs pin hosts.
   hostFilters: string[];
   /**
    * Empty means "all projects". A non-empty list is an allowlist over
@@ -66,6 +78,7 @@ interface SidebarViewStoreState {
   setGroupMode: (mode: SidebarGroupMode) => void;
   toggleHostFilter: (serverId: string) => void;
   clearHostFilters: () => void;
+  selectHostFilter: (serverId: string | null) => void;
   toggleProjectFilter: (viewKey: string) => void;
   clearProjectFilters: () => void;
   toggleLabelFilter: (name: string) => void;
@@ -128,7 +141,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
     return {
       showBackground: false,
       groupMode: "project",
-      hostFilters: [],
+      hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
     };
@@ -140,7 +153,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
     return {
       showBackground: false,
       groupMode: legacyGroupMode,
-      hostFilters: [],
+      hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
     };
@@ -149,7 +162,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
   return {
     showBackground: state.showBackground ?? false,
     groupMode: state.groupMode === "status" ? "status" : "project",
-    hostFilters: readHostFilters(state),
+    hostFilters: readHostFilters(state).length ? readHostFilters(state) : [SIDEBAR_CURRENT_HOST],
     projectFilters: state.projectFilters ?? [],
     labelFilter: state.labelFilter
       ? normalizeSidebarLabelFilter(state.labelFilter)
@@ -187,14 +200,20 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
     (set) => ({
       showBackground: false,
       groupMode: "project",
-      hostFilters: [],
+      hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
       toggleBackground: () => set((state) => ({ showBackground: !state.showBackground })),
       setGroupMode: (mode) => set({ groupMode: mode }),
       toggleHostFilter: (serverId) =>
-        set((state) => ({ hostFilters: toggleFilterEntry(state.hostFilters, serverId) })),
+        set((state) => ({
+          hostFilters: toggleFilterEntry(
+            state.hostFilters.filter((id) => id !== SIDEBAR_CURRENT_HOST),
+            serverId,
+          ),
+        })),
       clearHostFilters: () => set({ hostFilters: [] }),
+      selectHostFilter: (serverId) => set({ hostFilters: serverId === null ? [] : [serverId] }),
       toggleProjectFilter: (viewKey) =>
         set((state) => ({ projectFilters: toggleFilterEntry(state.projectFilters, viewKey) })),
       clearProjectFilters: () => set({ projectFilters: [] }),
@@ -218,7 +237,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         }),
       reconcileHostFilters: (serverIds) =>
         set((state) => {
-          if (state.hostFilters.length === 0) {
+          if (state.hostFilters.length === 0 || state.hostFilters.includes(SIDEBAR_CURRENT_HOST)) {
             return state;
           }
           const allowed = new Set(serverIds);
@@ -226,7 +245,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
           if (next.length === state.hostFilters.length) {
             return state;
           }
-          return { hostFilters: next };
+          return { hostFilters: next.length ? next : [SIDEBAR_CURRENT_HOST] };
         }),
     }),
     {

@@ -1213,6 +1213,8 @@ export const ja: TranslationResources = {
         none: "非表示",
       },
       hostFilter: {
+        current: "現在の会話に追従",
+        multiple: "複数のホスト",
         label: "ホスト",
         all: "すべてのホスト",
       },

@@ -1236,6 +1236,8 @@ export const es: TranslationResources = {
         none: "Oculto",
       },
       hostFilter: {
+        current: "Seguir conversación actual",
+        multiple: "Varios hosts",
         label: "Host",
         all: "Todos los hosts",
       },

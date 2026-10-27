@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { StateStorage } from "zustand/middleware";
 import {
   createSidebarViewStorage,
+  SIDEBAR_CURRENT_HOST,
+  resolveSidebarHostFilters,
   hasActiveSidebarLabelFilter,
   migrateSidebarViewState,
   SIDEBAR_UNLABELLED_LABEL_KEY,
@@ -87,7 +89,7 @@ describe("sidebar view store", () => {
     ).toEqual({
       showBackground: false,
       groupMode: "status",
-      hostFilters: [],
+      hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: { labels: [] },
     });
@@ -238,7 +240,7 @@ describe("sidebar view store", () => {
     expect(migrateSidebarViewState({ projectFilters: "project-a" })).toEqual({
       showBackground: false,
       groupMode: "project",
-      hostFilters: [],
+      hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: { labels: [] },
     });
@@ -285,5 +287,48 @@ describe("sidebar view store", () => {
       }),
     );
     expect(storage.reads).toEqual(["sidebar-view"]);
+  });
+});
+
+describe("sidebar host scope", () => {
+  it("follows the current conversation instead of aggregating duplicate project names", () => {
+    expect(resolveSidebarHostFilters([SIDEBAR_CURRENT_HOST], ["mac", "devbox"], "devbox")).toEqual([
+      "devbox",
+    ]);
+    expect(resolveSidebarHostFilters([SIDEBAR_CURRENT_HOST], ["mac", "devbox"], "mac")).toEqual([
+      "mac",
+    ]);
+  });
+  it("keeps an explicit host when the active conversation changes", () => {
+    expect(resolveSidebarHostFilters(["devbox"], ["mac", "devbox"], "mac")).toEqual(["devbox"]);
+    expect(resolveSidebarHostFilters([], ["mac", "devbox"], "mac")).toEqual(["mac", "devbox"]);
+  });
+  it("chooses one startup host and does not substitute for an offline current host", () => {
+    expect(resolveSidebarHostFilters([SIDEBAR_CURRENT_HOST], ["mac", "devbox"])).toEqual(["mac"]);
+    expect(resolveSidebarHostFilters([SIDEBAR_CURRENT_HOST], [], "devbox")).toEqual(["devbox"]);
+    expect(resolveSidebarHostFilters([SIDEBAR_CURRENT_HOST], [])).toEqual([]);
+  });
+  it("preserves follow-current across registry reconciliation and switches filters without navigation", () => {
+    const state = useSidebarViewStore.getState();
+    state.selectHostFilter(SIDEBAR_CURRENT_HOST);
+    state.reconcileHostFilters(["mac", "devbox"]);
+    expect(useSidebarViewStore.getState().hostFilters).toEqual([SIDEBAR_CURRENT_HOST]);
+    state.toggleHostFilter("devbox");
+    expect(useSidebarViewStore.getState().hostFilters).toEqual(["devbox"]);
+    state.selectHostFilter(null);
+    expect(useSidebarViewStore.getState().hostFilters).toEqual([]);
+  });
+});
+
+describe("sidebar host filter migration", () => {
+  it("starts older unfiltered sidebars on the current host", () => {
+    expect(migrateSidebarViewState({ hostFilters: [] }).hostFilters).toEqual([
+      SIDEBAR_CURRENT_HOST,
+    ]);
+  });
+  it("returns to current host when the last pinned host is removed", () => {
+    useSidebarViewStore.getState().selectHostFilter("removed");
+    useSidebarViewStore.getState().reconcileHostFilters(["mac", "devbox"]);
+    expect(useSidebarViewStore.getState().hostFilters).toEqual([SIDEBAR_CURRENT_HOST]);
   });
 });

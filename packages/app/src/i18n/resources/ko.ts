@@ -1207,6 +1207,8 @@ export const ko: TranslationResources = {
         none: "숨김",
       },
       hostFilter: {
+        current: "현재 대화 따라가기",
+        multiple: "여러 호스트",
         label: "호스트",
         all: "모든 호스트",
       },

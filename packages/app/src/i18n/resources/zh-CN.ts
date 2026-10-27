@@ -1347,6 +1347,8 @@ export const zhCN: TranslationResources = {
         none: "隐藏",
       },
       hostFilter: {
+        current: "跟随当前会话",
+        multiple: "多个 host",
         label: "主机",
         all: "所有主机",
       },

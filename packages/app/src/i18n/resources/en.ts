@@ -1377,6 +1377,8 @@ export const en = {
         none: "Hidden",
       },
       hostFilter: {
+        current: "Follow current chat",
+        multiple: "Multiple hosts",
         label: "Host",
         all: "All hosts",
       },

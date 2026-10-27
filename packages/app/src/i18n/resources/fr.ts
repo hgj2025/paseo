@@ -1227,6 +1227,8 @@ export const fr: TranslationResources = {
         none: "Masqué",
       },
       hostFilter: {
+        current: "Suivre la conversation active",
+        multiple: "Plusieurs hôtes",
         label: "Hôte",
         all: "Tous les hôtes",
       },

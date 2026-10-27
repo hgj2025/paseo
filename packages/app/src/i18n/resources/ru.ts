@@ -1217,6 +1217,8 @@ export const ru: TranslationResources = {
         none: "Скрыто",
       },
       hostFilter: {
+        current: "Следовать текущему чату",
+        multiple: "Несколько хостов",
         label: "Хост",
         all: "Все хосты",
       },

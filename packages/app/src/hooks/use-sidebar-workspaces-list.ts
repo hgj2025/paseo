@@ -7,7 +7,11 @@ import { workspaceEqualityFns } from "@/stores/session-store-hooks/selectors";
 import { useHostProjects } from "@/projects/host-projects";
 import { getHostRuntimeStore, useHostRegistryLoaded, useHosts } from "@/runtime/host-runtime";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
-import { useSidebarViewStore } from "@/stores/sidebar-view-store";
+import { useSidebarViewStore, resolveSidebarHostFilters } from "@/stores/sidebar-view-store";
+import {
+  useActiveWorkspaceSelection,
+  useLastWorkspaceSelection,
+} from "@/stores/navigation-active-workspace-store";
 import {
   buildSidebarWorkspacePlacementModel,
   computeSidebarOrderUpdates,
@@ -103,24 +107,18 @@ export function useSidebarWorkspacesList(options?: {
   const hostRegistryLoaded = useHostRegistryLoaded();
   const allServerIds = useMemo(() => allHosts.map((h) => h.serverId), [allHosts]);
 
+  const activeWorkspace = useActiveWorkspaceSelection();
+  const lastWorkspace = useLastWorkspaceSelection();
+  const currentServerId = activeWorkspace?.serverId ?? lastWorkspace?.serverId;
   const storeHostFilters = useSidebarViewStore((state) => state.hostFilters);
   const hostFilters = options?.hostFilters ?? storeHostFilters;
   const reconcileHostFilters = useSidebarViewStore((state) => state.reconcileHostFilters);
   const isActive = options?.enabled !== false;
 
-  const serverIds = useMemo(() => {
-    if (hostFilters.length === 0) {
-      return allServerIds;
-    }
-    const selected = new Set(hostFilters);
-    const matched = allServerIds.filter((id) => selected.has(id));
-    // Registry has settled but none of the pinned hosts still exist — fall back to every
-    // host rather than leaving the sidebar empty.
-    if (hostRegistryLoaded && matched.length === 0) {
-      return allServerIds;
-    }
-    return matched;
-  }, [allServerIds, hostFilters, hostRegistryLoaded]);
+  const serverIds = useMemo(
+    () => resolveSidebarHostFilters(hostFilters, allServerIds, currentServerId),
+    [hostFilters, allServerIds, currentServerId],
+  );
   useEffect(() => {
     if (!isActive) return;
     const releases = serverIds.map((serverId) => runtime.acquireDirectoryDemand(serverId));
