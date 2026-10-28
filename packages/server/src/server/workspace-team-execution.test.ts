@@ -1,3 +1,8 @@
+import { AgentManager } from "./agent/agent-manager.js";
+import { AgentStorage } from "./agent/agent-storage.js";
+import { getWorkspaceTeamService } from "./workspace-team-runtime.js";
+import { getOrCreateServerId } from "./server-id.js";
+import { createTestLogger } from "../test-utils/test-logger.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -242,5 +247,80 @@ describe("stable conversation execution binding", () => {
     expect(transport.archive).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: execution.agentId }),
     );
+  });
+});
+
+describe("conversation archival of stored-only agents", () => {
+  let home: string;
+  let manager: AgentManager;
+  let storage: AgentStorage;
+  let service: WorkspaceTeamService;
+  let hostId: string;
+  const workspaceId = "stored-workspace";
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), "paseo-team-stored-archive-"));
+    const logger = createTestLogger();
+    storage = new AgentStorage(join(home, "agents"), logger);
+    manager = new AgentManager({ clients: {}, registry: storage, logger });
+    hostId = getOrCreateServerId(home);
+    service = getWorkspaceTeamService({
+      paseoHome: home,
+      agentManager: manager,
+      agentStorage: storage,
+      logger,
+    });
+  });
+  afterEach(async () => {
+    service.dispose();
+    await rm(home, { recursive: true, force: true });
+  });
+  async function joinStored(sessionId: string, paneId: string) {
+    const agentId = randomUUID();
+    await storage.upsert({
+      id: agentId,
+      provider: "codex",
+      cwd: home,
+      workspaceId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      labels: {},
+      lastStatus: "closed",
+      config: null,
+      persistence: null,
+      archivedAt: null,
+    });
+    await service.executeSession(workspaceId, sessionId, {
+      kind: "join",
+      serverId: hostId,
+      workspaceId,
+      agentId,
+      paneId,
+      owned: true,
+    });
+    return agentId;
+  }
+  it("ends a conversation without resuming stored-only Captain and members", async () => {
+    const sessionId = randomUUID();
+    const captain = await joinStored(sessionId, "main");
+    const member = await joinStored(sessionId, "child");
+    expect(manager.getAgent(captain)).toBeNull();
+    const result = await service.executeSession(workspaceId, sessionId, { kind: "end" });
+    expect(result.status).toBe("ended");
+    expect(result.archiveErrors).toEqual({});
+    for (const id of [captain, member]) {
+      expect((await storage.get(id))?.archivedAt).toBeTruthy();
+      expect(manager.getAgent(id)).toBeNull();
+    }
+    expect(await service.executeSession(workspaceId, sessionId, { kind: "end" })).toEqual(result);
+  });
+  it("refuses to archive a stored agent that moved to a different workspace", async () => {
+    const sessionId = randomUUID();
+    const captain = await joinStored(sessionId, "main");
+    const record = (await storage.get(captain))!;
+    await storage.upsert({ ...record, workspaceId: "different-workspace" });
+    const result = await service.executeSession(workspaceId, sessionId, { kind: "end" });
+    expect(result.status).toBe("ending");
+    expect(Object.values(result.archiveErrors ?? {}).join()).toContain("workspace changed");
+    expect((await storage.get(captain))?.archivedAt).toBeNull();
   });
 });

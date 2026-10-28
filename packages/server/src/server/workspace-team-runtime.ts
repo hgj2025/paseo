@@ -5,6 +5,7 @@ import { MessageReceipts } from "./message-receipts/index.js";
 import { disposeRemoteAgentPool } from "./agent/remote-agent-connection.js";
 import type { AgentManager } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
+import { archiveAgentCommand } from "./agent/lifecycle-command.js";
 import { sendPromptToAgent, waitForAgentRunStartWithTimeout } from "./agent/agent-prompt.js";
 import { RemoteAgents } from "./agent/remote-agents.js";
 import { getOrCreateServerId } from "./server-id.js";
@@ -76,9 +77,12 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
         return;
       }
       const agent = agentManager.getAgent(member.agentId);
-      if (agent && agent.workspaceId !== member.workspaceId)
-        throw new Error("Agent workspace changed.");
-      await agentManager.archiveAgent(member.agentId);
+      const record = agent ?? (await agentStorage.get(member.agentId));
+      if (!record) throw new Error(`Agent not found: ${member.agentId}`);
+      if (record.workspaceId !== member.workspaceId) throw new Error("Agent workspace changed.");
+      // Closing a conversation must not require resuming its provider session.
+      // The shared command handles live, stored-only and already archived agents.
+      await archiveAgentCommand({ agentManager, agentStorage, logger }, member.agentId);
     },
     async inspect(member) {
       if (member.serverId !== serverId) {
