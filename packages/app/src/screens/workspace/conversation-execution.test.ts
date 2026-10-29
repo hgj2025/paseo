@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import {
   prepareConversationExecutor,
   readExecutionHistory,
+  cachedExecutionHistory,
+  invalidateExecutionHistory,
+  peekExecutionHistory,
   type ExecutionClient,
   type ConversationEntry,
 } from "./conversation-execution";
@@ -227,5 +230,42 @@ describe("conversation execution preparation", () => {
       prepareConversationExecutor({ ...input, operationId: randomUUID() }),
     ).rejects.toThrow("current turn");
     expect(commit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("conversation history retry boundaries", () => {
+  it("retains a failed read across remounts until an explicit retry on the same host", async () => {
+    const execution = member();
+    const client = makeClient();
+    const read = vi.mocked(client.fetchAgentTimeline);
+    read.mockRejectedValueOnce(new Error("thread not loaded"));
+    for (let mount = 0; mount < 4; mount++) {
+      await expect(cachedExecutionHistory(execution, client)).rejects.toThrow("thread not loaded");
+    }
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(peekExecutionHistory(execution)).toBeUndefined();
+    invalidateExecutionHistory(execution);
+    await expect(cachedExecutionHistory(execution, client)).resolves.toEqual([]);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read.mock.calls.every(([id]) => id === execution.agentId)).toBe(true);
+    expect(peekExecutionHistory(execution)).toEqual([]);
+  });
+
+  it("isolates a failed history from the active execution on another host", async () => {
+    const old = member();
+    const current = { ...old, serverId: "devbox", agentId: randomUUID(), workspaceId: "linux" };
+    const oldClient = makeClient("codex");
+    const currentClient = makeClient("claude");
+    vi.mocked(oldClient.fetchAgentTimeline).mockRejectedValue(new Error("thread not loaded"));
+    await expect(cachedExecutionHistory(old, oldClient)).rejects.toThrow("thread not loaded");
+    await expect(cachedExecutionHistory(current, currentClient)).resolves.toEqual([]);
+    invalidateExecutionHistory(old);
+    expect(peekExecutionHistory(current)).toEqual([]);
+    expect(currentClient.fetchAgentTimeline).toHaveBeenCalledExactlyOnceWith(
+      current.agentId,
+      expect.any(Object),
+    );
+    expect(oldClient.createAgent).not.toHaveBeenCalled();
+    expect(currentClient.createAgent).not.toHaveBeenCalled();
   });
 });

@@ -86,6 +86,30 @@ describe("shared tool-call display mapping", () => {
     });
   });
 
+  it("does not duplicate a generic failure when shell output already explains it", () => {
+    const input = {
+      name: "shell",
+      status: "failed" as const,
+      error: { message: "Tool call failed" },
+      detail: {
+        type: "shell" as const,
+        command: "rg pattern missing*",
+        output: "zsh: no matches found: missing*",
+        exitCode: 1,
+      },
+    };
+    expect(buildToolCallDisplayModel(input).errorText).toBeUndefined();
+    expect(
+      buildToolCallDisplayModel({ ...input, error: { message: "Transport disconnected" } })
+        .errorText,
+    ).toContain("Transport disconnected");
+    expect(
+      buildToolCallDisplayModel({ ...input, detail: { type: "shell", command: "false" } })
+        .errorText,
+    ).toContain("Tool call failed");
+    expect(input.status).toBe("failed");
+  });
+
   it("provides errorText for failed calls", () => {
     const display = buildToolCallDisplayModel({
       name: "shell",

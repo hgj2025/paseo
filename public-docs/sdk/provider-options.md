@@ -85,13 +85,14 @@ console.log(result.status, result.lastMessage);
 await client.close();
 ```
 
-| Option                    | Values                                                                            |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| `approval_policy`         | `untrusted`, `on-request`, `never`, or `{ granular: { … } }`                      |
-| `sandbox_mode`            | `read-only`, `workspace-write`, `danger-full-access`                              |
-| `sandbox_workspace_write` | `writable_roots`, `network_access`, `exclude_slash_tmp`, `exclude_tmpdir_env_var` |
-| `web_search`              | `disabled`, `cached`, `indexed`, `live`                                           |
-| `features`                | `multi_agent_v2`, `network_proxy` (boolean or a proxy/domain policy object)       |
+| Option                     | Values                                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `approval_policy`          | `untrusted`, `on-request`, `never`, or `{ granular: { … } }`                                   |
+| `sandbox_mode`             | `read-only`, `workspace-write`, `danger-full-access`                                           |
+| `sandbox_workspace_write`  | `writable_roots`, `network_access`, `exclude_slash_tmp`, `exclude_tmpdir_env_var`              |
+| `shell_environment_policy` | `inherit` (`all`, `core`, `none`), `set`, `exclude`, `include_only`, `ignore_default_excludes` |
+| `web_search`               | `disabled`, `cached`, `indexed`, `live`                                                        |
+| `features`                 | `multi_agent_v2`, `network_proxy` (boolean or a proxy/domain policy object)                    |
 
 `approval_policy: "never"` only removes the prompts. What the agent is allowed to touch is `sandbox_mode`. Setting `never` without a sandbox mode gives an unattended agent full access.
 

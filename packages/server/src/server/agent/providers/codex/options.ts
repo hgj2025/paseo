@@ -48,6 +48,16 @@ export const CodexProviderOptionsSchema = z
       })
       .strict()
       .optional(),
+    shell_environment_policy: z
+      .object({
+        inherit: z.enum(["all", "core", "none"]).optional(),
+        set: z.record(z.string(), z.string()).optional(),
+        exclude: z.array(z.string()).optional(),
+        include_only: z.array(z.string()).optional(),
+        ignore_default_excludes: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     web_search: z.enum(["disabled", "cached", "indexed", "live"]).optional(),
     features: z
       .object({

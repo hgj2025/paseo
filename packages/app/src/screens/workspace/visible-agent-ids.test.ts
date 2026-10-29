@@ -132,3 +132,56 @@ test("the agent shown in the workspace sheet is viewed alongside the pane under 
     selectVisibleAgentIds({ layout, tabs, sheetTab, routeFocused: false, focusedPaneOnly: true }),
   ).toEqual([]);
 });
+
+test("execution-bound panes do not subscribe their old anchor to the workspace host", () => {
+  const layout: WorkspaceLayout = {
+    focusedPaneId: "main",
+    root: { kind: "pane", pane: { id: "main", tabIds: ["a"], focusedTabId: "a" } },
+  };
+  const tabs: WorkspaceTab[] = [
+    { tabId: "a", target: { kind: "agent", agentId: "old-codex" }, createdAt: 1 },
+  ];
+  const input = { layout, tabs, serverId: "mac", routeFocused: true, focusedPaneOnly: false };
+  for (const serverId of ["mac", "devbox"]) {
+    expect(
+      selectVisibleAgentIds({
+        ...input,
+        executionMembers: [
+          {
+            serverId: "mac",
+            agentId: "old-codex",
+            execution: {
+              serverId,
+              workspaceId: "actual-work",
+              agentId: "actual-agent",
+              provider: "claude",
+            },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  }
+  expect(
+    selectVisibleAgentIds({
+      ...input,
+      executionMembers: [
+        {
+          serverId: "another-host",
+          agentId: "old-codex",
+          execution: {
+            serverId: "devbox",
+            workspaceId: "actual-work",
+            agentId: "actual-agent",
+            provider: "claude",
+          },
+        },
+      ],
+    }),
+  ).toEqual(["old-codex"]);
+  expect(
+    selectVisibleAgentIds({
+      ...input,
+      executionMembers: [{ serverId: "mac", agentId: "old-codex" }],
+    }),
+  ).toEqual(["old-codex"]);
+});

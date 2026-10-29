@@ -58,9 +58,16 @@ export function cachedExecutionHistory(execution: TeamExecution, client: Executi
       (entries) => historySnapshots.set(key, entries),
       () => {},
     );
-    void pending.catch(() => historyCache.delete(key));
+    // Keep failures as well as successes: a remounted pane must not retry an
+    // unavailable provider history until the user explicitly requests it.
   }
   return pending;
+}
+export function invalidateExecutionHistory(execution: TeamExecution): void {
+  const key = executionKey(execution);
+  historyCache.delete(key);
+  historySnapshots.delete(key);
+  historyCheckpoints.delete(key);
 }
 export function continuationInstructions(member: TeamMember, entries: ConversationEntry[]) {
   // The transcript is quoted data, never promoted to new system instructions.
@@ -116,6 +123,7 @@ export async function prepareConversationExecutor(input: {
     const client = input.clientFor(execution.serverId);
     if (!client)
       throw new Error("A conversation history host is disconnected; execution has not changed.");
+    if (!peekExecutionHistory(execution)) invalidateExecutionHistory(execution);
     const history =
       executionKey(execution) === executionKey(active)
         ? await readExecutionHistory(client, execution)

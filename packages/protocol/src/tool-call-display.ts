@@ -162,7 +162,17 @@ export function buildToolCallDisplayModel(input: ToolCallDisplayInput): ToolCall
     canonicalDisplay.displayName ??
     humanizeToolName(input.name);
   const summary = unknownDetailOverride.summary ?? canonicalDisplay.summary;
-  const errorText = input.status === "failed" ? formatErrorText(input.error) : undefined;
+  // A shell's exit code/output already explains a command failure. The adapter's
+  // synthesized fallback is not an additional tool/transport error.
+  const genericShellFailure =
+    input.detail.type === "shell" &&
+    (Boolean(input.detail.output?.trim()) || typeof input.detail.exitCode === "number") &&
+    (input.error === "Tool call failed" ||
+      (isRecord(input.error) &&
+        Object.keys(input.error).length === 1 &&
+        input.error.message === "Tool call failed"));
+  const errorText =
+    input.status === "failed" && !genericShellFailure ? formatErrorText(input.error) : undefined;
 
   return {
     displayName,

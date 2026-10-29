@@ -11,6 +11,7 @@ import type { TeamMember } from "@getpaseo/protocol/workspace-team";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import {
   cachedExecutionHistory,
+  invalidateExecutionHistory,
   executionKey,
   peekExecutionHistory,
   type ConversationEntry,
@@ -40,9 +41,10 @@ export function ConversationHistoryProvider({
   const refs = useMemo(() => member?.executionHistory ?? [], [member?.executionHistory]);
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => {
+    for (const ref of refs) invalidateExecutionHistory(ref);
     setLoaded(null);
     setAttempt((n) => n + 1);
-  }, []);
+  }, [refs]);
   const key = refs.map(executionKey).join("|");
   const [loaded, setLoaded] = useState<{
     key: string;

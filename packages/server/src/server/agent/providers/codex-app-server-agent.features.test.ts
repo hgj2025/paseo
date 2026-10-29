@@ -133,6 +133,24 @@ async function createConnectedSession(
 }
 
 describe("Codex app-server provider features", () => {
+  test("passes explicit shell environment to the native Codex thread", async () => {
+    const policy = {
+      inherit: "core",
+      set: { PATH: "/toolchain/bin:/usr/bin", TOOLCHAIN_ROOT: "/toolchain" },
+    };
+    const { session, appServer } = await createConnectedSession({
+      providerOptions: { shell_environment_policy: policy },
+    });
+    try {
+      await session.startTurn("hello");
+      const request = await appServer.waitForRequest("thread/start");
+      expect(request).toMatchObject({ config: { shell_environment_policy: policy } });
+      appServer.assertNoErrors();
+    } finally {
+      await session.close();
+    }
+  });
+
   test("GPT-6.1 Sol offers catalog speed tiers and sends Ultrafast", async () => {
     const { session, appServer } = await createConnectedSession(
       { model: "gpt-6.1-sol" },

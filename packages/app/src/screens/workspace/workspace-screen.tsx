@@ -1362,6 +1362,8 @@ function WorkspaceScreenContent({
     [isFocusModeEnabled, isMobile],
   );
   const visibleAgentIds = useVisibleAgentIds({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
     layout: workspaceLayout,
     tabs: uiTabs,
     sheetTab,

@@ -42,6 +42,21 @@ describe("provider-owned option schemas", () => {
     });
   });
 
+  test("accepts explicit Codex shell environment without inheriting every daemon variable", () => {
+    const policy = {
+      inherit: "core",
+      set: { PATH: "/toolchain/bin:/usr/bin", TOOLCHAIN_ROOT: "/toolchain" },
+    };
+    expect(CodexProviderOptionsSchema.parse({ shell_environment_policy: policy })).toEqual({
+      shell_environment_policy: policy,
+    });
+    expect(() =>
+      validateProviderOptions("codex", CodexProviderOptionsSchema, {
+        shell_environment_policy: { set: { PATH: 42 } },
+      }),
+    ).toThrow("providerOptions.shell_environment_policy.set.PATH");
+  });
+
   test("reports the exact invalid Codex option path", () => {
     expect(() =>
       validateProviderOptions("codex", CodexProviderOptionsSchema, {
