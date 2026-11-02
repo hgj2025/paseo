@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-*
+service.env
+bridge-config.json
+state/

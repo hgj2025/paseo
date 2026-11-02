@@ -1,0 +1,5 @@
+{
+  "id": "hindsight-project-memory",
+  "requirements": { "paseo": ">=0.8.0" },
+  "description": "Automatic project memory capture, bounded startup recall, and handoff checkpoints"
+}

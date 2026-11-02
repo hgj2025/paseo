@@ -1,0 +1,5 @@
+{
+  "id": "hindsight-memory-viewer",
+  "requirements": { "paseo": ">=0.8.0" },
+  "description": "Read-only project memory browser for local Hindsight"
+}
