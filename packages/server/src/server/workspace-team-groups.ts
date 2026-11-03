@@ -91,7 +91,8 @@ export class WorkspaceTeamGroups {
     for (const id of memberIds) {
       if (!team.members.some((m) => m.id === id && !m.removing))
         throw new Error("A selected member is no longer in this team.");
-      if (id === team.captainId)
+      if (id === action.senderId) throw new Error("Send work to another team member.");
+      if (id === team.captainId && action.mode === "coordinate")
         throw new Error("Select collaborators; Captain coordinates and summarizes this request.");
     }
     validateMemberPrompts(action, memberIds);
@@ -352,6 +353,13 @@ export class WorkspaceTeamGroups {
     const group = this.get(snapshot, groupId);
     if (!ended(group) || group.notification === "delivered" || group.notification === "sending")
       return;
+    // Captain already received this request as a participant; avoid a second prompt.
+    if (group.memberIds.includes(group.captainId)) {
+      await storage.change((team) => {
+        this.get(team, groupId).notification = "delivered";
+      });
+      return;
+    }
     const captain = snapshot.members.find((m) => m.id === group.captainId);
     if (!captain) return;
     try {

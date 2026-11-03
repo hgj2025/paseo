@@ -336,6 +336,20 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
   const [installingProviderId, setInstallingProviderId] = useState<string | null>(null);
 
   const providerDefinitions = useMemo(() => buildProviderDefinitions(entries), [entries]);
+  const providerGroups = useMemo(() => {
+    const active: ProviderDefinition[] = [];
+    const other: ProviderDefinition[] = [];
+    for (const def of providerDefinitions) {
+      const entry = entries?.find((candidate) => candidate.provider === def.id);
+      if (!entry) continue;
+      const target = (entry.enabled ?? true) && entry.status === "ready" ? active : other;
+      target.push(def);
+    }
+    return [
+      { id: "active", title: t("settings.providers.active"), definitions: active },
+      { id: "other", title: t("settings.providers.other"), definitions: other },
+    ];
+  }, [providerDefinitions, entries, t]);
   const hasServer = serverId.length > 0;
 
   /** Custom providers are deletable only when config.json holds their `extends` definition. */
@@ -421,50 +435,61 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
 
   return (
     <>
-      <SettingsSection
-        title={t("settings.providers.title")}
-        testID="host-page-providers-card"
-        style={styles.sectionSpacing}
-      >
-        {!hasServer || !isConnected ? (
+      {!hasServer || !isConnected || isLoading ? (
+        <SettingsSection
+          title={t("settings.providers.title")}
+          testID="host-page-providers-card"
+          style={styles.sectionSpacing}
+        >
           <View style={[settingsStyles.card, styles.emptyCard]}>
-            <Text style={styles.emptyText}>{t("settings.providers.unavailable")}</Text>
+            <Text style={styles.emptyText}>
+              {t(
+                hasServer && isConnected
+                  ? "settings.providers.loading"
+                  : "settings.providers.unavailable",
+              )}
+            </Text>
           </View>
-        ) : null}
-        {hasServer && isConnected && isLoading ? (
-          <View style={[settingsStyles.card, styles.emptyCard]}>
-            <Text style={styles.emptyText}>{t("settings.providers.loading")}</Text>
-          </View>
-        ) : null}
-        {hasServer && isConnected && !isLoading && providerDefinitions.length > 0 ? (
-          <View style={settingsStyles.card}>
-            {providerDefinitions.map((def, index) => {
-              const entry = entries?.find((candidate) => candidate.provider === def.id);
-              if (!entry) return null;
-              return (
-                <ProviderRow
-                  key={def.id}
-                  serverId={serverId}
-                  def={def}
-                  entry={entry}
-                  enabled={entry.enabled ?? true}
-                  isToggling={pendingProviderId === def.id}
-                  isRemoving={removingProviderId === def.id}
-                  canRemove={
-                    supportsProviderRemoval &&
-                    entry.source === "custom" &&
-                    isConfigOwnedProvider(def.id)
-                  }
-                  isFirst={index === 0}
-                  onPress={handleOpenProviderSettings}
-                  onToggleEnabled={handleToggleEnabled}
-                  onRemove={handleRemoveProvider}
-                />
-              );
-            })}
-          </View>
-        ) : null}
-      </SettingsSection>
+        </SettingsSection>
+      ) : (
+        providerGroups.map((group) =>
+          group.definitions.length > 0 ? (
+            <SettingsSection
+              key={group.id}
+              title={group.title}
+              testID={`host-page-providers-${group.id}-card`}
+              style={styles.sectionSpacing}
+            >
+              <View style={settingsStyles.card}>
+                {group.definitions.map((def, index) => {
+                  const entry = entries?.find((candidate) => candidate.provider === def.id);
+                  if (!entry) return null;
+                  return (
+                    <ProviderRow
+                      key={def.id}
+                      serverId={serverId}
+                      def={def}
+                      entry={entry}
+                      enabled={entry.enabled ?? true}
+                      isToggling={pendingProviderId === def.id}
+                      isRemoving={removingProviderId === def.id}
+                      canRemove={
+                        supportsProviderRemoval &&
+                        entry.source === "custom" &&
+                        isConfigOwnedProvider(def.id)
+                      }
+                      isFirst={index === 0}
+                      onPress={handleOpenProviderSettings}
+                      onToggleEnabled={handleToggleEnabled}
+                      onRemove={handleRemoveProvider}
+                    />
+                  );
+                })}
+              </View>
+            </SettingsSection>
+          ) : null,
+        )
+      )}
 
       {hasServer && isConnected ? (
         <SettingsSection

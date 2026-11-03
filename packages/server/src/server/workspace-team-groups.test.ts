@@ -52,6 +52,41 @@ describe("persisted team requests", () => {
       prompt: "Review and validate this change",
     };
   }
+  it("routes a remote member's addressed message to Captain and peers once", async () => {
+    const action = {
+      ...start(),
+      mode: "addressed" as const,
+      senderId: first.id,
+      memberIds: [captain.id, second.id],
+      memberPrompts: { [captain.id]: "Review the result", [second.id]: "Check the test" },
+    };
+    await execute(action);
+    await execute(action);
+    expect(transport.send).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(transport.send).mock.calls.map(([m, task]) => [m.id, m.serverId, task.prompt]),
+    ).toEqual(
+      expect.arrayContaining([
+        [captain.id, captain.serverId, "Review the result"],
+        [second.id, second.serverId, "Check the test"],
+      ]),
+    );
+    const done = await execute({ kind: "refresh_group", groupId: action.groupId });
+    expect(done.groups?.[0]).toMatchObject({ status: "completed", notification: "delivered" });
+    expect(transport.notify).not.toHaveBeenCalled();
+  });
+  it("rejects self-addressed work before sending", async () => {
+    await expect(
+      execute({
+        ...start(),
+        mode: "addressed",
+        senderId: first.id,
+        memberIds: [first.id],
+        memberPrompts: { [first.id]: "Self" },
+      }),
+    ).rejects.toThrow("another team member");
+    expect(transport.send).not.toHaveBeenCalled();
+  });
   it("broadcasts once per member, survives repeat submissions, and reports the group once", async () => {
     const action = start();
     await Promise.all([execute(action), execute(action)]);

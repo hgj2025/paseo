@@ -1,4 +1,7 @@
-import { SidebarConversationList } from "@/components/sidebar/sidebar-conversation-list";
+import {
+  SidebarConversationList,
+  useSidebarConversations,
+} from "@/components/sidebar/sidebar-conversation-list";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { normalizeWorkspaceDescriptor } from "@/stores/session-store";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -34,7 +37,7 @@ import {
   type ActiveWorkspaceSelection,
 } from "@/stores/navigation-active-workspace-store";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { density, densityIconBox } from "@/styles/density";
+import { density } from "@/styles/density";
 import type { Theme } from "@/styles/theme";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop";
@@ -118,7 +121,6 @@ import {
   SidebarWorkspaceTrailingContent,
   useSidebarWorkspaceTrailing,
 } from "@/components/sidebar/workspace-trailing";
-import { DensityIcon } from "@/components/ui/density-icon";
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ShortcutKey } from "@/utils/format-shortcut";
@@ -239,6 +241,7 @@ interface SidebarWorkspaceListProps {
 }
 
 interface ProjectHeaderRowProps {
+  showHostLabel: boolean;
   project: SidebarProjectEntry;
   displayName: string;
   iconDataUri: string | null;
@@ -405,6 +408,7 @@ function ProjectRowTrailingActions({
   projectViewKey,
   displayName,
   worktreeTarget,
+  emptyProject,
   settingsTarget,
   projectPath,
   isHovered,
@@ -413,6 +417,7 @@ function ProjectRowTrailingActions({
   onRemoveProject,
   removeProjectStatus,
 }: {
+  emptyProject: boolean;
   projectViewKey: string;
   displayName: string;
   worktreeTarget: SidebarProjectHostTarget | null;
@@ -431,7 +436,7 @@ function ProjectRowTrailingActions({
         <NewConversationButton
           displayName={displayName}
           onPress={onNewConversation}
-          visible={actionsVisible}
+          visible={actionsVisible || emptyProject}
           testID={`sidebar-project-new-worktree-${projectViewKey}`}
         />
       ) : null}
@@ -740,7 +745,7 @@ function NewConversationButton({
             style={pressableStyle}
             onPress={handlePress}
             disabled={loading}
-            accessibilityRole={platformIsWeb ? undefined : "button"}
+            accessibilityRole="button"
             accessibilityLabel={`${t("conversation.new")} · ${displayName}`}
             testID={testID}
           >
@@ -768,74 +773,8 @@ function NewConversationButton({
   );
 }
 
-function NewWorkspaceGhostRow({
-  project,
-  displayName,
-  worktreeTarget,
-  onWorkspacePress,
-}: {
-  project: SidebarProjectEntry;
-  displayName: string;
-  worktreeTarget: SidebarProjectHostTarget;
-  onWorkspacePress?: () => void;
-}) {
-  const { t } = useTranslation();
-  const handlePress = useCallback(() => {
-    onWorkspacePress?.();
-    router.navigate(
-      buildNewWorkspaceRoute({
-        serverId: worktreeTarget.serverId,
-        sourceDirectory: worktreeTarget.iconWorkingDir,
-        displayName,
-        projectId: worktreeTarget.projectId,
-      }) as Href,
-    );
-  }, [displayName, onWorkspacePress, worktreeTarget]);
-  const rowStyle = useCallback(
-    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
-      styles.newWorkspaceGhostRow,
-      hovered && !pressed && styles.newWorkspaceGhostRowHovered,
-      pressed && styles.newWorkspaceGhostRowPressed,
-    ],
-    [],
-  );
-
-  return (
-    <Pressable
-      accessibilityRole={platformIsWeb ? undefined : "button"}
-      accessibilityLabel={t("sidebar.workspace.actions.createWorkspaceFor", {
-        projectName: displayName,
-      })}
-      onPress={handlePress}
-      style={rowStyle}
-      testID={`sidebar-project-new-workspace-row-${project.viewKey}`}
-    >
-      {({ hovered, pressed }) => (
-        <>
-          <View style={styles.newWorkspaceGhostIconSlot}>
-            <DensityIcon
-              icon={Plus}
-              size="sm"
-              color={hovered || pressed ? "foreground" : "foregroundMuted"}
-            />
-          </View>
-          <Text
-            style={
-              hovered || pressed
-                ? styles.newWorkspaceGhostTextHovered
-                : styles.newWorkspaceGhostText
-            }
-            numberOfLines={1}
-          >
-            {t("sidebar.workspace.actions.newWorkspace")}
-          </Text>
-        </>
-      )}
-    </Pressable>
-  );
-}
-
 function ProjectHeaderRow({
+  showHostLabel,
   project,
   displayName,
   iconDataUri,
@@ -856,6 +795,10 @@ function ProjectHeaderRow({
   removeProjectStatus = "idle",
   dragHandleProps,
 }: ProjectHeaderRowProps) {
+  const projectHostNames = useHosts()
+    .filter((host) => project.hosts.some((placement) => placement.serverId === host.serverId))
+    .map((host) => host.label)
+    .join(", ");
   const [isHovered, setIsHovered] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -960,9 +903,15 @@ function ProjectHeaderRow({
           <Text style={styles.projectTitle} numberOfLines={1}>
             {displayName}
           </Text>
+          {showHostLabel && projectHostNames ? (
+            <Text numberOfLines={1} style={styles.projectHostLabel}>
+              {projectHostNames}
+            </Text>
+          ) : null}
         </View>
       </View>
       <ProjectRowTrailingActions
+        emptyProject={project.workspaces.length === 0}
         projectViewKey={project.viewKey}
         displayName={displayName}
         worktreeTarget={worktreeTarget}
@@ -1210,7 +1159,6 @@ function WorkspaceRowInner({
 
 function WorkspaceRowWithMenu({
   workspace,
-  hostBadge,
   leadingProjectName,
   leadingProjectIconDataUri,
   selected,
@@ -1243,6 +1191,11 @@ function WorkspaceRowWithMenu({
   reserveIdleStatusIndicatorSpace?: boolean;
   isCreating?: boolean;
 }) {
+  const conversations = useSidebarConversations(
+    workspace.serverId,
+    workspace.workspaceId,
+    workspace.workspaceDirectory,
+  );
   const { t } = useTranslation();
   const toast = useToast();
   const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
@@ -1326,36 +1279,39 @@ function WorkspaceRowWithMenu({
 
   return (
     <>
-      <WorkspaceRowInner
-        workspace={workspace}
-        hostBadge={hostBadge}
-        leadingProjectName={leadingProjectName}
-        leadingProjectIconDataUri={leadingProjectIconDataUri}
-        selected={selected}
-        shortcutNumber={shortcutNumber}
-        showShortcutBadge={showShortcutBadge}
-        onPress={onPress}
-        drag={drag}
-        isDragging={isDragging}
-        isArchiving={isArchiving}
-        isCreating={isCreating}
-        dragHandleProps={dragHandleProps}
-        menuController={null}
-        archiveLabel={t("sidebar.workspace.actions.archive")}
-        archiveStatus={isArchiving ? "pending" : "idle"}
-        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
-        onArchive={handleArchive}
-        onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
-        onCopyPath={handleCopyPath}
-        onRename={handleOpenRename}
-        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
-        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
-        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
-      />
+      {leadingProjectName && (
+        <WorkspaceRowInner
+          workspace={workspace}
+          hostBadge={null}
+          leadingProjectName={leadingProjectName}
+          leadingProjectIconDataUri={leadingProjectIconDataUri}
+          selected={selected && conversations.length === 0}
+          shortcutNumber={shortcutNumber}
+          showShortcutBadge={showShortcutBadge}
+          onPress={onPress}
+          drag={drag}
+          isDragging={isDragging}
+          isArchiving={isArchiving}
+          isCreating={isCreating}
+          dragHandleProps={dragHandleProps}
+          menuController={null}
+          archiveLabel={t("sidebar.workspace.actions.archive")}
+          archiveStatus={isArchiving ? "pending" : "idle"}
+          archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+          onArchive={handleArchive}
+          onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
+          onCopyPath={handleCopyPath}
+          onRename={handleOpenRename}
+          onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+          onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
+          archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+          isPinned={isPinned}
+          onTogglePin={onTogglePin}
+          reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
+        />
+      )}
       <SidebarConversationList
+        rows={conversations}
         serverId={workspace.serverId}
         workspaceId={workspace.workspaceId}
         workspaceSelected={selected}
@@ -1789,15 +1745,6 @@ function ProjectBlock({
           ) : null}
         </>
       );
-    } else if (rowModel.trailingAction.kind === "new_workspace") {
-      projectChildren = (
-        <NewWorkspaceGhostRow
-          project={project}
-          displayName={displayName}
-          worktreeTarget={rowModel.trailingAction.target}
-          onWorkspacePress={onWorkspacePress}
-        />
-      );
     }
   }
 
@@ -1808,6 +1755,7 @@ function ProjectBlock({
       style={projectChildren ? styles.projectBlockExpanded : undefined}
     >
       <ProjectHeaderRow
+        showHostLabel={hostBadgeByServerId.size > 0}
         project={project}
         displayName={displayName}
         iconDataUri={iconDataUri}
@@ -2530,58 +2478,13 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: theme.spacing[1],
   },
   workspaceListContainer: {},
-  // Kept in step with `workspaceRow` above. It stands in a project's list where a workspace row
-  // would be, so it takes that row's geometry and both of its fills.
-  //
-  // The one departure is the extra left padding: it only ever renders under its project header, so
-  // the step in reads as belonging to that project. Padding rather than margin, so the hover and
-  // pressed fills stay the same box as every other row in the sidebar.
-  newWorkspaceGhostRow: {
-    minHeight: density.rowHeight,
-    marginBottom: theme.spacing[0.5],
-    paddingVertical: theme.spacing[2],
-    paddingLeft: theme.spacing[4],
-    paddingRight: theme.spacing[3],
-    borderRadius: theme.borderRadius.lg,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    userSelect: "none",
-  },
-  newWorkspaceGhostRowHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  newWorkspaceGhostRowPressed: {
-    backgroundColor: theme.colors.surface2,
-  },
-  // The width of a workspace row's status slot, so the label lands on the same rail as the
-  // titles above it.
-  newWorkspaceGhostIconSlot: {
-    width: densityIconBox("md"),
-    height: densityIconBox("md"),
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  newWorkspaceGhostText: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
-    minWidth: 0,
-    flexShrink: 1,
-  },
-  newWorkspaceGhostTextHovered: {
-    fontSize: theme.fontSize.base,
-    minWidth: 0,
-    flexShrink: 1,
-    color: theme.colors.foreground,
-  },
   projectRow: {
     position: "relative",
     minHeight: density.rowHeight,
-    paddingVertical: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
     paddingHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius.lg,
-    marginBottom: theme.spacing[1],
+    marginBottom: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -2608,6 +2511,11 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     flex: 1,
     minWidth: 0,
+  },
+  projectHostLabel: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 1,
   },
   projectTitleGroup: {
     flexDirection: "row",

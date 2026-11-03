@@ -15,9 +15,13 @@ import {
 } from "@getpaseo/protocol/workspace-team";
 
 export interface TeamTransport {
-  inspect(
-    member: Pick<TeamMember, "serverId" | "agentId" | "workspaceId">,
-  ): Promise<{ provider: string; busy: boolean; historyEpoch?: string; historySeq?: number }>;
+  inspect(member: Pick<TeamMember, "serverId" | "agentId" | "workspaceId">): Promise<{
+    provider: string;
+    model?: string | null;
+    busy: boolean;
+    historyEpoch?: string;
+    historySeq?: number;
+  }>;
   send(member: TeamMember, task: TeamTask): Promise<"acknowledged" | "uncertain">;
   observe(
     member: TeamMember,
@@ -31,6 +35,26 @@ export interface TeamTransport {
   dispose?(): void;
   archive?(member: TeamMember): Promise<void>;
   isArchived?(member: TeamMember): Promise<boolean>;
+}
+
+// Aliases must remain addressable by the existing @mention grammar.
+function modelAlias(provider: string, model?: string | null): string {
+  const name = model?.trim() || provider.charAt(0).toUpperCase() + provider.slice(1);
+  return (
+    name
+      .replace(/[^A-Za-z0-9_\-\u4e00-\u9fff]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "Agent"
+  );
+}
+function uniqueModelAlias(team: WorkspaceTeam, base: string, memberId?: string): string {
+  let alias = base,
+    suffix = 2;
+  while (
+    team.members.some((m) => m.id !== memberId && m.alias.toLowerCase() === alias.toLowerCase())
+  )
+    alias = `${base}-${suffix++}`;
+  return alias;
 }
 
 const active = (task: TeamTask) =>
@@ -435,6 +459,7 @@ export class WorkspaceTeamService {
         throw new Error("The main conversation remains Captain.");
       if (action.captain && member.serverId !== this.serverId)
         throw new Error("Captain must run on the team workspace's host.");
+      if (member.alias !== action.alias) member.automaticAlias = false;
       member.alias = action.alias;
       member.role = action.role;
       member.skills = action.skills;
@@ -517,18 +542,14 @@ export class WorkspaceTeamService {
         if (team.members.length >= 32) throw new Error("A team can have up to 32 members.");
         const info = joinedInfo!;
         const captain = !team.captainId && action.serverId === this.serverId;
-        const base = captain
-          ? "Captain"
-          : (info.provider.charAt(0).toUpperCase() + info.provider.slice(1))
-              .replace(/[^A-Za-z0-9_-]/g, "")
-              .slice(0, 24) || "Agent";
-        let alias = base,
-          suffix = 2;
-        while (team.members.some((m) => m.alias.toLowerCase() === alias.toLowerCase()))
-          alias = `${base}-${suffix++}`;
+        const alias = uniqueModelAlias(
+          team,
+          captain ? "Captain" : modelAlias(info.provider, info.model),
+        );
         const member: TeamMember = {
           id: randomUUID(),
           alias,
+          automaticAlias: !captain,
           serverId: action.serverId,
           workspaceId: action.workspaceId,
           agentId: action.agentId,
@@ -563,10 +584,6 @@ export class WorkspaceTeamService {
     const snapshot = await this.execute(key, { kind: "read" });
     const original = snapshot.members.find((m) => m.id === action.memberId);
     if (!snapshot.sessionId || !original) throw new Error("Conversation member not found.");
-    if (original.id === snapshot.captainId && action.execution.serverId !== this.serverId)
-      throw new Error(
-        "Captain execution must remain on the team host until remote team tools are supported.",
-      );
     const previous = original.execution;
     if (previous?.operationId === action.execution.operationId) {
       if (JSON.stringify(previous) !== JSON.stringify(action.execution))
@@ -619,9 +636,20 @@ export class WorkspaceTeamService {
         provider: member.provider,
       };
       const history = member.executionHistory ?? [];
-      if (!history.some((e) => e.serverId === prior.serverId && e.agentId === prior.agentId))
+      if (
+        (prior.serverId !== action.execution.serverId ||
+          prior.agentId !== action.execution.agentId) &&
+        !history.some((e) => e.serverId === prior.serverId && e.agentId === prior.agentId)
+      )
         member.executionHistory = [...history, prior];
       member.execution = action.execution;
+      if (member.automaticAlias) {
+        member.alias = uniqueModelAlias(
+          team,
+          modelAlias(target.provider, target.model ?? action.execution.model),
+          member.id,
+        );
+      }
       await this.save(team, true);
       return team;
     });

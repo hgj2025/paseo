@@ -1,3 +1,4 @@
+import { rememberSentMessage, recallMessage, canRecallMessage } from "./recall-message";
 import { useModelHostContext } from "@/screens/workspace/model-host-context";
 import { executionMember } from "@getpaseo/protocol/workspace-team";
 import {
@@ -12,7 +13,7 @@ import { v4 as teamTaskUuid } from "uuid";
 import { useWorkspaceTeam } from "@/screens/workspace/workspace-team-context";
 import { useWorkspaceToolbar } from "./workspace-toolbar-context";
 import { recipientIds, useTeamComposerStore } from "@/stores/team-composer-store";
-import { parseTeamMentions } from "./team-mentions";
+import { parseTeamMentions, teamMentionCandidates } from "./team-mentions";
 import { TeamGroupFeed } from "@/screens/workspace/team-group-card";
 import {
   useComposerEditingSession,
@@ -1303,9 +1304,9 @@ function ComposerContentImpl({
     () =>
       parseTeamMentions(
         teamDraftText,
-        team?.members.filter((m) => m.id !== team?.captainId && m.id !== teamSender?.id) ?? [],
+        teamSender ? teamMentionCandidates(team?.members ?? [], teamSender.id) : [],
       ),
-    [teamDraftText, team, teamSender?.id],
+    [teamDraftText, team, teamSender],
   );
   const recipient = useMemo(
     () =>
@@ -1323,12 +1324,7 @@ function ComposerContentImpl({
   const selectedMemberIds = useMemo(() => recipientIds(recipient), [recipient]);
 
   const teamCandidates = useMemo(
-    () =>
-      teamSender
-        ? team?.members.filter(
-            (member) => member.id !== teamSender.id && member.id !== team?.captainId,
-          )
-        : undefined,
+    () => (teamSender ? teamMentionCandidates(team?.members ?? [], teamSender.id) : undefined),
     [team, teamSender],
   );
   const savedCollapsed = useTeamComposerStore((state) => state.collapsed[teamComposerKey]);
@@ -1665,13 +1661,19 @@ function ComposerContentImpl({
   const submitMessage = useCallback(
     async (text: string, submitAttachments: ComposerAttachment[]) => {
       if (executionSwitching) throw new Error(t("workspace.execution.changing"));
-      if (recipient) return submitTeamRequest(text, submitAttachments);
+      const original = text;
+      if (recipient) {
+        await submitTeamRequest(text, submitAttachments);
+        rememberSentMessage(teamComposerKey, original);
+        return;
+      }
       if (team && teamSender && team.captainId === teamSender.id) {
         text += `\n\n${captainTeamContext(team.workspaceId)}`;
       }
       onMessageSent?.();
       if (onSubmitMessageRef.current) {
         await onSubmitMessageRef.current({ text, attachments: submitAttachments, cwd });
+        rememberSentMessage(teamComposerKey, original);
         return;
       }
       if (!sendAgentMessageRef.current) {
@@ -1683,6 +1685,7 @@ function ComposerContentImpl({
         submitAttachments,
         appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
       );
+      rememberSentMessage(teamComposerKey, original);
     },
     [
       appSettings.sendBehavior,
@@ -1694,6 +1697,7 @@ function ComposerContentImpl({
       teamSender,
       team,
       submitTeamRequest,
+      teamComposerKey,
     ],
   );
 
@@ -2140,8 +2144,24 @@ function ComposerContentImpl({
 
   // Handle keyboard navigation for command autocomplete.
   const handleCommandKeyPress = useCallback(
-    (event: ComposerKeyPressEvent) => autocompleteRef.current?.onKeyPress(event) ?? false,
-    [],
+    (event: ComposerKeyPressEvent) => {
+      if (autocompleteRef.current?.onKeyPress(event)) return true;
+      if (inputMode !== "chat" || !agentId || !canRecallMessage(event)) return false;
+      const session = useSessionStore.getState().sessions[serverId];
+      const text = recallMessage(
+        teamComposerKey,
+        [
+          ...(session?.agentStreamHead.get(agentId) ?? []),
+          ...(session?.agentStreamTail.get(agentId) ?? []),
+        ],
+        team ? `\n\n${captainTeamContext(team.workspaceId)}` : undefined,
+      );
+      if (!text) return false;
+      event.preventDefault();
+      replaceUserInput(text);
+      return true;
+    },
+    [serverId, agentId, teamComposerKey, team, replaceUserInput, inputMode],
   );
 
   const cancelButtonStyle = useMemo(

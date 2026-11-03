@@ -67,7 +67,13 @@ export function isGroupableToolCall(item: StreamItem): item is ToolCallItem {
     return false;
   }
   const descriptor = describeToolCall(item);
-  return descriptor.detail.type !== "plan" && descriptor.name.trim().toLowerCase() !== "speak";
+  return (
+    descriptor.status !== "failed" &&
+    descriptor.status !== "canceled" &&
+    !descriptor.error &&
+    descriptor.detail.type !== "plan" &&
+    descriptor.name.trim().toLowerCase() !== "speak"
+  );
 }
 
 function createRun(calls: readonly ToolCallItem[], isSealed: boolean): ToolCallRun {

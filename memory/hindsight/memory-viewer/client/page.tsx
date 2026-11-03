@@ -17,13 +17,12 @@ const names = { world: "事实", experience: "经历", observation: "整合经�
 const date = (value) => (value ? new Date(value).toLocaleString("zh-CN") : "未记录");
 
 // oxlint-disable-next-line complexity -- This screen renders independent loading, empty, error, list and detail states.
-export function MemoryPage({ theme, host, layout, navigation }) {
+export function MemoryPage({ theme, host, navigation }) {
   const call = useRpc(memoryView);
   const [banks, setBanks] = useState([]),
     [bankTotal, setBankTotal] = useState(0),
     [bankOffset, setBankOffset] = useState(0);
-  const [bank, setBank] = useState(""),
-    [automation, setAutomation] = useState(null);
+  const [bank, setBank] = useState("");
   const [draft, setDraft] = useState(""),
     [query, setQuery] = useState(""),
     [type, setType] = useState("");
@@ -41,9 +40,9 @@ export function MemoryPage({ theme, host, layout, navigation }) {
   const text = { color: c.foreground, fontSize: 14, lineHeight: 22 };
   const muted = { color: c.foregroundMuted, fontSize: 12, lineHeight: 20 };
   const button = {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    minHeight: 30,
     borderRadius: 6,
     backgroundColor: c.surface1,
   };
@@ -60,7 +59,6 @@ export function MemoryPage({ theme, host, layout, navigation }) {
         if (!live) return;
         setBanks(result.data.banks ?? []);
         setBankTotal(result.data.total ?? 0);
-        setAutomation(result.automation);
         setBank((current) => chooseAvailableBank(result.data.banks ?? [], current));
         return undefined;
       })
@@ -135,47 +133,40 @@ export function MemoryPage({ theme, host, layout, navigation }) {
     <View style={{ flex: 1, backgroundColor: c.surface0 }}>
       <View
         style={{
-          padding: layout.compact ? 16 : 24,
-          gap: 14,
+          paddingHorizontal: 16,
+          paddingTop: 10,
+          paddingBottom: 10,
+          gap: 8,
           borderBottomWidth: 1,
           borderBottomColor: c.border,
         }}
       >
-        <View style={{ ...row, justifyContent: "space-between" }}>
-          <View>
-            <Text style={{ ...text, fontSize: 20 }}>项目记忆</Text>
-            <Text style={muted}>{host.label} · 本机 Hindsight · 只读浏览</Text>
-          </View>
-          {action("刷新", () => setRefresh((value) => value + 1))}
-        </View>
-        <Text style={muted}>
-          {automation?.note ?? "正在读取记忆服务…"}
-          {automation?.updatedAt ? " 更新于 " + date(automation.updatedAt) : ""}
-        </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8 }}
-        >
-          {banks.map((item) => (
-            <Pressable
-              key={item.bank_id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: bank === item.bank_id }}
-              onPress={() => chooseBank(item.bank_id)}
-              style={[button, bank === item.bank_id && { backgroundColor: c.accent }]}
-            >
-              <Text
-                style={{
-                  ...text,
-                  color: bank === item.bank_id ? c.accentForeground : c.foreground,
-                }}
+        {bankTotal > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8 }}
+          >
+            {banks.map((item) => (
+              <Pressable
+                key={item.bank_id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: bank === item.bank_id }}
+                onPress={() => chooseBank(item.bank_id)}
+                style={[button, bank === item.bank_id && { backgroundColor: c.surface2 }]}
               >
-                {item.name || item.bank_id}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+                <Text
+                  style={{
+                    ...text,
+                    color: c.foreground,
+                  }}
+                >
+                  {item.name || item.bank_id}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
         {bankTotal > 100 && (
           <View style={row}>
             {action(
@@ -194,7 +185,7 @@ export function MemoryPage({ theme, host, layout, navigation }) {
         <View style={row}>
           <TextInput
             accessibilityLabel="搜索当前项目的记忆"
-            placeholder="搜索当前项目的记忆"
+            placeholder="搜索记忆…"
             placeholderTextColor={c.foregroundMuted}
             value={draft}
             onChangeText={setDraft}
@@ -203,14 +194,15 @@ export function MemoryPage({ theme, host, layout, navigation }) {
               ...text,
               flex: 1,
               minWidth: 160,
-              minHeight: 38,
-              paddingHorizontal: 12,
+              minHeight: 32,
+              paddingHorizontal: 10,
               borderWidth: 1,
               borderColor: c.border,
               borderRadius: 6,
             }}
           />
           {action("搜索", applySearch, !bank)}
+          {action("刷新", () => setRefresh((value) => value + 1))}
         </View>
         <View style={row}>
           {[
@@ -229,18 +221,27 @@ export function MemoryPage({ theme, host, layout, navigation }) {
               }}
               style={[
                 button,
-                type === value && { borderBottomWidth: 2, borderBottomColor: c.accent },
+                {
+                  backgroundColor: type === value ? c.surface2 : "transparent",
+                  paddingHorizontal: 9,
+                  paddingVertical: 4,
+                  minHeight: 28,
+                },
               ]}
             >
               <Text style={text}>
                 {label}
-                {page ? " " + (value ? (count[value] ?? 0) : page.stats.total_nodes) : ""}
+                {page &&
+                page.total > 30 &&
+                (value ? (count[value] ?? 0) : page.stats.total_nodes) > 0
+                  ? " " + (value ? count[value] : page.stats.total_nodes)
+                  : ""}
               </Text>
             </Pressable>
           ))}
         </View>
       </View>
-      <ScrollView contentContainerStyle={{ padding: layout.compact ? 16 : 24, gap: 0 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12, gap: 0 }}>
         {error ? (
           <Text accessibilityRole="alert" style={{ ...text, color: c.statusDanger }}>
             {error}
@@ -266,7 +267,7 @@ export function MemoryPage({ theme, host, layout, navigation }) {
             accessibilityLabel={"查看记忆：" + item.text}
             key={item.id}
             onPress={() => openDetail(item)}
-            style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: c.border }}
+            style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border }}
           >
             <Text style={muted}>
               {names[item.fact_type] ?? item.fact_type} · {date(item.updated_at ?? item.date)}
@@ -278,7 +279,7 @@ export function MemoryPage({ theme, host, layout, navigation }) {
             <Text style={muted}>{sourceLabel(item)}</Text>
           </Pressable>
         ))}
-        {page && (
+        {page && page.total > 30 && (
           <View style={{ ...row, justifyContent: "space-between", paddingVertical: 16 }}>
             <Text style={muted}>
               {page.total

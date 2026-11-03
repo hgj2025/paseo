@@ -1,3 +1,7 @@
+import { useContext } from "react";
+import { MoreHorizontal } from "lucide-react-native";
+import { SidebarRailContext } from "./sidebar-rail-context";
+import { RailButton } from "@/home-overview/navigation-rail-view";
 import { useCallback, useState, type ComponentType, type ReactNode, type Ref } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -51,6 +55,7 @@ export function SidebarHeaderRow({
   trailing,
   rowRef,
 }: SidebarHeaderRowProps) {
+  const rail = useContext(SidebarRailContext);
   const [isHovered, setIsHovered] = useState(false);
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
@@ -61,6 +66,17 @@ export function SidebarHeaderRow({
   if (right === null && shortcutKeys && isHovered) {
     right = <Shortcut chord={shortcutKeys} />;
   }
+
+  if (rail)
+    return (
+      <RailButton
+        icon={icon ?? MoreHorizontal}
+        label={accessibilityLabel ?? label}
+        active={isActive}
+        onPress={onPress}
+        testID={testID ?? "rail-plugin"}
+      />
+    );
 
   return (
     <View ref={rowRef} collapsable={false} style={getContainerStyle(variant)}>

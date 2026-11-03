@@ -29,6 +29,11 @@ export async function remoteAgentWorkerMain(): Promise<void> {
   const tails = new Map<string, Promise<unknown>>();
   const pending = new Set<Promise<void>>();
   let closing = false;
+  // A CLI client does not reconnect after its daemon restarts. End the SSH worker
+  // so the owner can reopen it and restore subscriptions from durable task IDs.
+  const unsubscribeConnection = client.subscribeConnectionStatus(({ status }) => {
+    if (!closing && status === "disconnected") process.stdin.destroy();
+  });
   function emit(value: unknown) {
     process.stdout.write(JSON.stringify(value) + "\n");
   }
@@ -259,6 +264,7 @@ export async function remoteAgentWorkerMain(): Promise<void> {
         HistorySeq: page.window.maxSeq,
         Id: a.id,
         Provider: a.provider,
+        Model: a.model,
         Status: a.status,
         Archived: Boolean(a.archivedAt),
         WorkspaceId: a.workspaceId,
@@ -354,6 +360,7 @@ export async function remoteAgentWorkerMain(): Promise<void> {
     }
   } finally {
     closing = true;
+    unsubscribeConnection();
     for (const timer of changed.values()) clearTimeout(timer);
     for (const subscription of watches.values()) subscription();
     await client.close();

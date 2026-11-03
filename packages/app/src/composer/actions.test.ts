@@ -1,3 +1,4 @@
+import { rememberSentMessage, recallMessage, canRecallMessage } from "./recall-message";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentAttachment, ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
@@ -1122,4 +1123,24 @@ describe("file upload preparation", () => {
       expect(sends).toBe(0);
     },
   );
+});
+
+describe("empty composer recall", () => {
+  it("only accepts unmodified ArrowUp with a truly empty draft", () => {
+    expect(canRecallMessage({ key: "ArrowUp", input: { text: "" } })).toBe(true);
+    for (const text of ["draft", " ", "\n"])
+      expect(canRecallMessage({ key: "ArrowUp", input: { text } })).toBe(false);
+    expect(canRecallMessage({ key: "ArrowUp", input: { text: "" }, altKey: true })).toBe(false);
+    expect(canRecallMessage({ key: "ArrowDown", input: { text: "" } })).toBe(false);
+  });
+  it("recalls original sent text per scope, ignoring internal team messages in history", () => {
+    rememberSentMessage("recall-mac-a", "original\nmessage");
+    expect(recallMessage("recall-mac-a", [])).toBe("original\nmessage");
+    expect(recallMessage("recall-vm-a", [])).toBeNull();
+    const items: StreamItem[] = [
+      { kind: "user_message", id: "u1", text: "previous\n\ncontext", timestamp: new Date() },
+      { kind: "user_message", id: "u2", text: "[Team task test]\ninternal", timestamp: new Date() },
+    ];
+    expect(recallMessage("recall-history", items, "\n\ncontext")).toBe("previous");
+  });
 });

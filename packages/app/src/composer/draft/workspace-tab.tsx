@@ -120,7 +120,8 @@ function resolveDraftModeId(input: {
 }
 
 function teamDraftTitle(role: "captain" | "member" | null, provider: string | null | undefined) {
-  if (role === "captain") return "Captain";
+  // Captain is a team role; allow the server to derive the conversation title.
+  if (role === "captain") return undefined;
   if (role === "member") return (provider ?? "Agent").replace(/^./, (c) => c.toUpperCase());
   return undefined;
 }

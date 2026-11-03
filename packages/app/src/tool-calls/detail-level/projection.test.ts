@@ -63,6 +63,20 @@ function project(input: {
 }
 
 describe("tool call detail-level projection", () => {
+  it.each(["failed", "canceled"] as const)(
+    "keeps %s calls visible outside collapsed groups",
+    (status) => {
+      const first = toolCall("1", { type: "shell", command: "pwd" });
+      const problem = toolCall("2", { type: "shell", command: "npm test" }, { status });
+      const last = toolCall("3", { type: "shell", command: "git status" });
+      for (const location of ["tail", "head"] as const) {
+        const result = project({ level: "overview", [location]: [first, problem, last] });
+        expect(result[location].map((item) => item.id)).toEqual(["1", "2", "3"]);
+        expect(result.groupsByHostId.has(problem.id)).toBe(false);
+      }
+    },
+  );
+
   it.each(["detailed", "overview"] as const)(
     "keeps pending approval tools out of %s presentation without removing their canonical position",
     (level) => {
@@ -245,7 +259,7 @@ describe("tool call detail-level projection", () => {
       toolCall("1", { type: "read", filePath: "/repo/src/a.ts" }),
       toolCall("2", { type: "read", filePath: "/repo/src/b.ts" }),
       toolCall("3", { type: "shell", command: "npm test" }),
-      toolCall("4", { type: "edit", filePath: "/repo/src/a.ts" }, { status: "failed" }),
+      toolCall("4", { type: "edit", filePath: "/repo/src/a.ts" }),
     ];
 
     const overview = project({ level: "overview", head: calls });
@@ -273,7 +287,7 @@ describe("tool call detail-level projection", () => {
       toolCall(
         "4",
         { type: "search", query: "paseo", toolName: "web_search" },
-        { status: "failed" },
+        { status: "completed" },
       ),
       toolCall("5", { type: "fetch", url: "not a url" }),
     ];

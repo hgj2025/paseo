@@ -27,6 +27,7 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
   activePrompt,
   onJumpToPrompt,
 }: ChatOutlineRailProps) {
+  const [railHovered, setRailHovered] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const activeSeq = useSyncExternalStore(activePrompt.subscribe, activePrompt.getActiveSeq);
@@ -48,6 +49,7 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
   );
   const handlePointerEnterRail = useCallback(
     (event: RNPointerEvent) => {
+      setRailHovered(true);
       hoverIntent.enter({ x: event.nativeEvent.clientX, y: event.nativeEvent.clientY });
     },
     [hoverIntent],
@@ -58,7 +60,10 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
     },
     [hoverIntent],
   );
-  const handlePointerLeaveRail = useCallback(() => hoverIntent.leave(), [hoverIntent]);
+  const handlePointerLeaveRail = useCallback(() => {
+    setRailHovered(false);
+    hoverIntent.leave();
+  }, [hoverIntent]);
   useEffect(() => () => hoverIntent.dispose(), [hoverIntent]);
   useEffect(() => {
     if (isPanelNarrow) hoverIntent.leave();
@@ -80,7 +85,7 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
     <View style={styles.panelMeasure} pointerEvents="box-none" onLayout={onLayout}>
       {isPanelNarrow ? null : (
         <View
-          style={styles.rail}
+          style={[styles.rail, !(railHovered || focusedIndex !== null) && styles.railResting]}
           role="tablist"
           testID="chat-outline-rail"
           onPointerEnter={handlePointerEnterRail}
@@ -199,6 +204,7 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     zIndex: 2,
   },
+  railResting: { opacity: 0 },
   // Slots tile the rail with no gaps, so every pixel of the column belongs to a prompt even
   // when a long conversation squeezes them well below their resting height.
   slot: {

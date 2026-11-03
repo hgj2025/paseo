@@ -390,7 +390,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
     );
     const streamHead = providedStreamHead ?? sessionStreamHead;
-    const forkAgent = useForkAgent({ serverId: resolvedServerId, toast, readOnly });
+    const forkAgent = useForkAgent({
+      serverId: resolvedServerId,
+      toast,
+      readOnly,
+    });
     const supportsAgentForkContextCursor = useSessionStore(
       (state) =>
         state.sessions[resolvedServerId]?.serverInfo?.features?.agentForkContextCursor === true,
@@ -736,7 +740,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               {(renderFullContent) => (
                 <AssistantMessage
                   renderFullContent={renderFullContent}
-                  occurrenceKey={createAssistantImageOccurrenceKey({ agentId, itemId: item.id })}
+                  occurrenceKey={createAssistantImageOccurrenceKey({
+                    agentId,
+                    itemId: item.id,
+                  })}
                   message={item.text}
                   timestamp={item.timestamp.getTime()}
                   workspaceRoot={workspaceRoot}
@@ -992,7 +999,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const scrollToBottomContainerStyle = useMemo(
       () => [
         stylesheet.scrollToBottomContainer,
-        { bottom: resolveBottomOverlayControlOffset(bottomOverlayControlClearance) },
+        {
+          bottom: resolveBottomOverlayControlOffset(bottomOverlayControlClearance),
+        },
       ],
       [bottomOverlayControlClearance],
     );
@@ -1161,7 +1170,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                     accessibilityLabel={t("agentStream.scrollToBottom")}
                     testID="scroll-to-bottom-button"
                   >
-                    <ChevronDown size={24} color={stylesheet.scrollToBottomIcon.color} />
+                    <ChevronDown size={18} color={stylesheet.scrollToBottomIcon.color} />
                   </Pressable>
                 </Animated.View>
               </View>
@@ -1703,13 +1712,14 @@ const stylesheet = StyleSheet.create((theme) => ({
     alignItems: "center",
   },
   scrollToBottomButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.surface2,
+    width: 32,
+    height: 32,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surface1,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    ...theme.shadow.sm,
   },
   scrollToBottomIcon: {
     color: theme.colors.foreground,

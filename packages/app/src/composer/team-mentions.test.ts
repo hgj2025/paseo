@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTeamMentions } from "./team-mentions";
+import { parseTeamMentions, teamMentionCandidates } from "./team-mentions";
 const members = [
   { id: "linux", alias: "devbox-claude" },
   { id: "mac", alias: "mac-grok" },
@@ -30,5 +30,22 @@ describe("inline team routing", () => {
   });
   it("does not route partial aliases, email addresses or file paths", () => {
     expect(parseTeamMentions("a@mac-grok @mac @mac-grok/readme.md", members).memberIds).toEqual([]);
+  });
+});
+
+describe("team mention candidates", () => {
+  it("includes Captain and peers across hosts, excluding self and pending removals", () => {
+    const roster = [
+      { id: "captain", alias: "Captain", serverId: "mac" },
+      { id: "linux", alias: "Claude", serverId: "devbox" },
+      { id: "peer", alias: "Peer", serverId: "remote" },
+      { id: "leaving", alias: "Leaving", serverId: "remote", removing: true },
+    ];
+    const candidates = teamMentionCandidates(roster, "linux");
+    expect(candidates.map((m) => m.id)).toEqual(["captain", "peer"]);
+    expect(parseTeamMentions("@Captain Review this @Peer Verify that", candidates).prompts).toEqual(
+      { captain: "Review this", peer: "Verify that" },
+    );
+    expect(teamMentionCandidates(roster, "captain").map((m) => m.id)).toEqual(["linux", "peer"]);
   });
 });

@@ -2,6 +2,8 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ar: TranslationResources = {
+  homeOverview: en.homeOverview,
+  executionDiagnostics: en.executionDiagnostics,
   modelHostDirectory: en.modelHostDirectory,
   conversation: en.conversation,
   teamPanel: en.teamPanel,
@@ -205,6 +207,7 @@ export const ar: TranslationResources = {
     },
   },
   agentControls: {
+    permissions: { title: "الأذونات", automatic: "موافقة تلقائية", ask: "السؤال في كل مرة" },
     provider: {
       fallback: "مزود",
       select: "حدد مزود الوكيل",
@@ -2691,6 +2694,8 @@ export const ar: TranslationResources = {
     },
     providers: {
       title: "مقدمي الخدمات",
+      active: "مثبت ومفعّل",
+      other: "موفرو خدمة آخرون",
       addProvider: "إضافة مزود",
       providerDetails: "تفاصيل مزود{{name}}",
       enableProvider: "تمكين{{name}}",

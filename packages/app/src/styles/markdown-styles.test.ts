@@ -3,9 +3,21 @@ import { createCompactMarkdownStyles, createMarkdownStyles } from "./markdown-st
 import { darkTheme } from "./theme";
 
 describe("createMarkdownStyles", () => {
+  it("keeps prose emphasis and inline code visually quiet", () => {
+    const styles = createMarkdownStyles(darkTheme);
+    expect(styles.strong.fontWeight).toBe(darkTheme.fontWeight.normal);
+    expect(styles.heading1.fontWeight).toBe(darkTheme.fontWeight.medium);
+    expect(styles.code_inline).toMatchObject({
+      backgroundColor: "transparent",
+      fontWeight: darkTheme.fontWeight.normal,
+      paddingHorizontal: 0,
+      borderWidth: 0,
+    });
+  });
+
   it("uses the content size for conversation prose and list markers", () => {
     const styles = createMarkdownStyles(darkTheme);
-    const proseLineHeight = Math.round(darkTheme.fontSize.content * 1.65);
+    const proseLineHeight = Math.round(darkTheme.fontSize.content * 1.55);
 
     expect(styles.body).toMatchObject({
       fontSize: darkTheme.fontSize.content,
@@ -88,13 +100,13 @@ describe("createMarkdownStyles", () => {
     });
   });
 
-  it("uses the mono font-size token directly for inline and block code", () => {
+  it("keeps inline code on the reading scale and block code on the code scale", () => {
     const styles = createMarkdownStyles(darkTheme);
     const compactStyles = createCompactMarkdownStyles(darkTheme);
 
     expect(styles.code_inline).toMatchObject({
       fontFamily: darkTheme.fontFamily.mono,
-      fontSize: darkTheme.fontSize.code,
+      fontSize: 14,
     });
     expect(styles.code_inline).not.toHaveProperty("lineHeight");
     expect(styles.code_block).toMatchObject({
@@ -107,9 +119,23 @@ describe("createMarkdownStyles", () => {
     });
     expect(compactStyles.code_inline).toMatchObject({
       fontFamily: darkTheme.fontFamily.mono,
-      fontSize: darkTheme.fontSize.code,
+      fontSize: 14,
     });
     expect(compactStyles.code_inline).not.toHaveProperty("lineHeight");
+  });
+
+  it("keeps the reading scale independent of editor size and consistent across tables", () => {
+    const theme = { ...darkTheme, fontSize: { ...darkTheme.fontSize, content: 21, code: 10 } };
+    const styles = createMarkdownStyles(theme);
+    const compact = createCompactMarkdownStyles(theme);
+    expect(styles.body).toMatchObject({ fontSize: 21, lineHeight: 33 });
+    expect(styles.th).toMatchObject({ fontSize: 21, lineHeight: 33 });
+    expect(styles.td).toMatchObject({ fontSize: 21, lineHeight: 33 });
+    expect(styles.code_inline.fontSize).toBe(20);
+    expect(compact.code_inline.fontSize).toBe(20);
+    expect(styles.fence.fontSize).toBe(10);
+    expect(styles.heading1.fontSize).toBeLessThanOrEqual(21 * 1.25);
+    expect(styles.heading3.fontSize).toBe(21);
   });
 
   it("scales Markdown headings from content size with safe line heights", () => {
@@ -136,7 +162,7 @@ describe("createMarkdownStyles", () => {
       borderTopLeftRadius: 0,
       borderBottomLeftRadius: 0,
     });
-    expect(styles.paragraph.marginBottom).toBe(darkTheme.spacing[4]);
+    expect(styles.paragraph.marginBottom).toBe(darkTheme.spacing[3]);
     expect(styles.text).not.toHaveProperty("color");
   });
 });

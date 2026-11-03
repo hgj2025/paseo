@@ -2,6 +2,8 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ko: TranslationResources = {
+  homeOverview: en.homeOverview,
+  executionDiagnostics: en.executionDiagnostics,
   modelHostDirectory: en.modelHostDirectory,
   conversation: en.conversation,
   teamPanel: en.teamPanel,
@@ -205,6 +207,7 @@ export const ko: TranslationResources = {
     },
   },
   agentControls: {
+    permissions: { title: "권한", automatic: "자동 승인", ask: "매번 확인" },
     provider: {
       fallback: "프로바이더",
       select: "에이전트 프로바이더 선택",
@@ -2705,6 +2708,8 @@ export const ko: TranslationResources = {
     },
     providers: {
       title: "프로바이더",
+      active: "설치 및 활성화됨",
+      other: "기타 제공업체",
       addProvider: "프로바이더 추가",
       providerDetails: "{{name}} 프로바이더 세부 정보",
       enableProvider: "{{name}} 활성화",

@@ -599,11 +599,20 @@ export function createViewedTimelineSync(ports: ViewedTimelineSyncPorts): Viewed
     } catch (error) {
       if (catchUps.get(agentId)?.generation === generation) {
         const nextRetryDelayMs = getNextRetryDelayMs(catchUps.get(agentId)?.retryDelayMs);
-        const cancelRetry = ports.schedule(() => {
-          const current = catchUps.get(agentId);
-          if (current?.generation !== generation || current.status !== "error") return;
-          startCatchUp(agentId);
-        }, nextRetryDelayMs);
+        // These refusals need a restored transcript or a changed provider configuration.
+        // Reconnecting and the explicit retry action can still attempt recovery.
+        const message = error instanceof Error ? error.message : String(error);
+        const requiresRepair =
+          /thread not loaded:|no rollout found for thread id|references unavailable provider '/i.test(
+            message,
+          );
+        const cancelRetry = requiresRepair
+          ? undefined
+          : ports.schedule(() => {
+              const current = catchUps.get(agentId);
+              if (current?.generation !== generation || current.status !== "error") return;
+              startCatchUp(agentId);
+            }, nextRetryDelayMs);
         catchUps.set(agentId, {
           generation,
           status: "error",

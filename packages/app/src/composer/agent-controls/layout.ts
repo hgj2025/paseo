@@ -31,51 +31,34 @@ function normalizedFontScale(fontScale: number): number {
   return Number.isFinite(fontScale) ? Math.max(1, fontScale) : 1;
 }
 
-function sumControlWidths(widths: number[]): number {
-  if (widths.length === 0) return 0;
-  return (
-    widths.reduce((total, width) => total + width, 0) +
-    (widths.length - 1) * COMPOSER_TOOLBAR_GEOMETRY.controlGap
-  );
-}
+export type ComposerControlSlot = "model" | "thinking" | "mode";
 
-function estimateLabelWidth(label: string, fontScale: number): number {
-  return Array.from(label).length * 7 * fontScale;
-}
+const SLOT_WIDTHS = {
+  full: { model: 176, thinking: 100, mode: 196 },
+  condensed: { model: 144, thinking: 88, mode: 128 },
+  tight: { model: 104, thinking: 28, mode: 28 },
+} as const;
 
-function resolveFeatureControlWidth(
-  feature: ComposerFeatureControlPresence,
-  fontScale: number,
+export function resolveComposerControlSlotWidth(
+  role: ComposerControlSlot,
+  density: ComposerControlDensity,
+  fontScale = 1,
 ): number {
-  if (feature.type === "toggle") return COMPOSER_TOOLBAR_GEOMETRY.controlSize;
+  return Math.round(SLOT_WIDTHS[density][role] * normalizedFontScale(fontScale));
+}
+
+function resolveDensityFloor(
+  density: ComposerControlDensity,
+  controls: ComposerControlPresence,
+): number {
+  // Reserve the same core slots and one feature-menu slot for every provider.
+  // Provider-specific features never change a neighboring control's position.
   return (
+    Object.values(SLOT_WIDTHS[density]).reduce((sum, width) => sum + width, 0) *
+      normalizedFontScale(controls.fontScale) +
     COMPOSER_TOOLBAR_GEOMETRY.controlSize +
-    COMPOSER_TOOLBAR_GEOMETRY.iconLabelGap +
-    COMPOSER_TOOLBAR_GEOMETRY.labelPadding * 2 +
-    estimateLabelWidth(feature.label, fontScale)
+    COMPOSER_TOOLBAR_GEOMETRY.controlGap * 3
   );
-}
-
-function resolveCondensedFloor(controls: ComposerControlPresence): number {
-  const fontScale = normalizedFontScale(controls.fontScale);
-  const widths: number[] = [];
-  if (controls.hasModel) widths.push(36 + 60 * fontScale);
-  if (controls.hasThinking) widths.push(COMPOSER_TOOLBAR_GEOMETRY.controlSize);
-  if (controls.hasMode) widths.push(36 + 96 * fontScale);
-  if (controls.features.length > 0) widths.push(COMPOSER_TOOLBAR_GEOMETRY.controlSize);
-  return sumControlWidths(widths);
-}
-
-function resolveFullFloor(controls: ComposerControlPresence): number {
-  const fontScale = normalizedFontScale(controls.fontScale);
-  const widths: number[] = [];
-  if (controls.hasModel) widths.push(50 + 70 * fontScale);
-  if (controls.hasThinking) widths.push(54 + 48 * fontScale);
-  if (controls.hasMode) widths.push(54 + 96 * fontScale);
-  for (const feature of controls.features) {
-    widths.push(resolveFeatureControlWidth(feature, fontScale));
-  }
-  return sumControlWidths(widths);
 }
 
 export function resolveComposerControlDensity(input: {
@@ -83,8 +66,8 @@ export function resolveComposerControlDensity(input: {
   currentDensity: ComposerControlDensity;
   controls: ComposerControlPresence;
 }): ComposerControlDensity {
-  const fullFloor = resolveFullFloor(input.controls);
-  const condensedFloor = resolveCondensedFloor(input.controls);
+  const fullFloor = resolveDensityFloor("full", input.controls);
+  const condensedFloor = resolveDensityFloor("condensed", input.controls);
 
   if (input.currentDensity === "full") {
     if (input.availableWidth >= fullFloor - DENSITY_HYSTERESIS) return "full";
@@ -110,13 +93,13 @@ export function resolveComposerControlPresentation(
       showCarets: true,
       showThinkingLabel: true,
       showModeLabel: true,
-      aggregateFeatures: false,
+      aggregateFeatures: true,
     };
   }
   if (density === "condensed") {
     return {
       showCarets: false,
-      showThinkingLabel: false,
+      showThinkingLabel: true,
       showModeLabel: true,
       aggregateFeatures: true,
     };

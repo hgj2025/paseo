@@ -1,3 +1,5 @@
+import { getIsElectronMac } from "@/constants/platform";
+import { ActiveSessionSidebar } from "@/home-overview/sidebar";
 import { SidebarHostFilter } from "@/components/sidebar/sidebar-host-filter";
 import { router } from "expo-router";
 import {
@@ -584,6 +586,8 @@ function MobileSidebar({
           </Pressable>
         </WindowChromeSafeArea>
 
+        {active ? <ActiveSessionSidebar compact onBeforeNavigate={closeSidebar} /> : null}
+
         {isInitialLoad && !hasActiveHostFilter ? (
           <SidebarAgentListSkeleton />
         ) : (
@@ -758,8 +762,10 @@ function DesktopSidebar({
           ) : (
             <TitlebarDragRegion />
           )}
-          <SidebarNavRows style={sidebarHeaderGroupStyle} />
+          {!getIsElectronMac() ? <SidebarNavRows style={sidebarHeaderGroupStyle} /> : null}
         </View>
+
+        {active ? <ActiveSessionSidebar /> : null}
 
         {isInitialLoad && !hasActiveHostFilter ? (
           <SidebarAgentListSkeleton />

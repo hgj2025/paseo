@@ -62,7 +62,7 @@ export function assignPaneColors(
           .length,
     );
     const automatic = PANE_COLOR_NAMES[counts.indexOf(Math.min(...counts))]!;
-    next[id] = { automatic, choice: "auto" };
+    next[id] = { automatic, choice: "theme" };
   }
   const unchanged =
     Object.keys(previous).length === paneIds.length &&

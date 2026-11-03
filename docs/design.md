@@ -30,7 +30,7 @@ Before adding a new component, read `components/ui/`. The primitive usually exis
 
 Hierarchy is conveyed through weight and color, not size. Most interface text is `fontSize.base`; compact metadata and hints use `fontSize.sm`. The distinction between a row's primary line and its secondary line is `foreground` versus `foregroundMuted`.
 
-The authored interface ramp uses a 14px base. New native installs default to 15px; web and desktop default to 14px. The Appearance **Interface size** setting is the rendered `fontSize.base` value and scales the rest of the UI ramp proportionally. Primary readable content has its own `fontSize.content`, which defaults to 16px on native and 15px on web and desktop. It owns message bodies, composer input, Markdown, and PR prose. Controls, navigation, metadata, tool chrome, code, diffs, editors, and terminals stay on their interface or code tokens. **Code size** remains independent. Conversation Markdown uses 1.65× body leading, 16px paragraph spacing and a restrained content-relative heading scale; emphasized prose uses semibold.
+The authored interface ramp uses a 14px base. New native installs default to 15px; web and desktop default to 14px. The Appearance **Interface size** setting is the rendered `fontSize.base` value and scales the rest of the UI ramp proportionally. Primary readable content has its own `fontSize.content`, which defaults to 16px on native and 15px on web and desktop. It owns message bodies, composer input, Markdown, and PR prose. Controls, navigation, metadata, tool chrome, code, diffs, editors, and terminals stay on their interface or code tokens. **Code size** remains independent. Conversation prose, user messages, team task prompts/results, and table cells share 1.55× body leading. Markdown keeps 12px paragraph spacing; headings use a restrained 1.2× / 1.1× / 1× content-relative scale and semibold emphasis, without decorative underlines. Inline code follows the reading size at 0.93× with a quiet background; fenced code, editors, diffs, and terminals retain the independent Code size setting. Table headers use weight rather than a contrasting fill. Status labels and task metadata stay on the interface scale.
 
 Weight has three tiers, applied by role:
 
@@ -75,6 +75,8 @@ Sizes are a shared contract across control kinds, defined once in `control-geome
 A `<Pressable>` wrapping a `<Text>` is a sixth variant. It is wrong. `<Button>` accepts `style`, `textStyle`, `leftIcon`, `disabled`, `size`, and `variant`.
 
 ---
+
+Desktop composer controls reserve the same model, thinking, and mode/permission slots across providers. Slot widths and density thresholds depend on available width and text scale, never on provider-specific feature count. Missing capabilities leave their slot empty. Additional features live in one settings menu. Permission toggles use an explicit state menu; opening that menu never changes a permission. Inline focus-shortcut hints are omitted from split composers; keyboard routing still follows the active pane.
 
 ## 5. Borders
 
@@ -166,6 +168,8 @@ Windows and Linux controls are fixed window chrome, outside scrolling header con
 A new list+detail feature copies the settings shell. A new workspace-shaped feature copies the workspace shell. Inventing a third shape happens in design review, not in a PR.
 
 ---
+
+The project-grouped conversation sidebar has two visible levels: collapsible project headers and conversation titles. Host, workspace, timestamp, and idle status rows are omitted from project groups; stored workspaces remain intact. Conversation rows have no leading message icon, align their titles with the project text, and highlight only the active conversation. Conversation actions reserve one trailing slot and appear on hover, keyboard focus, or touch layouts without shifting titles. Empty projects keep their header create action visible rather than adding a duplicate child row.
 
 ## 10. Copy and voice
 
@@ -288,3 +292,23 @@ New status pills use `<StatusBadge>`. Identity, shortcut, and interactive link b
 | Trigger-anchored menu                               | `packages/app/src/components/ui/dropdown-menu.tsx` (used in `sidebar-workspace-list.tsx`, theme picker)                                                                                                                                                                                                  |
 | Right-click / long-press menu                       | `packages/app/src/components/ui/context-menu.tsx` (used in `sidebar-workspace-list.tsx`)                                                                                                                                                                                                                 |
 | Headers (back, screen, menu)                        | `packages/app/src/components/headers/back-header.tsx`, `screen-header.tsx`, `menu-header.tsx`                                                                                                                                                                                                            |
+
+Pane headers omit host labels and connection dots; the execution host is chosen in the model selector. All new panes follow the same theme surface. Existing automatic pane colors migrate to the theme default, while manual colors remain available through team appearance settings.
+
+Conversation messages use low-contrast theme-surface bubbles with uniform rounded corners and a restrained width. Generated team task envelopes are hidden only when matched to stored conversation tasks; completion receipts become expandable inline status rows. Raw provider history and execution prompts remain intact. The chat outline is revealed on pointer hover or keyboard focus. The bottom navigation control uses a small outlined circle without elevation.
+
+Desktop chat refinement follows the supplied Codex reference: the desktop UI stack uses Menlo/Monaco for Latin characters and explicitly falls back to PingFang SC for Chinese, with antialiased web text; code surfaces retain their independent family and size. The Claude dark palette uses a quiet warm-gray canvas, a slightly darker sidebar, and a raised composer fill. Assistant padding and tool-sequence spacing are compact; saved font-size preferences remain authoritative.
+
+Conversation Markdown uses regular-weight strong text and transparent, unpadded inline code. Headings use medium weight; fenced code retains its separate surface. Markdown content and semantics are preserved while visual emphasis stays quiet.
+
+### Mac navigation and Home
+
+Mac desktop has a 52px icon rail. The project sidebar collapses on first use of the rail and then preserves the user’s choice. Home defaults to active sessions across configured hosts, including unread explicit completion markers. Disconnected or unsynchronized directory data is labeled unconfirmed, never completed by inference. The overview shares lightweight directory observations; it does not subscribe to every session timeline.
+
+Team peer names default to their own selected model (mention-safe, unique within the team), with provider fallback when no model is configured. New automatically named peers follow execution/model changes; explicit user renames stop automatic naming. Captain retains its coordinator default. Legacy aliases are preserved because their manual origin is unknown.
+
+The Mac project sidebar includes a separately scrollable cross-host active-session section above host-filtered projects. Home opens this sidebar without replacing the current chat; the full Home route remains available but is not the rail default. Cached offline work keeps its unconfirmed status.
+
+On Mac, global actions and header plugin contributions render in the icon rail only; the expanded sidebar begins with cross-host active sessions and projects. Plugins still use the app SidebarRow and their existing routes/popover anchors, with app-owned rail presentation and accessible tooltip labels. Other platforms retain the header navigation.
+
+The sidebar “今日活跃” section retains all unarchived sessions with last activity in the viewer’s current local calendar day, including idle/read/completed sessions. Existing rows keep their position as state/activity updates arrive; new rows append. A local-midnight timer advances the day filter. This replaces the sidebar active/unread-only membership rule; full Home filtering is independent.

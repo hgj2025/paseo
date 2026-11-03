@@ -1,3 +1,11 @@
+/** Every other active member is addressable, including Captain. */
+export function teamMentionCandidates<T extends { id: string; removing?: boolean }>(
+  members: readonly T[],
+  senderId: string,
+): T[] {
+  return members.filter((member) => member.id !== senderId && !member.removing);
+}
+
 /** Only exact roster aliases delimit tasks; file mentions and emails remain task text. */
 export function parseTeamMentions(text: string, members: readonly { id: string; alias: string }[]) {
   const aliases = new Map(members.map((member) => [member.alias.toLowerCase(), member.id]));

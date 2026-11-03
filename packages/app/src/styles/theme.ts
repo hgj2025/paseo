@@ -520,22 +520,23 @@ const midnightDarkColors = buildDarkSemanticColors({
 
 // Claude — warm neutral with subtle orange undertone
 const claudeDarkColors = buildDarkSemanticColors({
-  surface0: "#1f1f1e",
-  surface1: "#262523",
-  surface2: "#2f2d2b",
-  surface3: "#4a4745",
-  surface4: "#605d5b",
-  surfaceDiffEmpty: "#2a2826",
-  surfaceSidebar: "#1a1918",
-  foregroundMuted: "#ada9a5",
-  foregroundExtraMuted: "#78746f",
-  border: "#2c2a27",
-  borderAccent: "#36332f",
+  surface0: "#292927",
+  surface1: "#30302e",
+  surface2: "#3a3a37",
+  surface3: "#484845",
+  surface4: "#5b5b57",
+  surfaceDiffEmpty: "#2d2d2b",
+  surfaceSidebar: "#242423",
+  foreground: "#ecece8",
+  foregroundMuted: "#b5b5ae",
+  foregroundExtraMuted: "#8a8a83",
+  border: "#343431",
+  borderAccent: "#42423e",
   accent: "#d97757",
   accentBright: "#e89a7f",
   destructive: "#cf513e", // warm orange-red, hue ~10 — sits with the Claude orange accent
-  terminalBlack: "#1a1918",
-  terminalBrightBlack: "#4a4745",
+  terminalBlack: "#242423",
+  terminalBrightBlack: "#484845",
 });
 
 // Ghostty — blue-tinted dark based on Ghostty default background
@@ -630,13 +631,13 @@ export const OPACITY = {
   100: 1,
 } as const;
 
-// Platform default font stacks — copied verbatim from constants/theme.ts `Fonts`
-// (sans -> ui, mono -> mono). These seed the dynamic `fontFamily` theme token and
-// are the fallback an empty user-supplied family resolves to at apply time.
+// Platform default font stacks seed the dynamic theme tokens. Desktop UI uses
+// monospace Latin glyphs with explicit Chinese fallbacks; code keeps its own
+// family and size. An explicit appearance preference overrides these defaults.
 export const DEFAULT_UI_FONT_STACK: string = Platform.select({
   ios: "system-ui",
   default: "normal",
-  web: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  web: "Menlo, Monaco, Consolas, 'Liberation Mono', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace",
 });
 
 export const DEFAULT_MONO_FONT_STACK: string = Platform.select({

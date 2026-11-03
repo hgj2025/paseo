@@ -1,14 +1,20 @@
-import { FONT_SIZE, type Theme } from "./theme";
+import type { Theme } from "./theme";
+import { conversationBodyStyle, conversationInlineCodeSize } from "./conversation-typography";
 import { isWeb } from "@/constants/platform";
 
 const webSelectableTextStyle = isWeb ? { userSelect: "text" as const } : {};
 
-function contentHeadingSize(contentSize: number, tier: keyof typeof FONT_SIZE): number {
-  return Math.round(contentSize * (FONT_SIZE[tier] / FONT_SIZE.base));
+const CONTENT_HEADING_SCALE = { "2xl": 1.2, xl: 1.1, lg: 1, base: 1 } as const;
+
+function contentHeadingSize(contentSize: number, tier: keyof typeof CONTENT_HEADING_SCALE): number {
+  return Math.round(contentSize * CONTENT_HEADING_SCALE[tier]);
 }
 
-function contentHeadingLineHeight(contentSize: number, tier: keyof typeof FONT_SIZE): number {
-  return Math.round(contentHeadingSize(contentSize, tier) * 1.4);
+function contentHeadingLineHeight(
+  contentSize: number,
+  tier: keyof typeof CONTENT_HEADING_SCALE,
+): number {
+  return Math.round(contentHeadingSize(contentSize, tier) * 1.55);
 }
 
 /**
@@ -31,10 +37,7 @@ export function createMarkdownStyles(theme: Theme) {
     body: {
       ...webSelectableTextStyle,
       color: theme.colors.foreground,
-      fontSize: theme.fontSize.content,
-      // Prose line-height scales with the content size, not the
-      // code-size-coupled lineHeight.diff token used by code/diff surfaces.
-      lineHeight: Math.round(theme.fontSize.content * 1.65),
+      ...conversationBodyStyle(theme),
       flexShrink: 1,
       minWidth: 0,
       width: "100%" as const,
@@ -49,7 +52,7 @@ export function createMarkdownStyles(theme: Theme) {
 
     paragraph: {
       marginTop: 0,
-      marginBottom: theme.spacing[4],
+      marginBottom: theme.spacing[3],
       flexWrap: "wrap" as const,
       flexDirection: "row" as const,
       alignItems: "flex-start" as const,
@@ -66,33 +69,27 @@ export function createMarkdownStyles(theme: Theme) {
     heading1: {
       ...webSelectableTextStyle,
       fontSize: contentHeadingSize(theme.fontSize.content, "2xl"),
-      fontWeight: theme.fontWeight.bold,
+      fontWeight: theme.fontWeight.medium,
       color: theme.colors.foreground,
       marginTop: theme.spacing[6],
       marginBottom: theme.spacing[3],
       lineHeight: contentHeadingLineHeight(theme.fontSize.content, "2xl"),
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-      paddingBottom: theme.spacing[2],
     },
 
     heading2: {
       ...webSelectableTextStyle,
       fontSize: contentHeadingSize(theme.fontSize.content, "xl"),
-      fontWeight: theme.fontWeight.bold,
+      fontWeight: theme.fontWeight.medium,
       color: theme.colors.foreground,
       marginTop: theme.spacing[6],
       marginBottom: theme.spacing[3],
       lineHeight: contentHeadingLineHeight(theme.fontSize.content, "xl"),
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-      paddingBottom: theme.spacing[2],
     },
 
     heading3: {
       ...webSelectableTextStyle,
       fontSize: contentHeadingSize(theme.fontSize.content, "lg"),
-      fontWeight: theme.fontWeight.semibold,
+      fontWeight: theme.fontWeight.medium,
       color: theme.colors.foreground,
       marginTop: theme.spacing[4],
       marginBottom: theme.spacing[2],
@@ -102,7 +99,7 @@ export function createMarkdownStyles(theme: Theme) {
     heading4: {
       ...webSelectableTextStyle,
       fontSize: contentHeadingSize(theme.fontSize.content, "base"),
-      fontWeight: theme.fontWeight.semibold,
+      fontWeight: theme.fontWeight.medium,
       color: theme.colors.foreground,
       marginTop: theme.spacing[4],
       marginBottom: theme.spacing[2],
@@ -112,7 +109,7 @@ export function createMarkdownStyles(theme: Theme) {
     heading5: {
       ...webSelectableTextStyle,
       fontSize: contentHeadingSize(theme.fontSize.content, "base"),
-      fontWeight: theme.fontWeight.semibold,
+      fontWeight: theme.fontWeight.medium,
       color: theme.colors.foreground,
       marginTop: theme.spacing[3],
       marginBottom: theme.spacing[1],
@@ -122,7 +119,7 @@ export function createMarkdownStyles(theme: Theme) {
     heading6: {
       ...webSelectableTextStyle,
       fontSize: contentHeadingSize(theme.fontSize.content, "base"),
-      fontWeight: theme.fontWeight.semibold,
+      fontWeight: theme.fontWeight.medium,
       color: theme.colors.foregroundMuted,
       marginTop: theme.spacing[3],
       marginBottom: theme.spacing[1],
@@ -135,7 +132,7 @@ export function createMarkdownStyles(theme: Theme) {
 
     strong: {
       ...webSelectableTextStyle,
-      fontWeight: theme.fontWeight.semibold,
+      fontWeight: theme.fontWeight.normal,
     },
 
     em: {
@@ -173,14 +170,15 @@ export function createMarkdownStyles(theme: Theme) {
 
     code_inline: {
       ...webSelectableTextStyle,
-      backgroundColor: theme.colors.surface2,
+      backgroundColor: "transparent",
+      fontWeight: theme.fontWeight.normal,
       color: theme.colors.foreground,
-      paddingHorizontal: theme.spacing[1],
-      paddingVertical: 2,
-      borderRadius: theme.borderRadius.md,
+      paddingHorizontal: 0,
+      paddingVertical: 0,
+      borderRadius: 0,
       borderWidth: 0,
       fontFamily: theme.fontFamily.mono,
-      fontSize: theme.fontSize.code,
+      fontSize: conversationInlineCodeSize(theme.fontSize.content),
     },
 
     code_block: {
@@ -223,7 +221,7 @@ export function createMarkdownStyles(theme: Theme) {
     },
 
     thead: {
-      backgroundColor: theme.colors.surface2,
+      backgroundColor: "transparent",
     },
 
     tbody: {},
@@ -234,10 +232,10 @@ export function createMarkdownStyles(theme: Theme) {
       borderBottomWidth: 1,
       borderRightWidth: 1,
       borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface2,
+      backgroundColor: "transparent",
       fontWeight: theme.fontWeight.semibold,
       color: theme.colors.foreground,
-      fontSize: theme.fontSize.content,
+      ...conversationBodyStyle(theme),
       textAlign: "left" as const,
     },
 
@@ -253,7 +251,7 @@ export function createMarkdownStyles(theme: Theme) {
       borderRightWidth: 1,
       borderColor: theme.colors.border,
       color: theme.colors.foreground,
-      fontSize: theme.fontSize.content,
+      ...conversationBodyStyle(theme),
       flex: 1,
     },
 
@@ -293,7 +291,7 @@ export function createMarkdownStyles(theme: Theme) {
       color: theme.colors.foregroundMuted,
       marginRight: 4,
       fontSize: theme.fontSize.content,
-      lineHeight: Math.round(theme.fontSize.content * 1.65),
+      lineHeight: conversationBodyStyle(theme).lineHeight,
     },
 
     ordered_list_icon: {
@@ -302,7 +300,7 @@ export function createMarkdownStyles(theme: Theme) {
       marginRight: 4,
       fontSize: theme.fontSize.content,
       fontWeight: theme.fontWeight.normal,
-      lineHeight: Math.round(theme.fontSize.content * 1.65),
+      lineHeight: conversationBodyStyle(theme).lineHeight,
       minWidth: 12,
     },
 
@@ -365,12 +363,6 @@ export function createCompactMarkdownStyles(theme: Theme) {
   return {
     ...baseStyles,
 
-    body: {
-      ...baseStyles.body,
-      fontSize: theme.fontSize.content,
-      lineHeight: Math.round(theme.fontSize.content * 1.65),
-    },
-
     heading1: {
       ...baseStyles.heading1,
       fontSize: contentHeadingSize(theme.fontSize.content, "2xl"),
@@ -398,11 +390,6 @@ export function createCompactMarkdownStyles(theme: Theme) {
     paragraph: {
       ...baseStyles.paragraph,
       marginBottom: theme.spacing[2],
-    },
-
-    code_inline: {
-      ...baseStyles.code_inline,
-      fontSize: theme.fontSize.code,
     },
 
     code_block: {

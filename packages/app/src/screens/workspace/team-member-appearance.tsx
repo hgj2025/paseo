@@ -64,7 +64,7 @@ export function TeamMemberAppearance({ member }: { member: TeamMember }) {
     paneId ? state.workspaces[appearanceKey]?.[paneId] : undefined,
   );
   const captain = team.captainId === member.id;
-  const choice = captain ? "theme" : (appearance?.choice ?? "auto");
+  const choice = captain ? "theme" : (appearance?.choice ?? "theme");
   const automatic = appearance?.automatic ?? "theme";
   const tone = choice === "auto" ? automatic : choice;
   const swatch = useMemo(() => <Swatch tone={tone} />, [tone]);

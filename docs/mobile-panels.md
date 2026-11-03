@@ -126,3 +126,11 @@ definition, no longer eligible to begin.
 `packages/app/src/mobile-panels/model.test.ts` exercises command, drag, cancellation, interruption,
 rapid-command, position-settlement, and width-projection sequences through the transition model. Add
 a sequence there whenever ownership or ordering changes.
+
+## Session list parity
+
+The compact left panel renders the same cross-host “今日活跃” section as the Mac sidebar,
+above the workspace list. It shares the local-day membership, stable ordering, status indicators,
+and lightweight directory observations. Selecting a session closes the panel before navigating
+to its actual host and agent. The section is capped at 40% of the panel height, with independent
+scrolling and 48px touch rows, so workspace navigation remains reachable on short screens.

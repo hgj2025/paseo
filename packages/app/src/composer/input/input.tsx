@@ -52,8 +52,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useIosHardwareKeyboardSubmit } from "@/hooks/use-ios-hardware-keyboard-submit";
-import { formatShortcut, type ShortcutKey } from "@/utils/format-shortcut";
-import { getShortcutOs } from "@/utils/shortcut-platform";
+import { type ShortcutKey } from "@/utils/format-shortcut";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
 import { isWeb } from "@/constants/platform";
@@ -108,6 +107,10 @@ export interface ComposerInputSnapshot {
 }
 
 export interface ComposerKeyPressEvent {
+  shiftKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
   key: string;
   preventDefault: () => void;
   input: ComposerInputSnapshot;
@@ -206,6 +209,7 @@ const MAX_INPUT_VIEWPORT_RATIO = 0.5;
 const MIN_INPUT_HEIGHT = isWeb ? MIN_INPUT_HEIGHT_DESKTOP : MIN_INPUT_HEIGHT_MOBILE;
 type WebTextInputKeyPressEvent = NativeSyntheticEvent<
   TextInputKeyPressEventData & {
+    altKey?: boolean;
     metaKey?: boolean;
     ctrlKey?: boolean;
     shiftKey?: boolean;
@@ -410,9 +414,13 @@ function handleDesktopKeyPressImpl(
 ): void {
   if (isImeComposingKeyboardEvent(event.nativeEvent)) return;
 
-  if (ctx.onKeyPressCallback) {
+  if (ctx.onKeyPressCallback && !ctx.disabled) {
     const handled = ctx.onKeyPressCallback({
       key: event.nativeEvent.key,
+      shiftKey: event.nativeEvent.shiftKey,
+      altKey: event.nativeEvent.altKey,
+      metaKey: event.nativeEvent.metaKey,
+      ctrlKey: event.nativeEvent.ctrlKey,
       preventDefault: () => event.preventDefault(),
       input: ctx.input,
     });
@@ -599,24 +607,6 @@ function MessageInputOverlay({
   return null;
 }
 
-function FocusHint({
-  visible,
-  focusInputKeys,
-  label,
-}: {
-  visible: boolean;
-  focusInputKeys: ShortcutChord | null | undefined;
-  label: string;
-}) {
-  const { isActiveComposer } = useComposerKeyboardScope();
-  if (!isActiveComposer || !visible || !focusInputKeys || !label.trim()) return null;
-  return (
-    <Text style={styles.focusHintText} pointerEvents="none">
-      {label}
-    </Text>
-  );
-}
-
 interface ComposerTextSurfaceProps {
   readOnly: boolean;
   value: string;
@@ -639,9 +629,6 @@ interface ComposerTextSurfaceProps {
   fullscreen: boolean;
   compact: boolean;
   onRenderedLinesChange: (lines: number) => void;
-  focusHintVisible: boolean;
-  focusInputKeys: ShortcutChord | null | undefined;
-  focusHintLabel: string;
 }
 
 /**
@@ -706,11 +693,6 @@ function ComposerTextSurface(props: ComposerTextSurfaceProps): React.ReactElemen
         onPasteImages={props.onPasteImages}
         onPasteError={props.onPasteError}
         autoFocus={props.autoFocus}
-      />
-      <FocusHint
-        visible={props.focusHintVisible}
-        focusInputKeys={props.focusInputKeys}
-        label={props.focusHintLabel}
       />
     </View>
   );
@@ -1250,7 +1232,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const voice = useVoiceOptional();
     const voiceMuteToggleKeys = useShortcutKeys("voice-mute-toggle");
     const dictationToggleKeys = useShortcutKeys("dictation-toggle");
-    const focusInputKeys = useShortcutKeys("focus-message-input");
     const [isInputFocused, setIsInputFocused] = useState(false);
     // Web text is DOM-owned between deferred draft publications. The action button only needs
     // this boundary, so publish empty/non-empty transitions without rerendering for every key.
@@ -1994,11 +1975,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             fullscreen={isFullscreen}
             compact={isCompact}
             onRenderedLinesChange={setRenderedLines}
-            focusHintVisible={!isFullscreen && isWeb && !isInputFocused && !value}
-            focusInputKeys={focusInputKeys}
-            focusHintLabel={t("composer.input.focusHint", {
-              shortcut: focusInputKeys ? formatShortcut(focusInputKeys[0], getShortcutOs()) : "",
-            })}
           />
         </RenderProfile>
       ),
@@ -2025,9 +2001,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         handlePasteError,
         isFullscreen,
         isCompact,
-        isInputFocused,
         value,
-        focusInputKeys,
       ],
     );
     const toolbar = useMemo(
@@ -2186,8 +2160,8 @@ const styles = StyleSheet.create((theme: Theme) => ({
   inputWrapper: {
     flexShrink: 1,
     flexDirection: "column",
-    gap: theme.spacing[3],
-    backgroundColor: theme.colors.surface1,
+    gap: theme.spacing[2],
+    backgroundColor: theme.colors.surface2,
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.borderAccent,
     borderRadius: theme.borderRadius["2xl"],
@@ -2237,14 +2211,6 @@ const styles = StyleSheet.create((theme: Theme) => ({
   textInputScrollWrapper: {
     flexShrink: 1,
     position: "relative",
-  },
-  focusHintText: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
-    opacity: 0.5,
   },
   textInput: {
     // Preserve the controls when an ancestor constrains an overlong draft.

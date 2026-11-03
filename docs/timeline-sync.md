@@ -53,6 +53,8 @@ writer, say — into a request and a log line every second on an idle app. The d
 reconnect, delivery-mode change, and visibility change, so recovery is still immediate once the
 condition clears. Republishing the same visibility set is a no-op and never bypasses backoff.
 
+Missing Codex threads/rollouts and unavailable providers retain their sync error without a timed retry. They require transcript or configuration repair; manual retry and reconnection still attempt recovery.
+
 Background retries are silent. The retry the user presses in the sync-error callout is a fallible
 user action and owns its pending state: `retrying` is a status the sync model publishes, not a React
 boolean, so the button reports in-flight and the callout returns to `error` when the attempt fails.

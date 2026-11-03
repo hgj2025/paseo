@@ -111,12 +111,12 @@ export async function browseModelHostDirectory(
     });
 }
 
-/** Captain needs owner-host team tools and completion routing. */
+/** Stable conversation ownership is independent of its current execution host. */
 export function isExecutionHostSupported(
-  memberId: string | undefined,
-  captainId: string | null | undefined,
-  ownerServerId: string | undefined,
+  _memberId: string | undefined,
+  _captainId: string | null | undefined,
+  _ownerServerId: string | undefined,
   targetServerId: string,
 ): boolean {
-  return !memberId || memberId !== captainId || targetServerId === ownerServerId;
+  return targetServerId.trim().length > 0;
 }

@@ -1,3 +1,6 @@
+import { DesktopNavigationRail } from "@/home-overview/navigation-rail";
+import { NAVIGATION_RAIL_WIDTH } from "@/home-overview/navigation-rail-view";
+import { ExecutionDiagnosticCollector } from "@/execution-diagnostics/collector";
 import { ComposerEditingSessionsProvider } from "@/composer/editing-session";
 import "@/styles/unistyles";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -59,7 +62,7 @@ import {
   resolveDesktopAppContentMinimum,
   resolveDesktopSidebarVisibility,
 } from "@/components/desktop-sidebar-layout";
-import { isNative, isWeb } from "@/constants/platform";
+import { getIsElectronMac, isNative, isWeb } from "@/constants/platform";
 import { HorizontalScrollProvider } from "@/contexts/horizontal-scroll-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { SidebarCalloutProvider } from "@/contexts/sidebar-callout-context";
@@ -519,6 +522,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const appContentMinimumWidth = resolveDesktopAppContentMinimum({
     isSettingsRoute: pathname.includes("/settings"),
   });
+  const navigationRailVisible =
+    getIsElectronMac() &&
+    !isCompactLayout &&
+    !isWorkspaceFocusModeEnabled &&
+    (chromeEnabled || pathname.startsWith("/settings"));
   const desktopSidebarMounted = hasMountedDesktopSidebar && !isWorkspaceFocusModeEnabled;
   const desktopSidebarVisible = resolveDesktopSidebarVisibility({
     chromeEnabled,
@@ -528,7 +536,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     canShare: canDesktopAppSidebarShare({
       contentMinimumWidth: appContentMinimumWidth,
       requestedSidebarWidth: sidebarWidth,
-      viewportWidth,
+      viewportWidth: viewportWidth - (navigationRailVisible ? NAVIGATION_RAIL_WIDTH : 0),
     }),
   });
   const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
@@ -551,6 +559,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const workspaceChrome = (
     <View style={rowStyle}>
       <WorkspaceLayoutModePublisher />
+      {navigationRailVisible ? <DesktopNavigationRail /> : null}
       {!isCompactLayout ? (
         <WindowChromeRegion corners={appChromeLayout.sidebarCorners}>
           {themedSidebarChrome}
@@ -614,6 +623,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <WorkspaceSetupDialog />
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
+        <ExecutionDiagnosticCollector />
         <ChangelogHost />
         <QuittingOverlay />
       </AppearanceStyleBoundary>
@@ -867,6 +877,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
     (pathname === "/open-project" ||
       pathname === "/new" ||
       pathname === "/sessions" ||
+      pathname === "/home" ||
       pathname === "/schedules" ||
       routeHasKnownHost);
 
@@ -899,6 +910,7 @@ function RootStack() {
         <Stack.Screen name="new" />
         <Stack.Screen name="open-project" />
         <Stack.Screen name="sessions" />
+        <Stack.Screen name="home" />
         <Stack.Screen name="schedules" />
         <Stack.Screen name="pair-scan" />
       </Stack.Protected>

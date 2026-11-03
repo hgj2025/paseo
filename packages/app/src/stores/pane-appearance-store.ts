@@ -22,6 +22,19 @@ interface State {
   setColor(workspace: string, paneId: string, choice: PaneColorChoice): void;
 }
 
+const paneAppearanceSchema = z.object({
+  workspaces: z.record(
+    z.string(),
+    z.record(
+      z.string(),
+      z.object({
+        automatic: z.enum(PANE_COLOR_NAMES),
+        choice: z.enum(["auto", "theme", ...PANE_COLOR_NAMES]),
+      }),
+    ),
+  ),
+});
+
 export const usePaneAppearanceStore = create<State>()(
   persist(
     (set) => ({
@@ -48,21 +61,24 @@ export const usePaneAppearanceStore = create<State>()(
     }),
     {
       name: "workspace-pane-appearance",
-      storage: createValidatedPersistStorage(
-        AsyncStorage,
-        z.object({
-          workspaces: z.record(
-            z.string(),
-            z.record(
-              z.string(),
-              z.object({
-                automatic: z.enum(PANE_COLOR_NAMES),
-                choice: z.enum(["auto", "theme", ...PANE_COLOR_NAMES]),
-              }),
-            ),
+      version: 1,
+      migrate: (persistedState) => {
+        const saved = paneAppearanceSchema.parse(persistedState);
+        return {
+          workspaces: Object.fromEntries(
+            Object.entries(saved.workspaces).map(([key, panes]) => [
+              key,
+              Object.fromEntries(
+                Object.entries(panes).map(([id, pane]) => [
+                  id,
+                  { ...pane, choice: pane.choice === "auto" ? "theme" : pane.choice },
+                ]),
+              ),
+            ]),
           ),
-        }),
-      ),
+        };
+      },
+      storage: createValidatedPersistStorage(AsyncStorage, paneAppearanceSchema),
       partialize: (state) => ({ workspaces: state.workspaces }),
     },
   ),

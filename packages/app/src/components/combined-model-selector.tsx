@@ -308,6 +308,7 @@ export function CombinedModelSelector({
             model: currentModelLabel,
           })}
           testID="combined-model-selector"
+          block={false}
           chevron={toolbar?.showCaret === false ? null : undefined}
         >
           {baseProvider.trim().length > 0 ? (

@@ -1214,7 +1214,7 @@ function SplitPaneView({
       workspaceKey: appearanceKey,
       paneId: pane.id,
       locked: isMain,
-      choice: isMain ? ("theme" as const) : (appearance?.choice ?? ("auto" as const)),
+      choice: isMain ? ("theme" as const) : (appearance?.choice ?? ("theme" as const)),
       tone: isMain ? ("theme" as const) : childTone,
     }),
     [appearance, appearanceKey, pane.id, isMain, childTone],

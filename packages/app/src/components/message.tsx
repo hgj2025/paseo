@@ -1,3 +1,5 @@
+import { TeamReportMessage, useTeamMessageDisplay } from "@/components/team-report-message";
+import { conversationBodyStyle } from "@/styles/conversation-typography";
 import { TeamGroupCard, useTeamMessageGroup } from "@/screens/workspace/team-group-card";
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
 import { ASSISTANT_IMAGE_DEFAULT_ASPECT_RATIO } from "@/utils/assistant-image-metadata";
@@ -339,7 +341,7 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
   },
   content: {
     alignItems: "flex-end",
-    maxWidth: "100%",
+    maxWidth: "88%",
     cursor: "auto",
   },
   containerSpacing: {
@@ -352,20 +354,18 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[4],
   },
   bubble: {
-    backgroundColor: theme.colors.surface3,
+    backgroundColor: theme.colors.surface1,
     borderRadius: theme.borderRadius["2xl"],
-    borderTopRightRadius: theme.borderRadius.sm,
     paddingHorizontal: theme.spacing[4],
-    paddingVertical: theme.spacing[4],
+    paddingVertical: theme.spacing[3],
     minWidth: 0,
     flexShrink: 1,
   },
   text: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.content,
+    ...conversationBodyStyle(theme),
     ...(isWeb
       ? {
-          lineHeight: Math.round(theme.fontSize.content * 1.4),
           overflowWrap: "anywhere" as const,
         }
       : {}),
@@ -445,6 +445,7 @@ export const UserMessage = memo(function UserMessage({
   disableOuterSpacing,
 }: UserMessageProps) {
   const group = useTeamMessageGroup(message);
+  const { text: visibleMessage, report: teamReport } = useTeamMessageDisplay(message);
   const isCompact = useIsCompactFormFactor();
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
@@ -455,7 +456,7 @@ export const UserMessage = memo(function UserMessage({
     [lightboxMetadata],
   );
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
-  const hasText = message.trim().length > 0;
+  const hasText = visibleMessage.trim().length > 0;
   const hasImages = images.length > 0;
   const hasAttachments = attachments.length > 0;
   const showTrailingRow = !isPending && hasText && (isCompact || isNative || isHovered);
@@ -467,7 +468,7 @@ export const UserMessage = memo(function UserMessage({
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
-  const getMessageContent = useCallback(() => message, [message]);
+  const getMessageContent = useCallback(() => visibleMessage, [visibleMessage]);
   const handleRewind = useCallback(
     (input: { mode: RewindMode; rewoundText: string }) => {
       return rewindMutation.rewindAgent(input);
@@ -517,6 +518,8 @@ export const UserMessage = memo(function UserMessage({
       </View>
     );
 
+  if (teamReport) return <TeamReportMessage display={teamReport} />;
+
   return (
     <View style={containerStyle} testID="user-message" aria-busy={isPending}>
       <View
@@ -557,7 +560,7 @@ export const UserMessage = memo(function UserMessage({
           ) : null}
           {hasText ? (
             <Text selectable style={userMessageStylesheet.text} dataSet={MESSAGE_TEXT_DATASET}>
-              {message}
+              {visibleMessage}
             </Text>
           ) : null}
         </View>
@@ -774,7 +777,7 @@ interface AssistantMessageProps {
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   container: {
-    paddingVertical: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
     ...(isWeb ? { userSelect: "text" as const } : {}),
   },
   containerCompactTop: {
@@ -1118,7 +1121,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[1],
   },
   containerLastInSequence: {
-    marginBottom: theme.spacing[4],
+    marginBottom: theme.spacing[3],
   },
   pressable: {
     borderRadius: theme.borderRadius.lg,
@@ -2055,8 +2058,7 @@ const speakMessageStylesheet = StyleSheet.create((theme) => ({
   },
   text: {
     fontFamily: theme.fontFamily.ui,
-    fontSize: theme.fontSize.content,
-    lineHeight: Math.round(theme.fontSize.content * 1.4),
+    ...conversationBodyStyle(theme),
     color: theme.colors.foreground,
   },
 }));

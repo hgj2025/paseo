@@ -326,8 +326,8 @@ describe("host filesystem browser", () => {
 });
 
 describe("execution host support", () => {
-  it("rejects remote Captain execution before opening directory or model choices", () => {
-    expect(isExecutionHostSupported("captain", "captain", "mac", "devbox")).toBe(false);
+  it("allows Captain execution on another host without changing ownership", () => {
+    expect(isExecutionHostSupported("captain", "captain", "mac", "devbox")).toBe(true);
     expect(isExecutionHostSupported("captain", "captain", "mac", "mac")).toBe(true);
   });
   it("allows ordinary members to execute on remote hosts", () => {

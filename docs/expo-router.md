@@ -195,3 +195,7 @@ Before landing route changes:
 - [ ] Did `useLocalSearchParams()` lose a required param? Fix the route tree.
 - [ ] Did native show a blank screen without a crash? Suspect route ownership
       before stores, themes, or rendering.
+
+### Cross-host Home
+
+`/home` is owned by the root stack and uses `HostRouteBootstrapBoundary`. It does not replace startup workspace restoration. Session links use `navigateToAgent` with the directory row’s server ID and agent ID.

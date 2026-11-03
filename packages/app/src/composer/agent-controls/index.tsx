@@ -1,3 +1,4 @@
+import { DesktopControlSlot, DesktopPermissionControl } from "./desktop-control-slot";
 import {
   memo,
   useCallback,
@@ -567,17 +568,26 @@ function ControlledAgentControls({
       hasThinking: canSelectThinking,
       hasMode: modeControl !== null && modeControl !== undefined,
       features: featureControls,
-      fontScale,
+      fontScale: Math.max(fontScale, theme.fontSize.base / 14),
     }),
-    [canSelectModel, canSelectThinking, featureControls, fontScale, modeControl],
+    [
+      canSelectModel,
+      canSelectThinking,
+      featureControls,
+      fontScale,
+      modeControl,
+      theme.fontSize.base,
+    ],
   );
   const presentation = useMemo(() => resolveComposerControlPresentation(density), [density]);
   const layoutContextValue = useMemo(
     () => ({
       glyphSize: resolveComposerToolbarGlyphSize(isNative ? "native" : "web"),
       presentation,
+      density,
+      fontScale: controlPresence.fontScale,
     }),
-    [presentation],
+    [presentation, density, controlPresence.fontScale],
   );
 
   const updateDensityForWidth = useCallback(
@@ -944,6 +954,10 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
     handleCloseSheet,
     modelSelectorServerId,
   } = props;
+  const permissionFeature = !modeControl
+    ? features?.find((feature) => feature.id === "auto_accept" && feature.type === "toggle")
+    : undefined;
+  const additionalFeatures = features?.filter((feature) => feature !== permissionFeature);
   const modelToolbar = useMemo(
     () => ({ glyphSize, showCaret: presentation.showCarets }),
     [glyphSize, presentation.showCarets],
@@ -985,7 +999,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
       {canSelectModel ? (
         <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
           <TooltipTrigger asChild triggerRefProp="ref">
-            <View style={styles.modelControl}>
+            <DesktopControlSlot role="model">
               <CombinedModelSelector
                 providers={modelSelectorProviders}
                 selectedProvider={provider}
@@ -1007,16 +1021,18 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
                 desktopMinWidth={360}
                 toolbar={modelToolbar}
               />
-            </View>
+            </DesktopControlSlot>
           </TooltipTrigger>
           <TooltipContent side="top" align="center" offset={8}>
             <Text style={styles.tooltipText}>{t(getAgentControlHintKey("model"))}</Text>
           </TooltipContent>
         </Tooltip>
-      ) : null}
+      ) : (
+        <DesktopControlSlot role="model" />
+      )}
 
       {thinkingOptions && thinkingOptions.length > 0 ? (
-        <>
+        <DesktopControlSlot role="thinking">
           <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
             <TooltipTrigger asChild triggerRefProp="ref">
               <AgentControlTrigger
@@ -1052,12 +1068,20 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
             desktopMinWidth={200}
             renderOption={renderThinkingOption}
           />
-        </>
-      ) : null}
+        </DesktopControlSlot>
+      ) : (
+        <DesktopControlSlot role="thinking" />
+      )}
 
-      {modeControl ? <AgentModeControl {...modeControl} onClose={onDropdownClose} /> : null}
+      <DesktopPermissionControl
+        modeControl={modeControl}
+        feature={permissionFeature}
+        disabled={disabled}
+        onSetFeature={onSetFeature}
+        onClose={onDropdownClose}
+      />
 
-      {presentation.aggregateFeatures && features?.length ? (
+      {presentation.aggregateFeatures && additionalFeatures?.length ? (
         <>
           <Pressable
             onPress={handleOpenFeatures}
@@ -1077,7 +1101,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
             onClose={handleCloseSheet}
             testID="agent-features-sheet"
           >
-            {features.map((feature) => (
+            {additionalFeatures.map((feature) => (
               <SheetFeatureItem
                 key={`feature-${feature.id}`}
                 feature={feature}
@@ -1090,7 +1114,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
           </AdaptiveModalSheet>
         </>
       ) : (
-        features?.map((feature) => (
+        additionalFeatures?.map((feature) => (
           <DesktopFeatureItem
             key={`feature-${feature.id}`}
             feature={feature}

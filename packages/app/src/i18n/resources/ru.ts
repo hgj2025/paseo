@@ -2,6 +2,8 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ru: TranslationResources = {
+  homeOverview: en.homeOverview,
+  executionDiagnostics: en.executionDiagnostics,
   modelHostDirectory: en.modelHostDirectory,
   conversation: en.conversation,
   teamPanel: en.teamPanel,
@@ -207,6 +209,7 @@ export const ru: TranslationResources = {
     },
   },
   agentControls: {
+    permissions: { title: "Разрешения", automatic: "Автоодобрение", ask: "Спрашивать каждый раз" },
     provider: {
       fallback: "Провайдер",
       select: "Выбрать провайдера агента",
@@ -2741,6 +2744,8 @@ export const ru: TranslationResources = {
     },
     providers: {
       title: "Провайдеры",
+      active: "Установлены и включены",
+      other: "Другие провайдеры",
       addProvider: "Добавить провайдера",
       providerDetails: "Сведения о провайдере {{name}}",
       enableProvider: "Включить {{name}}",

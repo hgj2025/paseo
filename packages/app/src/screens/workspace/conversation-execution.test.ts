@@ -70,7 +70,9 @@ describe("conversation execution preparation", () => {
     expect(client.setAgentModel).toHaveBeenCalledWith(m.agentId, "new-model");
     expect(client.createAgent).not.toHaveBeenCalled();
     expect(client.archiveAgent).not.toHaveBeenCalled();
-    expect(commit).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: m.agentId, model: "new-model" }),
+    );
   });
   it("carries the entire paged transcript into the new executor before committing the same member", async () => {
     const m = member(),

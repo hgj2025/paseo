@@ -55,7 +55,11 @@ export function conversationTarget(target: WorkspaceTabTarget) {
   return local.kind === "agent" || local.kind === "draft" ? local : null;
 }
 export function selectMemberDraftTemplate<
-  T extends { workspaceId?: string | null; archivedAt?: Date | null; updatedAt: Date },
+  T extends {
+    workspaceId?: string | null;
+    archivedAt?: Date | null;
+    updatedAt: Date;
+  },
 >(agents: readonly T[], workspaceId: string): T | undefined {
   return agents
     .filter((a) => a.workspaceId === workspaceId)
@@ -329,8 +333,30 @@ export function conversationActions(
       select(key, entries[0]!.id);
     },
     newConversation(key, target = memberDraft(key)) {
-      const state = get(),
-        next = makeConversation(target);
+      const state = get();
+      const requested = conversationTarget(target);
+      const host = target.kind === "scoped" ? target.serverId : key.slice(0, key.indexOf(":"));
+      if (requested?.kind === "agent") {
+        const existing = Object.values(savedConversations(state, key)).find((entry) => {
+          if (entry.endedAt) return false;
+          const root = collectAllTabs(entry.layout.root).find(
+            (tab) => tab.tabId === entry.rootTabId,
+          );
+          const candidate = root && conversationTarget(root.target);
+          const candidateHost =
+            root?.target.kind === "scoped" ? root.target.serverId : key.slice(0, key.indexOf(":"));
+          return (
+            candidate?.kind === "agent" &&
+            candidate.agentId === requested.agentId &&
+            candidateHost === host
+          );
+        });
+        if (existing) {
+          select(key, existing.id);
+          return existing.rootTabId;
+        }
+      }
+      const next = makeConversation(target);
       set({
         conversationsByWorkspace: {
           ...state.conversationsByWorkspace,

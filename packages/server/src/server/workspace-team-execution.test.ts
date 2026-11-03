@@ -69,7 +69,7 @@ describe("stable conversation execution binding", () => {
     });
     expect(changed.sessionId).toBe(session);
     expect(changed.captainId).toBe(team.captainId);
-    expect(changed.members[1]).toMatchObject({ ...member, execution });
+    expect(changed.members[1]).toMatchObject({ ...member, alias: "model-a", execution });
     expect(changed.members[1]!.executionHistory).toEqual([
       {
         serverId: member.serverId,
@@ -84,6 +84,68 @@ describe("stable conversation execution binding", () => {
     service = new WorkspaceTeamService(home, "mac", transport);
     expect((await read()).members[1]).toEqual(changed.members[1]);
     expect(executionMember(changed.members[1]!)).toMatchObject(execution);
+  });
+  it("updates an automatic alias for an in-place model change without adding execution history", async () => {
+    const { team, member } = await setup();
+    vi.mocked(transport.inspect).mockResolvedValue({
+      provider: "codex",
+      model: "gpt-new",
+      busy: false,
+    });
+    const changed = await service.executeSession(workspace, session, {
+      kind: "configure_execution",
+      memberId: member.id,
+      revision: team.revision,
+      execution: {
+        serverId: member.serverId,
+        workspaceId: member.workspaceId,
+        agentId: member.agentId,
+        provider: member.provider,
+        model: "gpt-new",
+        operationId: randomUUID(),
+      },
+    });
+    expect(changed.members[1]!.alias).toBe("gpt-new");
+    expect(changed.members[1]!.executionHistory).toBeUndefined();
+  });
+  it("names peers after their own model, disambiguates duplicates and preserves manual names", async () => {
+    vi.mocked(transport.inspect).mockResolvedValue({
+      provider: "claude",
+      model: "Opus 5.5",
+      busy: false,
+    });
+    const { team, member } = await setup();
+    expect(member.alias).toBe("Opus-5-5");
+    const added = await service.executeSession(workspace, session, {
+      kind: "join",
+      serverId: "mac",
+      workspaceId: workspace,
+      agentId: randomUUID(),
+      paneId: "third",
+      owned: true,
+    });
+    expect(added.members[2]!.alias).toBe("Opus-5-5-2");
+    const edited = await service.executeSession(workspace, session, {
+      kind: "edit",
+      memberId: member.id,
+      revision: added.revision,
+      alias: "Reviewer",
+      role: "",
+      skills: [],
+      captain: false,
+    });
+    vi.mocked(transport.inspect).mockResolvedValue({
+      provider: "codex",
+      model: "gpt-6.1-sol",
+      busy: false,
+    });
+    const changed = await service.executeSession(workspace, session, {
+      kind: "configure_execution",
+      memberId: member.id,
+      revision: edited.revision,
+      execution: runner(),
+    });
+    expect(changed.members[1]!.alias).toBe("Reviewer");
   });
   it("routes subsequent team tasks to the selected runner under the same member ID", async () => {
     const { team, member } = await setup();
@@ -104,6 +166,30 @@ describe("stable conversation execution binding", () => {
     expect(transport.send).toHaveBeenCalledWith(
       expect.objectContaining({ ...execution, id: member.id }),
       expect.objectContaining({ memberId: member.id }),
+    );
+  });
+  it("delivers completion reports to Captain's selected remote execution", async () => {
+    const { team, member } = await setup();
+    const execution = runner();
+    await service.executeSession(workspace, session, {
+      kind: "configure_execution",
+      memberId: team.captainId!,
+      revision: team.revision,
+      execution,
+    });
+    vi.mocked(transport.observe).mockResolvedValue({ status: "completed", result: "Done" });
+    const taskId = randomUUID();
+    await service.executeSession(workspace, session, {
+      kind: "send",
+      memberId: member.id,
+      senderId: null,
+      taskId,
+      prompt: "Check",
+    });
+    await service.executeSession(workspace, session, { kind: "refresh", taskId });
+    expect(transport.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ id: team.captainId, ...execution }),
+      expect.objectContaining({ result: "Done" }),
     );
   });
   it("rejects a busy source without changing the binding or archiving anything", async () => {
@@ -181,17 +267,20 @@ describe("stable conversation execution binding", () => {
     ).rejects.toThrow("history changed");
     expect((await read()).members[1]!.execution).toBeUndefined();
   });
-  it("keeps Captain on the team host until reverse team tools are supported", async () => {
+  it("changes Captain execution while preserving conversation and anchor ownership", async () => {
     const { team } = await setup();
-    await expect(
-      service.executeSession(workspace, session, {
-        kind: "configure_execution",
-        memberId: team.captainId!,
-        revision: team.revision,
-        execution: runner(),
-      }),
-    ).rejects.toThrow("team host");
-    expect((await read()).members[0]!.execution).toBeUndefined();
+    const original = team.members[0]!;
+    const execution = runner();
+    const changed = await service.executeSession(workspace, session, {
+      kind: "configure_execution",
+      memberId: team.captainId!,
+      revision: team.revision,
+      execution,
+    });
+    expect(changed.captainId).toBe(team.captainId);
+    expect(changed.members[0]).toMatchObject({ ...original, execution });
+    expect(executionMember(changed.members[0]!)).toMatchObject(execution);
+    expect(transport.archive).not.toHaveBeenCalled();
   });
   it("prevents joining an execution into a second conversation or pane", async () => {
     const { team, member } = await setup();

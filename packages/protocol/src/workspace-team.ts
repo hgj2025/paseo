@@ -14,6 +14,7 @@ export type TeamExecution = z.infer<typeof TeamExecutionSchema>;
 export const TeamMemberSchema = z.object({
   id: z.string().uuid(),
   alias: TeamAliasSchema,
+  automaticAlias: z.boolean().optional(),
   serverId: z.string().min(1),
   workspaceId: z.string().min(1),
   agentId: z.string().uuid(),

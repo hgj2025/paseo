@@ -240,6 +240,10 @@ class TimelineWorld {
     resolve(retry: () => void): void;
   }> = [];
 
+  get pendingRetryCount(): number {
+    return this.scheduled.length;
+  }
+
   get pendingFetchCount(): number {
     return this.fetches.length;
   }
@@ -1172,4 +1176,24 @@ test("disposing a view releases its pending observation before bootstrap complet
   request.succeed();
   await Promise.resolve();
   world.expectNoPendingFetch();
+});
+
+test.each([
+  "thread not loaded: missing-thread",
+  "Failed to resume Codex thread missing-thread: no rollout found for thread id missing-thread",
+  "Agent old-agent references unavailable provider 'opencode'",
+])("retains the error without automatic retries for %s", async (message) => {
+  const world = new TimelineWorld();
+  world.sync.setConnected(true);
+  world.sync.replaceVisibleAgentIds("workspace", ["agent-a"]);
+  (await world.nextMembership()).succeed();
+  (await world.nextFetch("agent-a")).fail(message);
+  expect(await world.nextError()).toBe(message);
+  expect(world.sync.getAgentTimelineStatus("agent-a")).toBe("error");
+  expect(world.pendingRetryCount).toBe(0);
+
+  world.sync.retryVisibleAgentTimeline("agent-a");
+  (await world.nextFetch("agent-a")).respond({ hasNewer: false });
+  await vi.waitFor(() => expect(world.sync.getAgentTimelineStatus("agent-a")).toBe("ready"));
+  world.sync.dispose();
 });

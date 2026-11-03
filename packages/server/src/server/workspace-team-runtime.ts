@@ -21,6 +21,7 @@ const services = new WeakMap<AgentManager, WorkspaceTeamService>();
 const Inspection = z.object({
   Id: z.string(),
   Provider: z.string(),
+  Model: z.string().nullable().optional(),
   Status: z.string(),
   Archived: z.boolean().optional(),
   HistoryEpoch: z.string().optional(),
@@ -93,6 +94,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
           throw new Error("Remote agent is unavailable.");
         return {
           provider: result.Provider,
+          model: result.Model,
           busy: !["idle", "closed", "error"].includes(result.Status),
           historyEpoch: result.HistoryEpoch,
           historySeq: result.HistorySeq,
@@ -117,6 +119,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
         historyEpoch: page?.epoch,
         historySeq: page?.window.maxSeq,
         provider: record.provider,
+        model: snapshot?.config.model ?? record.config?.model,
         busy:
           agentManager.hasInFlightRun(member.agentId) ||
           Boolean(snapshot?.pendingPermissions?.size),
@@ -222,7 +225,20 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
       };
     },
     async notify(captain, task) {
-      if (captain.serverId !== serverId) throw new Error("Captain must run on the team host.");
+      const prompt = `${task.groupId ? `[Team request result ${task.groupId}]\n` : ""}Team task ${task.id} ${task.status}. Summarize this result for the user; do not dispatch more work unless the user requested it.\nTask: ${task.prompt}\nResult:\n${task.result}`;
+      if (captain.serverId !== serverId) {
+        const receipt = await remote.send({
+          callerId: "workspace-team-report",
+          hostId: captain.serverId,
+          agentId: captain.agentId,
+          workspaceId: captain.workspaceId,
+          requestId: task.notificationId?.replace(/^team-report-/, "") ?? task.id,
+          prompt,
+        });
+        if (receipt.state !== "acknowledged")
+          throw new Error("Captain report delivery is unconfirmed.");
+        return;
+      }
       const record = await agentStorage.get(captain.agentId);
       if (!record || record.archivedAt) throw new Error("Captain is unavailable.");
       const messageId = task.notificationId ?? `team-report-${task.id}`;
@@ -236,7 +252,6 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
           )
       )
         return;
-      const prompt = `${task.groupId ? `[Team request result ${task.groupId}]\n` : ""}Team task ${task.id} ${task.status}. Summarize this result for the user; do not dispatch more work unless the user requested it.\nTask: ${task.prompt}\nResult:\n${task.result}`;
       await notifications.send({
         agentId: captain.agentId,
         messageId,

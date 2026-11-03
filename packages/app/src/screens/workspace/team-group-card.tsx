@@ -14,6 +14,7 @@ import { ScrollView } from "@/components/ui/scroll-view";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { useWorkspaceTeam } from "./workspace-team-context";
+import { conversationBodyStyle } from "@/styles/conversation-typography";
 
 function GroupStatus({ status }: { status: TeamGroup["status"] | TeamGroupStep["status"] }) {
   const { t } = useTranslation();
@@ -74,7 +75,7 @@ function GroupStep({
           <Text style={styles.body} selectable>
             {step.prompt}
           </Text>
-          <Text style={styles.meta} selectable>
+          <Text style={styles.body} selectable>
             {step.result || t("workspace.team.dashboard.noResult")}
           </Text>
           <Text style={styles.meta}>
@@ -164,7 +165,7 @@ export function TeamGroupCard({ group, compact = false }: { group: TeamGroup; co
             <Text style={styles.meta}>{t("workspace.team.group.planningHint")}</Text>
           )}
           {group.result && (
-            <Text style={styles.meta} selectable>
+            <Text style={styles.body} selectable>
               {group.result}
             </Text>
           )}
@@ -230,6 +231,8 @@ export function TeamGroupHistory() {
 
 const styles = StyleSheet.create((theme) => ({
   card: {
+    width: "100%",
+    minWidth: 0,
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
@@ -244,7 +247,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
-  body: { color: theme.colors.foreground, fontSize: theme.fontSize.sm, lineHeight: 20 },
+  body: { color: theme.colors.foreground, ...conversationBodyStyle(theme) },
   member: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   meta: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, lineHeight: 18 },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },

@@ -18,6 +18,32 @@ provider deltas (every provider streams incrementally)
 
 Every provider delivers incremental text, so there is no provider that needs special handling: Claude via `includePartialMessages`, Codex via `agent_message_delta`, ACP agents via `agent_message_chunk`, Pi and OMP via `text_delta`.
 
+## Client execution diagnostics
+
+Mac settings exposes Session execution diagnostics from a row inside Diagnostics. The detail route
+keeps Diagnostics selected in the sidebar and provides a return action; it is not a separate sidebar
+section. There is no diagnostic control in chat panes. An App-root observer passively consumes stream state already received for each
+Host/Agent, without acquiring directory or timeline demand. Updates are coalesced at 500 ms;
+a one-second clock advances observed running intervals. App hiding or a connection gap invalidates
+unfinished timing. The collector never reruns commands or changes provider outcomes.
+
+Only redacted derived records and timing observations enter the memory-only LRU cache: at most
+40 sessions and 200 rows per session. Closing settings does not stop collection; closing the App
+loses this cache. Session list entries without evidence say Not analyzed rather than zero failures.
+
+The settings page uses the existing paginated history directory for one selected Host. Explicit
+history reads use that Host's existing client without subscribing to the agent, starting its runtime,
+or changing the chat's viewed-timeline ownership. A selection owns at most 2,000 historical items;
+stale async responses are discarded. Epoch changes, gaps and invalid cursors reset that selection's
+history. Diagnostic evidence does not establish full-session coverage.
+
+Provider duration is distinguished from a monotonic client observation window, which may include
+approval waiting. History timestamps alone cannot establish tool duration; parallel durations are
+not summed into wall time. Retry links require an exact single shell command in the same turn,
+epoch and working directory. Later exit zero means that command later succeeded, not a proven code
+fix. Compound commands and missing turn IDs remain unlinked. Search exit one remains reviewable
+unless stronger evidence establishes no-match intent. Original failed records are never suppressed.
+
 ## Why the reveal is paced
 
 Arrival is lumpy and there is no fixing that at the source. A 60ms coalescing window carries however many characters the model produced in those 60ms, which swings by an order of magnitude within a single turn. Painting each delta as it lands makes the size of those lumps visible, and that is what reads as jagged.

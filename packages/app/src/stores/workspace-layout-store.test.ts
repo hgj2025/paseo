@@ -5269,6 +5269,35 @@ describe("compact workspace sheet", () => {
 });
 
 describe("Pane colors", () => {
+  it("uses the theme for every new pane and migrates old automatic colors without losing overrides", async () => {
+    const panes = assignPaneColors({}, ["captain", "claude", "grok"]);
+    expect(Object.values(panes).map((pane) => pane.choice)).toEqual(["theme", "theme", "theme"]);
+    const saved = {
+      workspaces: {
+        "legacy-color-test": {
+          captain: { automatic: "blue", choice: "theme" },
+          claude: { automatic: "teal", choice: "auto" },
+          grok: { automatic: "amber", choice: "pink" },
+        },
+      },
+    };
+    await AsyncStorage.setItem(
+      "workspace-pane-appearance",
+      JSON.stringify({ state: saved, version: 0 }),
+    );
+    await usePaneAppearanceStore.persist.rehydrate();
+    const restored = usePaneAppearanceStore.getState().workspaces["legacy-color-test"];
+    expect(restored.claude).toEqual({ automatic: "teal", choice: "theme" });
+    expect(restored.grok).toEqual(saved.workspaces["legacy-color-test"].grok);
+    expect(restored.captain).toEqual(saved.workspaces["legacy-color-test"].captain);
+    // An explicit automatic choice after migration still survives the next launch.
+    usePaneAppearanceStore.getState().setColor("legacy-color-test", "claude", "auto");
+    await usePaneAppearanceStore.persist.rehydrate();
+    expect(usePaneAppearanceStore.getState().workspaces["legacy-color-test"].claude.choice).toBe(
+      "auto",
+    );
+  });
+
   it("edits the selected member's pane even when another host has the same agent ID", () => {
     const store = createWorkspaceLayoutStore();
     const key = "owner:workspace";
@@ -5338,7 +5367,7 @@ describe("Pane colors", () => {
     const saved = usePaneAppearanceStore.getState().workspaces;
     await usePaneAppearanceStore.persist.rehydrate();
     expect(usePaneAppearanceStore.getState().workspaces).toEqual(saved);
-    expect(saved["appearance-test-b"]["pane-1"].choice).toBe("auto");
+    expect(saved["appearance-test-b"]["pane-1"].choice).toBe("theme");
     store.setColor("appearance-test-a", "pane-1", "auto");
     expect(
       usePaneAppearanceStore.getState().workspaces["appearance-test-a"]["pane-1"].automatic,
@@ -5351,6 +5380,26 @@ describe("Pane colors", () => {
 });
 
 describe("Conversation-owned teams", () => {
+  it("reuses an existing root agent conversation while keeping host identities separate", () => {
+    const store = createWorkspaceLayoutStore();
+    const key = "host:workspace";
+    const first = store.getState().newConversation(key, { kind: "agent", agentId: "captain" });
+    const id = store.getState().activeConversationByWorkspace[key];
+    store.getState().newConversation(key);
+    expect(store.getState().newConversation(key, { kind: "agent", agentId: "captain" })).toBe(
+      first,
+    );
+    expect(store.getState().activeConversationByWorkspace[key]).toBe(id);
+    expect(Object.keys(store.getState().conversationsByWorkspace[key]!)).toHaveLength(2);
+    store.getState().newConversation(key, {
+      kind: "scoped",
+      serverId: "vm",
+      workspaceId: "workspace",
+      target: { kind: "agent", agentId: "captain" },
+    });
+    expect(Object.keys(store.getState().conversationsByWorkspace[key]!)).toHaveLength(3);
+  });
+
   it("keeps the target host model template after repeated member retirement", () => {
     const old = {
       workspaceId: "guest",

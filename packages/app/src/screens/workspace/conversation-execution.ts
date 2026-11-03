@@ -116,6 +116,7 @@ export async function prepareConversationExecutor(input: {
     );
   if (active.serverId === input.scope.serverId && snapshot.provider === input.provider) {
     await source.setAgentModel(active.agentId, input.model);
+    await input.commit({ ...active, model: input.model, operationId: input.operationId });
     return;
   }
   const entries: ConversationEntry[] = [];

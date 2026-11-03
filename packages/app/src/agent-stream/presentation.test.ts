@@ -1,3 +1,4 @@
+import { resolveTeamMessageDisplay } from "@/utils/team-message-display";
 import { captainTeamContext } from "@/utils/captain-team-context";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
@@ -656,5 +657,45 @@ describe("Captain context display", () => {
         }),
       ),
     ).toEqual([{ ...original, text: "请检查网络" }]);
+  });
+});
+
+describe("Team message display", () => {
+  const task = {
+    id: "7c325f19-f1c7-4657-a545-deffe7b54a66",
+    memberId: "aiden",
+    prompt: "检查网络\n保留 Task: 字样",
+  };
+  it("shows the task without generated constraints and keeps the source intact", () => {
+    const message = `[Team task ${task.id}]\nMember prompt constraints (@dev2-Aiden):\n只读检查。\n\nTask:\n${task.prompt}`;
+    expect(resolveTeamMessageDisplay(message, [task])).toEqual({ kind: "task", text: task.prompt });
+    expect(message).toContain("Member prompt constraints");
+    expect(resolveTeamMessageDisplay(`[Team task ${task.id}]\n${task.prompt}`, [task])).toEqual({
+      kind: "task",
+      text: task.prompt,
+    });
+  });
+  it.each(["completed", "failed"])(
+    "turns a %s receipt into an expandable result without control instructions",
+    (status) => {
+      const message = `Team task ${task.id} ${status}. Summarize this result for the user; do not dispatch more work unless the user requested it.\nTask: ${task.prompt}\nResult:\n检查完成`;
+      const display = {
+        kind: "report",
+        memberId: task.memberId,
+        status,
+        text: `${task.prompt}\n\n检查完成`,
+      };
+      expect(resolveTeamMessageDisplay(message, [task])).toEqual(display);
+      expect(
+        resolveTeamMessageDisplay(`[Team request result group-id]\n${message}`, [task]),
+      ).toEqual(display);
+    },
+  );
+  it("keeps user examples, unknown tasks, and modified envelopes unchanged", () => {
+    const exact = `[Team task ${task.id}]\n${task.prompt}`;
+    expect(resolveTeamMessageDisplay(exact, [])).toBeNull();
+    expect(resolveTeamMessageDisplay(`请解释：\n${exact}`, [task])).toBeNull();
+    expect(resolveTeamMessageDisplay(`${exact}\n用户补充`, [task])).toBeNull();
+    expect(resolveTeamMessageDisplay(`[Team task ${task.id}]\n自定义的提示词`, [task])).toBeNull();
   });
 });

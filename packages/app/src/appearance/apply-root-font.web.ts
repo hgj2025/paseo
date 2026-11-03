@@ -9,6 +9,7 @@
 // subtree excluded via `:not([data-pmono] *)`) so they keep their monospace font.
 const STYLE_ID = "paseo-ui-font";
 const RULE =
+  ":is(#root, #overlay-root){-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;}" +
   ":is(#root, #overlay-root) *:not([data-pmono]):not([data-pmono] *){font-family:var(--paseo-ui-font);}";
 
 export function applyRootUiFont(uiFontStack: string): void {

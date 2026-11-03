@@ -2,6 +2,8 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const fr: TranslationResources = {
+  homeOverview: en.homeOverview,
+  executionDiagnostics: en.executionDiagnostics,
   modelHostDirectory: en.modelHostDirectory,
   conversation: en.conversation,
   teamPanel: en.teamPanel,
@@ -208,6 +210,11 @@ export const fr: TranslationResources = {
     },
   },
   agentControls: {
+    permissions: {
+      title: "Autorisations",
+      automatic: "Approbation automatique",
+      ask: "Toujours demander",
+    },
     provider: {
       fallback: "Fournisseur",
       select: "Choisir le fournisseur d’agent",
@@ -2755,6 +2762,8 @@ export const fr: TranslationResources = {
     },
     providers: {
       title: "Fournisseurs",
+      active: "Installés et activés",
+      other: "Autres fournisseurs",
       addProvider: "Ajouter un fournisseur",
       providerDetails: "Détails du fournisseur {{name}}",
       enableProvider: "Activer {{name}}",

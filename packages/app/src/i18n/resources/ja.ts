@@ -2,6 +2,8 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
+  homeOverview: en.homeOverview,
+  executionDiagnostics: en.executionDiagnostics,
   modelHostDirectory: en.modelHostDirectory,
   conversation: en.conversation,
   teamPanel: en.teamPanel,
@@ -207,6 +209,7 @@ export const ja: TranslationResources = {
     },
   },
   agentControls: {
+    permissions: { title: "権限", automatic: "自動承認", ask: "毎回確認" },
     provider: {
       fallback: "プロバイダー",
       select: "エージェントプロバイダーを選択",
@@ -2720,6 +2723,8 @@ export const ja: TranslationResources = {
     },
     providers: {
       title: "プロバイダー",
+      active: "インストール済み・有効",
+      other: "その他のプロバイダー",
       addProvider: "プロバイダーを追加",
       providerDetails: "{{name}}プロバイダーの詳細",
       enableProvider: "{{name}}を有効にする",

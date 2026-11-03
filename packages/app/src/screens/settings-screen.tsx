@@ -1,3 +1,5 @@
+import { getIsElectronMac } from "@/constants/platform";
+import { ExecutionDiagnosticPage } from "@/execution-diagnostics/page";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
@@ -213,6 +215,13 @@ const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
     Content: DesktopPermissionsSection,
   },
   { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
+  {
+    id: "execution-diagnostics",
+    labelKey: "executionDiagnostics.pageTitle",
+    icon: Gauge,
+    desktopOnly: true,
+    Content: ExecutionDiagnosticPage,
+  },
   { id: "about", labelKey: "settings.sections.about", icon: Info },
 ];
 
@@ -385,6 +394,7 @@ function DiagnosticsSection({
   handlePlaybackTest,
 }: DiagnosticsSectionProps) {
   const { t } = useTranslation();
+  const router = useRouter();
   const openAppDiagnostic = useAppDiagnosticStore((state) => state.open);
   const handlePlayPress = useCallback(() => {
     void handlePlaybackTest();
@@ -412,6 +422,21 @@ function DiagnosticsSection({
             />
           </View>
         ) : null}
+        {getIsElectronMac() && (
+          <View style={settingsStyles.row} testID="session-execution-diagnostic-row">
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>{t("executionDiagnostics.pageTitle")}</Text>
+              <Text style={settingsStyles.rowHint}>{t("executionDiagnostics.entryHint")}</Text>
+            </View>
+            <Button
+              variant="secondary"
+              size="sm"
+              onPress={() => router.push(buildSettingsSectionRoute("execution-diagnostics"))}
+            >
+              {t("executionDiagnostics.open")}
+            </Button>
+          </View>
+        )}
         <View style={settingsStyles.row} testID="app-diagnostic-row">
           <View style={settingsStyles.rowContent}>
             <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.app.rowTitle")}</Text>
@@ -941,7 +966,9 @@ function SettingsSidebar({
   const hasHosts = sortedHosts.length > 0;
   const enableBuiltInDaemonOption = useEnableBuiltInDaemonOption();
   const isDesktopApp = isElectronRuntime();
-  const items = SIDEBAR_SECTION_ITEMS.filter((item) => isSectionAvailable(item, isDesktopApp));
+  const items = SIDEBAR_SECTION_ITEMS.filter(
+    (item) => item.id !== "execution-diagnostics" && isSectionAvailable(item, isDesktopApp),
+  );
   const insets = useSafeAreaInsets();
   const isDesktop = layout === "desktop";
   const outerContainerStyle = useMemo(
@@ -952,7 +979,12 @@ function SettingsSidebar({
     () => [{ flex: 1 }, isDesktop ? { paddingTop: insets.top } : null],
     [insets.top, isDesktop],
   );
-  const selectedSectionId = view.kind === "section" ? view.section : null;
+  const selectedSectionId =
+    view.kind === "section"
+      ? view.section === "execution-diagnostics"
+        ? "diagnostics"
+        : view.section
+      : null;
   let selectedHostSection: HostSectionSlug | null = null;
   if (view.kind === "host") selectedHostSection = view.section;
   if (view.kind === "project") selectedHostSection = "projects";
