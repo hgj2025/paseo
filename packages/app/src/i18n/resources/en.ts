@@ -1,5 +1,14 @@
 export const en = {
   homeOverview: {
+    clearSignalFilter: "Clear status filter",
+    filterSignal: "Show sessions with status: {{state}}",
+    statusTabs: {
+      all: "All",
+      running: "Running",
+      waiting: "Needs input",
+      finished: "Done",
+      failed: "Failed",
+    },
     today: "Today’s sessions",
     sidebarEmpty: "No session activity today.",
     title: "Home",

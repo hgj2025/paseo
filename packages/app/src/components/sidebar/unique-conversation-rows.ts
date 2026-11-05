@@ -59,7 +59,7 @@ export function appendWorkspaceAgentRows(
     if (
       agent.serverId !== serverId ||
       (agent.workspaceId !== workspaceId &&
-        (!workspaceDirectory || agent.cwd !== workspaceDirectory)) ||
+        (Boolean(agent.workspaceId) || !workspaceDirectory || agent.cwd !== workspaceDirectory)) ||
       agent.archivedAt ||
       agent.parentAgentId ||
       agent.labels["paseo.conversation.executor"] ||

@@ -49,7 +49,9 @@ export function buildHomeSessions(
   const unique = new Map<string, HomeSession>();
   for (const agent of agents) {
     const host = hostById.get(agent.serverId);
-    if (!host || agent.archivedAt) continue;
+    // Executors belong to an existing conversation anchor; preparing/retrying a
+    // host change must not manufacture extra user-visible sessions.
+    if (!host || agent.archivedAt || agent.labels["paseo.conversation.executor"]) continue;
     const state = homeSessionState(agent, host.fresh);
     const active =
       state === "unknown"
@@ -93,4 +95,19 @@ export function todaySessions(
         key(a).localeCompare(key(b))
       );
     });
+}
+
+export const SESSION_STATUS_TABS = ["running", "waiting", "finished", "failed"] as const;
+export type SessionStatusTab = (typeof SESSION_STATUS_TABS)[number];
+export function matchesSessionStatus(row: HomeSession, tab: SessionStatusTab): boolean {
+  switch (tab) {
+    case "running":
+      return row.state === "running" || row.state === "starting";
+    case "waiting":
+      return row.state === "waiting" || row.state === "attention";
+    case "finished":
+      return row.state === "finished";
+    case "failed":
+      return row.state === "failed";
+  }
 }

@@ -439,3 +439,68 @@ describe("sidebar workspace render isolation", () => {
     });
   });
 });
+
+describe("host-created sidebar conversations", () => {
+  it("updates the rendered conversation rows when an agent arrives on an equivalent workspace", async () => {
+    const { useSidebarConversations } = await import("./sidebar/sidebar-conversation-list");
+    const { normalizeAgentSnapshot } = await import("@/utils/agent-snapshots");
+    const serverId = "devbox-regression";
+    const store = useSessionStore.getState();
+    store.initializeSession(serverId, null as unknown as DaemonClient);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    function Conversations() {
+      const rows = useSidebarConversations(
+        serverId,
+        "old-workspace",
+        "/home/research/code/mock2.0",
+      );
+      return (
+        <div>
+          {rows.map((row) => (
+            <div key={row.id}>{row.title}</div>
+          ))}
+        </div>
+      );
+    }
+    try {
+      act(() => root.render(<Conversations />));
+      expect(container.textContent).toBe("");
+      const agent = normalizeAgentSnapshot(
+        {
+          id: "new-devbox-session",
+          provider: "claude",
+          cwd: "/home/research/code/mock2.0",
+          workspaceId: "new-workspace",
+          title: "New remote session",
+          status: "running",
+          createdAt: "2026-11-03T10:00:00.000Z",
+          updatedAt: "2026-11-03T10:00:00.000Z",
+          lastUserMessageAt: null,
+          model: null,
+          currentModeId: null,
+          availableModes: [],
+          persistence: null,
+          capabilities: {
+            supportsStreaming: true,
+            supportsSessionPersistence: true,
+            supportsDynamicModes: false,
+            supportsMcpServers: false,
+            supportsReasoningStream: false,
+            supportsToolInvocations: true,
+          },
+          pendingPermissions: [],
+          labels: {},
+        } as Parameters<typeof normalizeAgentSnapshot>[0],
+        serverId,
+      );
+      act(() => store.setAgents(serverId, new Map([[agent.id, agent]])));
+      expect(container.textContent).toContain("New remote session");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      store.clearSession(serverId);
+    }
+  });
+});

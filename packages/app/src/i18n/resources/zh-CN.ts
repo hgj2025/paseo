@@ -3,6 +3,15 @@ import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
   homeOverview: {
+    clearSignalFilter: "清除状态灯筛选",
+    filterSignal: "查看同色会话：{{state}}",
+    statusTabs: {
+      all: "全部",
+      running: "运行",
+      waiting: "待输入",
+      finished: "完成",
+      failed: "异常",
+    },
     today: "今日活跃",
     sidebarEmpty: "今天还没有会话活动",
     title: "首页",

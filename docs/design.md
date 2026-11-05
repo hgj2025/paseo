@@ -312,3 +312,7 @@ The Mac project sidebar includes a separately scrollable cross-host active-sessi
 On Mac, global actions and header plugin contributions render in the icon rail only; the expanded sidebar begins with cross-host active sessions and projects. Plugins still use the app SidebarRow and their existing routes/popover anchors, with app-owned rail presentation and accessible tooltip labels. Other platforms retain the header navigation.
 
 The sidebar “今日活跃” section retains all unarchived sessions with last activity in the viewer’s current local calendar day, including idle/read/completed sessions. Existing rows keep their position as state/activity updates arrive; new rows append. A local-midnight timer advances the day filter. This replaces the sidebar active/unread-only membership rule; full Home filtering is independent.
+
+The desktop divider between “今日活跃” and Workspaces supports vertical dragging through the shared ResizeHandle. Its height persists on release; render-only window bounds preserve space for workspace navigation without overwriting the saved height. Compact sidebars retain their 40% height cap.
+
+The “今日活跃” sidebar keeps status filters and live counts above its scrollable rows: Running (including Starting), Needs input (including Attention, selected by default), Done, and Failed. Only explicit completion belongs in Done; idle and unconfirmed/offline work are not inferred to be completed. Filtering preserves the stable daily ordering and resets the list to its top.

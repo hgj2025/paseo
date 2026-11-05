@@ -148,7 +148,7 @@ export async function prepareConversationExecutor(input: {
     },
     workspaceId: input.scope.workspaceId,
     labels: { "paseo.conversation.executor": input.member.id },
-    idempotencyKey: `execution:${input.member.id}:${input.operationId}`,
+    idempotencyKey: `execution:${input.member.id}:${input.operationId}:${JSON.stringify(historyCheckpoints.get(executionKey(active)))}`,
   });
   // Creation makes no inference request. Commit only after the destination is ready.
   // A failed/ambiguous commit must keep the old conversation readable; never archive it here.

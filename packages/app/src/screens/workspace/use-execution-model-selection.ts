@@ -68,6 +68,7 @@ export function useExecutionModelSelection(input: {
   );
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const attempt = useRef<{ key: string; id: string } | null>(null);
   const select = enabled
     ? async (provider: string, model: string) => {
         if (!context?.member || !context.teamContext)
@@ -86,6 +87,16 @@ export function useExecutionModelSelection(input: {
           context.selectCandidate(null);
           throw new Error(t("modelHostDirectory.captainHost"));
         }
+        const attemptKey = JSON.stringify([
+          context.teamContext.ownerServerId,
+          context.member.id,
+          context.member.execution ?? context.member.agentId,
+          destinationScope,
+          provider,
+          model,
+        ]);
+        if (attempt.current?.key !== attemptKey) attempt.current = { key: attemptKey, id: uuid() };
+        const operationId = attempt.current.id;
         pendingRef.current = true;
         context.setSwitching(true);
         setPending(true);
@@ -95,7 +106,7 @@ export function useExecutionModelSelection(input: {
             scope: destinationScope,
             provider,
             model,
-            operationId: uuid(),
+            operationId,
             clientFor: (id) => getHostRuntimeStore().getClient(id),
             commit: async (execution, sourceCursor) => {
               const page = await getHostRuntimeStore().fetchAgentTimeline(
@@ -128,6 +139,7 @@ export function useExecutionModelSelection(input: {
               }
             },
           });
+          attempt.current = null;
           context.selectCandidate(null);
         } finally {
           pendingRef.current = false;

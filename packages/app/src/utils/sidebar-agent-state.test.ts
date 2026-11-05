@@ -221,3 +221,24 @@ describe("today sidebar sessions", () => {
     expect(todaySessions(rows, now, keys).map((r) => r.agent.id)).toEqual(["a", "b", "new"]);
   });
 });
+
+it("excludes internal cross-host executors, including uncommitted retries", () => {
+  const hosts = [{ serverId: "mac", label: "Mac", fresh: true, connected: true }];
+  const rows = buildHomeSessions(
+    [
+      overviewAgent({ id: "anchor" }),
+      overviewAgent({
+        id: "pending",
+        labels: { "paseo.conversation.executor": "member" },
+        status: "idle",
+      }),
+      overviewAgent({
+        id: "runner",
+        labels: { "paseo.conversation.executor": "member" },
+        status: "running",
+      }),
+    ],
+    hosts,
+  );
+  expect(rows.map((row) => row.agent.id)).toEqual(["anchor"]);
+});

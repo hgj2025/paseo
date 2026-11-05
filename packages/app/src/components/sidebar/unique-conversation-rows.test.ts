@@ -72,47 +72,35 @@ describe("host-created workspace sessions", () => {
   });
 });
 
-it("groups a session from a second workspace for the same directory without changing its destination", () => {
-  const rows = appendWorkspaceAgentRows(
-    [],
-    [
-      {
-        id: "new-devbox",
-        serverId: "devbox",
-        workspaceId: "new-ip-workspace",
-        cwd: "/home/research/code/ip",
-        title: "Review robot",
-        provider: "claude",
-        parentAgentId: null,
-        labels: {},
-      },
-    ],
-    "devbox",
-    "old-ip-workspace",
-    new Set(),
-    "/home/research/code/ip",
+it("renders same-directory agents only in their owning workspace, never once per sibling", () => {
+  const agents = ["first", "second", "third"].map((workspaceId) => ({
+    id: `${workspaceId}-agent`,
+    serverId: "sg",
+    workspaceId,
+    cwd: "/code/mock",
+    title: "sg-boe-test",
+    provider: "codex",
+    parentAgentId: null,
+    labels: {},
+  }));
+  const rows = ["first", "second", "third"].flatMap((workspaceId) =>
+    appendWorkspaceAgentRows([], agents, "sg", workspaceId, new Set(), "/code/mock"),
   );
-  expect(rows).toHaveLength(1);
-  expect(rows[0]?.agentWorkspaceId).toBe("new-ip-workspace");
-  expect(
-    appendWorkspaceAgentRows(
-      [],
-      [
-        {
-          id: "other",
-          serverId: "devbox",
-          workspaceId: "elsewhere",
-          cwd: "/home/research/code/ip-copy",
-          title: "Other",
-          provider: "claude",
-          parentAgentId: null,
-          labels: {},
-        },
-      ],
-      "devbox",
-      "old-ip-workspace",
-      new Set(),
-      "/home/research/code/ip",
-    ),
-  ).toEqual([]);
+  expect(rows.map((row) => row.agentId)).toEqual(["first-agent", "second-agent", "third-agent"]);
+  expect(rows.map((row) => row.agentWorkspaceId)).toEqual(["first", "second", "third"]);
+});
+it("uses directory fallback only for agents without a workspace identity", () => {
+  const agent = {
+    id: "legacy",
+    serverId: "sg",
+    cwd: "/code/mock",
+    title: "Legacy",
+    provider: "codex",
+    parentAgentId: null,
+    labels: {},
+  };
+  expect(appendWorkspaceAgentRows([], [agent], "sg", "work", new Set(), "/code/mock")).toHaveLength(
+    1,
+  );
+  expect(appendWorkspaceAgentRows([], [agent], "sg", "work", new Set(), "/code/other")).toEqual([]);
 });

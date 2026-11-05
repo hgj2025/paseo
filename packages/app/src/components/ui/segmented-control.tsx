@@ -26,6 +26,7 @@ interface SegmentedControlProps<T extends string> {
   size?: SegmentedControlSize;
   hideLabels?: boolean;
   style?: StyleProp<ViewStyle>;
+  segmentStyle?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
@@ -51,6 +52,7 @@ export function SegmentedControl<T extends string>({
   size = "md",
   hideLabels = false,
   style,
+  segmentStyle,
   testID,
 }: SegmentedControlProps<T>) {
   const sizeStyles = {
@@ -81,6 +83,7 @@ export function SegmentedControl<T extends string>({
             iconSize={iconSize}
             hideLabels={hideLabels}
             segmentSizeStyle={segmentSizeStyle}
+            segmentStyle={segmentStyle}
             labelSizeStyle={labelSizeStyle}
             currentValue={value}
             onValueChange={onValueChange}
@@ -97,6 +100,7 @@ function SegmentItem<T extends string>({
   iconSize,
   hideLabels,
   segmentSizeStyle,
+  segmentStyle,
   labelSizeStyle,
   currentValue,
   onValueChange,
@@ -106,6 +110,7 @@ function SegmentItem<T extends string>({
   iconSize: number;
   hideLabels: boolean;
   segmentSizeStyle: StyleProp<ViewStyle>;
+  segmentStyle?: StyleProp<ViewStyle>;
   labelSizeStyle: StyleProp<TextStyle>;
   currentValue: T;
   onValueChange: (value: T) => void;
@@ -123,12 +128,13 @@ function SegmentItem<T extends string>({
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.segment,
       segmentSizeStyle,
+      segmentStyle,
       isSelected && styles.segmentSelected,
       Boolean(hovered) && !isSelected && styles.segmentHover,
       pressed && !isSelected && styles.segmentPressed,
       option.disabled && styles.segmentDisabled,
     ],
-    [isSelected, option.disabled, segmentSizeStyle],
+    [isSelected, option.disabled, segmentSizeStyle, segmentStyle],
   );
   const accessibilityState = useMemo(
     () => ({ selected: isSelected, disabled: option.disabled }),
