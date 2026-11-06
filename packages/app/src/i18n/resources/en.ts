@@ -1,5 +1,7 @@
 export const en = {
   homeOverview: {
+    removeToday: "Remove {{name}} from today’s list",
+    removeTodayHint: "Hide for today; keep the conversation",
     clearSignalFilter: "Clear status filter",
     filterSignal: "Show sessions with status: {{state}}",
     statusTabs: {

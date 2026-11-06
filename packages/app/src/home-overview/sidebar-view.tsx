@@ -1,3 +1,7 @@
+import { Button } from "@/components/ui/button";
+import { isNative } from "@/constants/platform";
+import { X } from "lucide-react-native";
+import { useDismissedSessions } from "./sidebar-dismissed";
 import { ResizeHandle } from "@/components/resize-handle";
 import { resolveActiveSessionHeight, useActiveSessionHeight } from "./sidebar-height";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -53,6 +57,8 @@ export function ActiveSessionSidebarView({
   });
   const clearSignal = useStableEvent(() => setSignalFilter(null));
   const [day, setDay] = useState(() => new Date().toDateString());
+  const dismissals = useDismissedSessions();
+  const dismissSession = useStableEvent((key: string) => dismissals.dismiss(day, key));
   const ordering = useRef<{ day: string; keys: string[] }>({ day, keys: [] });
   useEffect(() => {
     const now = new Date();
@@ -74,10 +80,12 @@ export function ActiveSessionSidebarView({
   }, [sessions, day]);
   const visibleSessions = useMemo(
     () =>
-      signalFilter === null
-        ? active
-        : active.filter((row) => signalGroup(row.state) === signalGroup(signalFilter)),
-    [active, signalFilter],
+      active.filter(
+        (row) =>
+          !(dismissals.day === day && dismissals.hidden.includes(sessionKey(row))) &&
+          (signalFilter === null || signalGroup(row.state) === signalGroup(signalFilter)),
+      ),
+    [active, signalFilter, dismissals, day],
   );
   const empty = useMemo(() => {
     let message = t("homeOverview.empty");
@@ -95,6 +103,7 @@ export function ActiveSessionSidebarView({
       openSession={handleOpenSession}
       toggleSignal={toggleSignal}
       signalFilter={signalFilter}
+      dismissSession={dismissSession}
     />
   ));
   return (
@@ -149,14 +158,24 @@ function ActiveSessionRow({
   openSession,
   toggleSignal,
   signalFilter,
+  dismissSession,
 }: {
   item: HomeSession;
+  dismissSession(key: string): void;
   compact: boolean;
   signalFilter: HomeSession["state"] | null;
   toggleSignal(state: HomeSession["state"]): void;
   openSession(serverId: string, agentId: string): void;
 }) {
   const { t } = useTranslation();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const enter = useStableEvent(() => setHovered(true));
+  const leave = useStableEvent(() => setHovered(false));
+  const focus = useStableEvent(() => setFocused(true));
+  const blur = useStableEvent(() => setFocused(false));
+  const showActions = hovered || focused || compact || isNative;
+  const dismiss = useStableEvent(() => dismissSession(sessionKey(item)));
   const filterSignal = useStableEvent(() => toggleSignal(item.state));
   const selected = signalFilter !== null && signalGroup(signalFilter) === signalGroup(item.state);
   const signalAccessibilityState = useMemo(() => ({ selected }), [selected]);
@@ -166,11 +185,13 @@ function ActiveSessionRow({
     compact && styles.compactRow,
   ]);
   return (
-    <View style={styles.rowContainer}>
+    <View style={styles.rowContainer} onPointerEnter={enter} onPointerLeave={leave}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${item.agent.serverLabel} · ${item.agent.title || item.agent.provider} · ${t(`homeOverview.state.${item.state}`)}`}
         onPress={open}
+        onFocus={focus}
+        onBlur={blur}
         style={pressableStyle}
       >
         <View style={styles.line}>
@@ -182,6 +203,34 @@ function ActiveSessionRow({
           {item.agent.serverLabel} · {item.agent.provider}
         </Text>
       </Pressable>
+      <View
+        style={[
+          styles.removeSlot,
+          compact && styles.compactRemoveSlot,
+          !showActions && styles.hiddenActions,
+        ]}
+        pointerEvents={showActions ? "auto" : "none"}
+      >
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Button
+              size="xs"
+              variant="ghost"
+              leftIcon={X}
+              accessibilityLabel={t("homeOverview.removeToday", {
+                name: item.agent.title || item.agent.provider,
+              })}
+              onPress={dismiss}
+              onFocus={focus}
+              onBlur={blur}
+              disabled={!showActions}
+            />
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>{t("homeOverview.removeTodayHint")}</Text>
+          </TooltipContent>
+        </Tooltip>
+      </View>
       <Tooltip delayDuration={200}>
         <TooltipTrigger asChild>
           <Pressable
@@ -262,12 +311,23 @@ const styles = StyleSheet.create((theme) => ({
     marginHorizontal: 8,
     borderRadius: 8,
     paddingLeft: 10,
-    paddingRight: 40,
+    paddingRight: 80,
     paddingVertical: 7,
     gap: 3,
   },
   hover: { backgroundColor: theme.colors.surface2 },
   line: { flexDirection: "row", alignItems: "center", gap: 8 },
+  hiddenActions: { opacity: 0 },
+  removeSlot: {
+    position: "absolute",
+    right: 44,
+    top: 0,
+    width: 28,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactRemoveSlot: { right: 52, width: 40, height: 48 },
   signalSlot: {
     position: "absolute",
     right: 10,

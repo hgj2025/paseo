@@ -1,3 +1,4 @@
+import { useDismissedSessions } from "./sidebar-dismissed";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { activeSessionHeightStore, resolveActiveSessionHeight } from "./sidebar-height";
 import { SidebarRailContext } from "@/components/sidebar/sidebar-rail-context";
@@ -16,6 +17,7 @@ import { NavigationRailView } from "./navigation-rail-view";
 beforeEach(async () => {
   vi.stubGlobal("React", React);
   activeSessionHeightStore.setState({ height: 300 });
+  useDismissedSessions.setState({ day: "", hidden: [] });
   await i18n.changeLanguage("zh-CN");
 });
 const noop = () => {};
@@ -367,4 +369,34 @@ it("filters by clicking status lights and preserves order when session state cha
   await page
     .elementLocator(container)
     .screenshot({ path: "/private/tmp/paseo-active-status-lights.png" });
+});
+
+it("removes a session only from today's list and preserves the preference after rehydration", async () => {
+  const today = new Date();
+  const sessions = buildHomeSessions(
+    [agent({ title: "Dismiss me", lastActivityAt: today })],
+    [{ serverId: "mac", label: "Mac", fresh: true, connected: true }],
+  );
+  const open = vi.fn();
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <ActiveSessionSidebarView sessions={sessions} loading={false} openSession={open} />,
+    ),
+  );
+  await userEvent.hover(within(container).getByText("Dismiss me"));
+  act(() => within(container!).getByRole("button", { name: "从今日活跃移除 Dismiss me" }).click());
+  expect(within(container).queryByText("Dismiss me")).toBeNull();
+  expect(open).not.toHaveBeenCalled();
+  expect(sessions).toHaveLength(1);
+  await act(async () => {
+    await useDismissedSessions.persist.rehydrate();
+  });
+  expect(useDismissedSessions.getState().hidden).toContain(JSON.stringify(["mac", "same"]));
+  await act(async () => {
+    useDismissedSessions.setState({ day: "yesterday" });
+  });
+  await vi.waitFor(() => expect(within(container!).getByText("Dismiss me")).toBeTruthy());
 });

@@ -33,14 +33,14 @@ export function RailButton({
   icon: Icon,
   label,
   active,
-  badge,
+  activeBackground = true,
   onPress,
   testID,
 }: {
   icon: ComponentType<{ size: number; color: string }>;
   label: string;
   active?: boolean;
-  badge?: number;
+  activeBackground?: boolean;
   onPress: () => void;
   testID: string;
 }) {
@@ -53,14 +53,12 @@ export function RailButton({
           accessibilityState={{ selected: Boolean(active) }}
           onPress={onPress}
           testID={testID}
-          style={({ hovered }) => [styles.button, (active || hovered) && styles.highlight]}
+          style={({ hovered }) => [
+            styles.button,
+            ((active && activeBackground) || hovered) && styles.highlight,
+          ]}
         >
           <Icon size={20} color={active ? styles.activeIcon.color : styles.icon.color} />
-          {Boolean(badge) && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{badge! > 99 ? "99+" : badge}</Text>
-            </View>
-          )}
         </Pressable>
       </TooltipTrigger>
       <TooltipContent side="right">
@@ -76,9 +74,9 @@ export function NavigationRailView(props: RailProps) {
       <View style={styles.items}>
         <RailButton
           icon={Home}
-          label={t("homeOverview.homeLabel", { count: props.attention })}
+          label={t("homeOverview.title")}
           active={props.home}
-          badge={props.attention}
+          activeBackground={false}
           onPress={props.onHome}
           testID="rail-home"
         />
@@ -86,6 +84,7 @@ export function NavigationRailView(props: RailProps) {
           icon={Folder}
           label={t("homeOverview.projects")}
           active={props.projects}
+          activeBackground={false}
           onPress={props.onProjects}
           testID="rail-projects"
         />

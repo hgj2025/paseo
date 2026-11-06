@@ -3,6 +3,8 @@ import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
   homeOverview: {
+    removeToday: "从今日活跃移除 {{name}}",
+    removeTodayHint: "仅从今日列表隐藏，保留会话",
     clearSignalFilter: "清除状态灯筛选",
     filterSignal: "查看同色会话：{{state}}",
     statusTabs: {

@@ -316,3 +316,5 @@ The sidebar “今日活跃” section retains all unarchived sessions with last
 The desktop divider between “今日活跃” and Workspaces supports vertical dragging through the shared ResizeHandle. Its height persists on release; render-only window bounds preserve space for workspace navigation without overwriting the saved height. Compact sidebars retain their 40% height cap.
 
 The “今日活跃” sidebar keeps status filters and live counts above its scrollable rows: Running (including Starting), Needs input (including Attention, selected by default), Done, and Failed. Only explicit completion belongs in Done; idle and unconfirmed/offline work are not inferred to be completed. Filtering preserves the stable daily ordering and resets the list to its top.
+
+Today’s session rows offer a separate remove button. It persists a local, host-and-agent-scoped dismissal for the current calendar day only. Removing never archives, deletes, navigates to, or interrupts the conversation; project/history entries remain available.

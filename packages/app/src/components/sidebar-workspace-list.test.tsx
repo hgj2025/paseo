@@ -441,7 +441,7 @@ describe("sidebar workspace render isolation", () => {
 });
 
 describe("host-created sidebar conversations", () => {
-  it("updates the rendered conversation rows when an agent arrives on an equivalent workspace", async () => {
+  it("shows the agent title for its owning workspace and updates it after rename", async () => {
     const { useSidebarConversations } = await import("./sidebar/sidebar-conversation-list");
     const { normalizeAgentSnapshot } = await import("@/utils/agent-snapshots");
     const serverId = "devbox-regression";
@@ -453,7 +453,7 @@ describe("host-created sidebar conversations", () => {
     function Conversations() {
       const rows = useSidebarConversations(
         serverId,
-        "old-workspace",
+        "new-workspace",
         "/home/research/code/mock2.0",
       );
       return (
@@ -497,6 +497,15 @@ describe("host-created sidebar conversations", () => {
       );
       act(() => store.setAgents(serverId, new Map([[agent.id, agent]])));
       expect(container.textContent).toContain("New remote session");
+      expect(container.textContent).not.toContain("mock2.0");
+      act(() =>
+        store.setAgents(
+          serverId,
+          new Map([[agent.id, { ...agent, title: "Renamed conversation" }]]),
+        ),
+      );
+      expect(container.textContent).toContain("Renamed conversation");
+      expect(container.textContent).not.toContain("New remote session");
     } finally {
       act(() => root.unmount());
       container.remove();
