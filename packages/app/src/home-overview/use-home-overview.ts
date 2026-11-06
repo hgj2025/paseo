@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { useAggregatedAgents } from "@/hooks/use-aggregated-agents";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { buildHomeSessions } from "./model";
+import { useConversationGroups } from "./use-conversation-groups";
 
 /** Shared directory demand only; never acquire timeline demand for overview rows. */
 export function useHomeOverview() {
@@ -34,9 +35,10 @@ export function useHomeOverview() {
       fresh: states[index]![0] && states[index]![1],
     }));
   }, [profiles, freshness]);
+  const groups = useConversationGroups(directory.agents, hosts);
   const sessions = useMemo(
-    () => buildHomeSessions(directory.agents, hosts),
-    [directory.agents, hosts],
+    () => buildHomeSessions(directory.agents, hosts, groups),
+    [directory.agents, hosts, groups],
   );
   const attentionCount = sessions.filter(
     (row) =>

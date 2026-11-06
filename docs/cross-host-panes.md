@@ -280,3 +280,21 @@ quit-time installer. Otherwise an already downloaded upstream release can replac
 renderer during an upgrade or a normal quit. Ordinary packages without that marker retain the
 official updater. Keep the local marker, ASAR integrity metadata and code signatures together
 when assembling an installable desktop package.
+
+## Daily activity identity
+
+The Home/Today directory represents a whole conversation, not each member pane. It
+uses saved conversation layouts immediately and the existing `workspaceConversations`
+roster RPC on session-team-capable hosts; no daemon or protocol change is required.
+Roster reads share React Query caching and do not poll or acquire transcript demand.
+Updates to the open team's shared `workspace-team` cache update the roster directory.
+Membership is scoped by owner host/workspace/session ID and each member's host/agent
+ID; titles and working directories never establish membership.
+
+The directory keeps the Captain's navigation identity and title, uses the latest
+current-member activity time, and aggregates current runners (including moved remote
+executors). Errors take precedence, then input/running/attention; only explicit
+completion of every member counts as finished. Missing/offline runners stay unknown.
+A missing Captain does not suppress otherwise usable member rows. Independent agents
+remain independent, even with identical titles. Removing a daily row remains a local
+presentation preference and does not end the team.

@@ -15,6 +15,14 @@ export interface HomeHost {
   fresh: boolean;
   connected: boolean;
 }
+export interface ConversationGroup {
+  root: { serverId: string; agentId: string };
+  members: {
+    serverId: string;
+    agentId: string;
+    execution?: { serverId: string; agentId: string };
+  }[];
+}
 export interface HomeSession {
   agent: AggregatedAgent;
   state: HomeStatus;
@@ -44,6 +52,7 @@ export function homeSessionState(agent: AggregatedAgent, fresh: boolean): HomeSt
 export function buildHomeSessions(
   agents: readonly AggregatedAgent[],
   hosts: readonly HomeHost[],
+  groups: readonly ConversationGroup[] = [],
 ): HomeSession[] {
   const hostById = new Map(hosts.map((host) => [host.serverId, host]));
   const unique = new Map<string, HomeSession>();
@@ -64,11 +73,64 @@ export function buildHomeSessions(
         : state !== "idle" && (state !== "finished" || Boolean(agent.requiresAttention));
     unique.set(JSON.stringify([agent.serverId, agent.id]), { agent, state, active });
   }
+  collapseConversationGroups(unique, agents, hostById, groups);
   return Array.from(unique.values()).sort(
     (a, b) =>
       priority[a.state] - priority[b.state] ||
       b.agent.lastActivityAt.getTime() - a.agent.lastActivityAt.getTime(),
   );
+}
+
+function collapseConversationGroups(
+  unique: Map<string, HomeSession>,
+  agents: readonly AggregatedAgent[],
+  hostById: ReadonlyMap<string, HomeHost>,
+  groups: readonly ConversationGroup[],
+) {
+  const identity = (value: { serverId: string; agentId: string }) =>
+    JSON.stringify([value.serverId, value.agentId]);
+  const allAgents = new Map(
+    agents.map((agent) => [JSON.stringify([agent.serverId, agent.id]), agent]),
+  );
+  // Resolve membership before suppressing rows. Missing roots must never hide usable sessions.
+  for (const group of groups) {
+    const rootKey = identity(group.root);
+    const root = unique.get(rootKey);
+    if (!root) continue;
+    const states: HomeStatus[] = [];
+    let latest = root.agent.lastActivityAt.getTime();
+    let active = false;
+    let requiresAttention = false;
+    for (const member of group.members) {
+      const runner = member.execution ?? member;
+      const agent = allAgents.get(identity(runner));
+      const host = hostById.get(runner.serverId);
+      if (!agent || agent.archivedAt || !host) {
+        states.push("unknown");
+      } else {
+        states.push(homeSessionState(agent, host.fresh));
+        latest = Math.max(latest, agent.lastActivityAt.getTime());
+        requiresAttention ||= Boolean(agent.requiresAttention);
+        active ||=
+          agent.status === "running" ||
+          agent.turn.phase === "open" ||
+          Boolean(agent.requiresAttention);
+      }
+      if (identity(member) !== rootKey) unique.delete(identity(member));
+      if (identity(runner) !== rootKey) unique.delete(identity(runner));
+    }
+    // Only explicit completion of every member earns green. Offline/idle is not completion.
+    const state =
+      (["failed", "waiting", "running", "starting", "attention", "unknown"] as const).find(
+        (candidate) => states.includes(candidate),
+      ) ??
+      (states.length > 0 && states.every((value) => value === "finished") ? "finished" : "idle");
+    unique.set(rootKey, {
+      agent: { ...root.agent, lastActivityAt: new Date(latest), requiresAttention },
+      state,
+      active: active || !["finished", "idle", "unknown"].includes(state),
+    });
+  }
 }
 
 /** Calendar day in the viewer's local timezone; status changes never reorder existing rows. */

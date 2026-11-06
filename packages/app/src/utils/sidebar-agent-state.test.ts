@@ -242,3 +242,84 @@ it("excludes internal cross-host executors, including uncommitted retries", () =
   );
   expect(rows.map((row) => row.agent.id)).toEqual(["anchor"]);
 });
+
+it("collapses team panes into their root, using the current remote runner and latest member activity", () => {
+  const hosts = ["mac", "vm"].map((serverId) => ({
+    serverId,
+    label: serverId,
+    connected: true,
+    fresh: true,
+  }));
+  const root = overviewAgent({
+    id: "captain",
+    title: "Gaia",
+    lastActivityAt: new Date(2026, 10, 5),
+  });
+  const member = overviewAgent({ id: "member", status: "error" });
+  const runner = overviewAgent({
+    id: "runner",
+    serverId: "vm",
+    status: "running",
+    labels: { "paseo.conversation.executor": "member" },
+    lastActivityAt: new Date(2026, 10, 6, 12),
+  });
+  const group = {
+    root: { serverId: "mac", agentId: root.id },
+    members: [
+      { serverId: "mac", agentId: root.id },
+      { serverId: "mac", agentId: member.id, execution: { serverId: "vm", agentId: runner.id } },
+    ],
+  };
+  const rows = buildHomeSessions(
+    [root, member, runner, overviewAgent({ id: "independent", title: "Gaia" })],
+    hosts,
+    [group],
+  );
+  expect(rows).toHaveLength(2);
+  const combined = rows.find((row) => row.agent.id === "captain")!;
+  expect(combined.state).toBe("running");
+  expect(combined.agent.title).toBe("Gaia");
+  expect(combined.agent.lastActivityAt).toEqual(runner.lastActivityAt);
+  expect(todaySessions(rows, new Date(2026, 10, 6)).map((row) => row.agent.id)).toContain(
+    "captain",
+  );
+  expect(
+    buildHomeSessions([root, member, { ...runner, status: "error" }], hosts, [group])[0]?.state,
+  ).toBe("failed");
+  expect(
+    buildHomeSessions(
+      [root, member, runner],
+      [{ ...hosts[0]! }, { ...hosts[1]!, fresh: false }],
+      [group],
+    )[0]?.state,
+  ).toBe("unknown");
+});
+
+it("requires every pane to finish and preserves independent sessions when a root is unavailable", () => {
+  const hosts = [{ serverId: "mac", label: "Mac", connected: true, fresh: true }];
+  const done = {
+    status: "idle" as const,
+    attentionReason: "finished" as const,
+    requiresAttention: true,
+  };
+  const root = overviewAgent({ id: "captain", ...done });
+  const child = overviewAgent({ id: "member", ...done });
+  const group = {
+    root: { serverId: "mac", agentId: root.id },
+    members: [
+      { serverId: "mac", agentId: root.id },
+      { serverId: "mac", agentId: child.id },
+    ],
+  };
+  expect(buildHomeSessions([root, child], hosts, [group])).toMatchObject([
+    { agent: { id: "captain" }, state: "finished" },
+  ]);
+  expect(
+    buildHomeSessions(
+      [root, { ...child, attentionReason: null, requiresAttention: false }],
+      hosts,
+      [group],
+    )[0]?.state,
+  ).toBe("idle");
+  expect(buildHomeSessions([child], hosts, [group])).toMatchObject([{ agent: { id: "member" } }]);
+});

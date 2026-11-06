@@ -400,3 +400,35 @@ it("removes a session only from today's list and preserves the preference after 
   });
   await vi.waitFor(() => expect(within(container!).getByText("Dismiss me")).toBeTruthy());
 });
+
+it("shows one daily entry for cross-host panes and opens the captain", async () => {
+  const today = new Date();
+  const sessions = buildHomeSessions(
+    [
+      agent({ id: "captain", title: "Gaia conversation", lastActivityAt: today }),
+      agent({ id: "member", title: "Codex", serverId: "vm", lastActivityAt: today }),
+    ],
+    ["mac", "vm"].map((serverId) => ({ serverId, label: serverId, fresh: true, connected: true })),
+    [
+      {
+        root: { serverId: "mac", agentId: "captain" },
+        members: [
+          { serverId: "mac", agentId: "captain" },
+          { serverId: "vm", agentId: "member" },
+        ],
+      },
+    ],
+  );
+  const open = vi.fn();
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <ActiveSessionSidebarView sessions={sessions} loading={false} openSession={open} />,
+    ),
+  );
+  expect(within(container).queryByText("Codex")).toBeNull();
+  act(() => within(container).getByText("Gaia conversation").click());
+  expect(open).toHaveBeenCalledExactlyOnceWith("mac", "captain");
+});
