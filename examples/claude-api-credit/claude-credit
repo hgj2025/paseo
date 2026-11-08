@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Configure these on the machine running the Paseo daemon, not the UI host.
+credit_root="${CLAUDE_CREDIT_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-api-credit}"
+key_file="$credit_root/api-key"
+claude_bin="${CLAUDE_CREDIT_BINARY:-$HOME/.local/bin/claude}"
+case "${1-}" in
+  --credit-setup)
+    if [[ ! -t 0 ]]; then
+      printf '%s\n' 'Run in an interactive terminal; API key input is hidden.' >&2
+      exit 2
+    fi
+    umask 077
+    mkdir -p "$credit_root"
+    chmod 700 "$credit_root"
+    IFS= read -r -s -p 'Anthropic Console API key: ' credit_key
+    printf '\n' >&2
+    if [[ "$credit_key" != sk-ant-* ]]; then
+      printf '%s\n' 'Expected an Anthropic Console API key beginning with sk-ant-.' >&2
+      exit 2
+    fi
+    credit_tmp="$(mktemp "$credit_root/.api-key.XXXXXX")"
+    trap 'rm -f -- "$credit_tmp"' EXIT
+    printf '%s\n' "$credit_key" > "$credit_tmp"
+    chmod 600 "$credit_tmp"
+    mv -f -- "$credit_tmp" "$key_file"
+    trap - EXIT
+    unset credit_key
+    printf '%s\n' 'API key saved. Create a new Claude · API Credit session in Paseo.'
+    exit 0
+    ;;
+  --credit-status)
+    if [[ -r "$key_file" && -s "$key_file" ]]; then
+      printf '%s\n' '{"key_present":true,"billing_verified":false}'
+    else
+      printf '%s\n' '{"key_present":false,"billing_verified":false}'
+    fi
+    exit 0
+    ;;
+  --version|-v|--help|-h)
+    exec "$claude_bin" "$@"
+    ;;
+esac
+
+export CLAUDE_CONFIG_DIR="$credit_root/claude"
+export ANTHROPIC_BASE_URL="https://api.anthropic.com"
+unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+if [[ ! -r "$key_file" || ! -s "$key_file" ]]; then
+  printf '%s\n' 'API key missing. Run claude-credit --credit-setup on the daemon host.' >&2
+  exit 78
+fi
+ANTHROPIC_API_KEY="$(cat -- "$key_file")"
+export ANTHROPIC_API_KEY
+if [[ "$ANTHROPIC_API_KEY" != sk-ant-* ]]; then
+  printf '%s\n' 'Invalid API key format. Run claude-credit --credit-setup again.' >&2
+  exit 78
+fi
+if [[ "${1-}" == auth ]]; then
+  exec "$claude_bin" "$@"
+fi
+# Agent SDK already supplies --print. Preserve its arguments without duplicating it.
+for arg in "$@"; do
+  if [[ "$arg" == --print || "$arg" == -p ]]; then
+    exec "$claude_bin" "$@"
+  fi
+done
+exec "$claude_bin" --print "$@"

@@ -65,6 +65,7 @@ per-agent examples and provider-specific keys.
 ## Table of Contents
 
 - [Extending a built-in provider](#extending-a-built-in-provider)
+- [Claude with an Anthropic API key](#claude-with-an-anthropic-api-key)
 - [Z.AI (Zhipu) coding plan](#zai-zhipu-coding-plan)
 - [Alibaba Cloud (Qwen) coding plan](#alibaba-cloud-qwen-coding-plan)
 - [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai-compatible-endpoint)
@@ -104,6 +105,15 @@ Required fields for custom providers:
 - `label` — display name in the UI
 
 See [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai-compatible-endpoint) below for the dedicated Codex example.
+
+---
+
+## Claude with an Anthropic API key
+
+For a separate official-API profile alongside subscription login, use the
+[Claude API credit example](../examples/claude-api-credit/README.md). It includes a
+portable launcher, hidden key setup, and a custom provider entry. Install it on
+the daemon host where Claude runs; keep credentials outside the repository.
 
 ---
 
