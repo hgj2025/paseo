@@ -1,3 +1,4 @@
+import { memberTabLabel } from "./member-tab-label";
 import { usePaneHeaderMember } from "./pane-member-header";
 import { useWorkspaceLayoutStore, findPaneContainingTab } from "@/stores/workspace-layout-store";
 import { useProviderIcon } from "@/components/provider-icons";
@@ -116,9 +117,13 @@ function WorkspaceTabPresentationResolverInner({
       : undefined;
   const execution = tabMember?.execution;
   const executionAgent = useSessionStore((state) =>
-    execution
-      ? (state.sessions[execution.serverId]?.agents.get(execution.agentId) ??
-        state.sessions[execution.serverId]?.agentDetails.get(execution.agentId))
+    tabMember
+      ? (state.sessions[execution?.serverId ?? tabMember.serverId]?.agents.get(
+          execution?.agentId ?? tabMember.agentId,
+        ) ??
+        state.sessions[execution?.serverId ?? tabMember.serverId]?.agentDetails.get(
+          execution?.agentId ?? tabMember.agentId,
+        ))
       : undefined,
   );
   const executionIcon = useProviderIcon(
@@ -134,13 +139,17 @@ function WorkspaceTabPresentationResolverInner({
       })
     : null;
 
+  const memberLabel = tabMember
+    ? memberTabLabel(tabMember, executionAgent?.model ?? execution?.model)
+    : null;
+
   const presentation = useMemo(
     () => ({
       key: tab.key,
       kind: tab.kind,
-      label: tabMember ? `@${tabMember.alias}` : descriptor.label,
+      label: memberLabel ?? descriptor.label,
       subtitle: descriptor.subtitle,
-      tooltip: tabMember ? `@${tabMember.alias}` : descriptor.tooltip,
+      tooltip: memberLabel ?? descriptor.tooltip,
       modified: attributes.modified,
       showCloseButton: scopeBound || registration.showCloseButton,
       titleState: tabMember ? ("ready" as const) : descriptor.titleState,
@@ -149,6 +158,7 @@ function WorkspaceTabPresentationResolverInner({
     }),
     [
       tabMember,
+      memberLabel,
       execution,
       executionIcon,
       executionStatus,
