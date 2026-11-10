@@ -1,3 +1,4 @@
+import { SwipeToAction } from "./swipe-to-action";
 import { appendWorkspaceAgentRows, uniqueConversationRows } from "./unique-conversation-rows";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { confirmDialog } from "@/utils/confirm-dialog";
@@ -223,58 +224,76 @@ function ConversationRow({
 
   return (
     <>
-      <Pressable
-        accessible={false}
-        tabIndex={-1}
-        style={[styles.row, selected && styles.selected, !selected && hovered && styles.highlight]}
-        onHoverIn={enter}
-        onHoverOut={leave}
+      <SwipeToAction
+        enabled={compact}
+        disabled={!ownerClient || closing || !agentId}
+        label={t("conversation.end")}
+        onAction={close}
+        testID={`conversation-swipe-${id}`}
       >
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={title}
-          accessibilityState={state}
-          onPress={open}
-          onFocus={focus}
-          onBlur={blur}
-          style={styles.rowMain}
-          testID={`sidebar-conversation-${id}`}
+          accessible={false}
+          tabIndex={-1}
+          style={[
+            styles.row,
+            selected && styles.selected,
+            !selected && hovered && styles.highlight,
+          ]}
+          onHoverIn={enter}
+          onHoverOut={leave}
         >
-          <Text numberOfLines={1} style={[styles.title, ended && styles.muted]}>
-            {title}
-          </Text>
-          {ended && <Text style={styles.muted}>{t("conversation.ended")}</Text>}
-        </Pressable>
-        {agentId && (
-          <View
-            style={[styles.actions, !showActions && styles.hiddenActions]}
-            pointerEvents={showActions ? "auto" : "none"}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={title}
+            accessibilityState={state}
+            onPress={open}
+            onFocus={focus}
+            onBlur={blur}
+            style={styles.rowMain}
+            testID={`sidebar-conversation-${id}`}
           >
-            <Button
-              size="xs"
-              variant="ghost"
-              leftIcon={Pencil}
-              onPress={showRename}
-              onFocus={focus}
-              onBlur={blur}
-              disabled={!client}
-              accessibilityLabel={t("workspace.tabs.menu.rename")}
-              testID={`sidebar-conversation-rename-${id}`}
-            />
-            <Button
-              size="xs"
-              variant="ghost"
-              leftIcon={X}
-              onPress={close}
-              onFocus={focus}
-              onBlur={blur}
-              disabled={!ownerClient || closing}
-              accessibilityLabel={t("conversation.end")}
-              testID={`sidebar-conversation-close-${id}`}
-            />
-          </View>
-        )}
-      </Pressable>
+            <Text numberOfLines={1} style={[styles.title, ended && styles.muted]}>
+              {title}
+            </Text>
+            {ended && <Text style={styles.muted}>{t("conversation.ended")}</Text>}
+          </Pressable>
+          {agentId && (
+            <View
+              style={[
+                styles.actions,
+                compact && styles.compactActions,
+                !showActions && styles.hiddenActions,
+              ]}
+              pointerEvents={showActions ? "auto" : "none"}
+            >
+              <Button
+                size="xs"
+                variant="ghost"
+                leftIcon={Pencil}
+                onPress={showRename}
+                onFocus={focus}
+                onBlur={blur}
+                disabled={!client}
+                accessibilityLabel={t("workspace.tabs.menu.rename")}
+                testID={`sidebar-conversation-rename-${id}`}
+              />
+              {!compact && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  leftIcon={X}
+                  onPress={close}
+                  onFocus={focus}
+                  onBlur={blur}
+                  disabled={!ownerClient || closing}
+                  accessibilityLabel={t("conversation.end")}
+                  testID={`sidebar-conversation-close-${id}`}
+                />
+              )}
+            </View>
+          )}
+        </Pressable>
+      </SwipeToAction>
       <AdaptiveRenameModal
         visible={editing}
         title={t("workspace.tabs.menu.renameAgent")}
@@ -312,6 +331,7 @@ const styles = StyleSheet.create((theme) => ({
     height: 28,
     justifyContent: "center",
   },
+  compactActions: { width: 44, height: 44, alignItems: "center" },
   hiddenActions: { opacity: 0 },
   title: {
     color: theme.colors.foreground,

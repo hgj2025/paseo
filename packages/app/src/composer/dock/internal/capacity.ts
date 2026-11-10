@@ -54,14 +54,20 @@ export function updateComposerCapacity(
   };
 }
 
-/** Compact editing leaves conversation space above the complete composer. */
+// The compact slot includes repository context, input controls and safe-area padding.
+// A percentage alone can make that fixed chrome larger than the entire slot with an IME open.
+export const MIN_COMPACT_COMPOSER_CAPACITY = 224;
+
+/** Leave conversation space when possible, while preserving the composer's fixed chrome. */
 export function resolveInlineComposerCapacity(
   capacity: number | undefined,
   compact: boolean,
 ): number | undefined {
   "worklet";
   if (capacity === undefined) return undefined;
-  return compact ? capacity * 0.6 : capacity;
+  return compact
+    ? Math.min(capacity, Math.max(MIN_COMPACT_COMPOSER_CAPACITY, capacity * 0.6))
+    : capacity;
 }
 
 export interface ComposerSlotLayout {

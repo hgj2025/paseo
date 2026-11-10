@@ -2,6 +2,9 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
+  sessionFiles: en.sessionFiles,
+  mobileHome: en.mobileHome,
+  executionContext: en.executionContext,
   homeOverview: en.homeOverview,
   executionDiagnostics: en.executionDiagnostics,
   modelHostDirectory: en.modelHostDirectory,

@@ -35,7 +35,9 @@ interface IconButtonChromeOptions {
   style?: StyleProp<ViewStyle>;
 }
 
-const IconButtonChromeContext = createContext<"default" | "header-island">("default");
+const IconButtonChromeContext = createContext<"default" | "header-island" | "header-bar">(
+  "default",
+);
 
 /** A container owns the chrome of its icon actions, including custom menu and badge triggers. */
 export const IconButtonChromeProvider = IconButtonChromeContext.Provider;
@@ -51,7 +53,7 @@ export function useIconButtonChromeStyle({
 }: Omit<IconButtonChromeOptions, "state"> & { active?: boolean }) {
   const scope = useContext(IconButtonChromeContext);
   return useCallback(
-    (state: IconButtonChromeState) =>
+    (state: IconButtonChromeState) => [
       iconButtonChromeStyle({
         size: scope === "header-island" ? "large" : size,
         compact,
@@ -60,6 +62,8 @@ export function useIconButtonChromeStyle({
         style,
         state: { ...state, active: active || state.active },
       }),
+      scope === "header-bar" && styles.barButton,
+    ],
     [scope, size, compact, disabled, round, style, active],
   );
 }
@@ -101,6 +105,7 @@ export function smallIconButtonChromeFrameSize(compact = false): number {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  barButton: { width: 44, height: 44 },
   large: {
     width: {
       xs: COMPACT_LARGE_ICON_BUTTON_SIZE,

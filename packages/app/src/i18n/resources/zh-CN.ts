@@ -2,6 +2,51 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  sessionFiles: {
+    session: "当前会话",
+    directory: "文件目录",
+    summary: "{{repositories}} 个仓库 / 目录 · {{files}} 个文件",
+    refresh: "刷新",
+    offline: "Host 离线 · 显示已记录的活动",
+    failed: "部分活动加载失败，请刷新重试",
+    loading: "正在读取会话活动…",
+    empty: "当前会话暂无仓库活动记录",
+    coverage:
+      "文件来自已完成的编辑记录。命令也可能修改文件，其工作目录单独列出。分支为当前检出分支，并非编辑发生时的历史分支。",
+    commandDirectories: "涉及目录（{{count}}）",
+    checking: "正在检查分支…",
+    noGit: "目录 · 非 Git 仓库",
+    browse: "浏览文件",
+    backToWorkspace: "← 工作区目录",
+  },
+  mobileHome: {
+    active: "活跃",
+    more: "更多",
+    memory: "记忆",
+    remove: "移除",
+  },
+  executionContext: {
+    expand: "展开工作目录与仓库分支",
+    collapse: "收起仓库详情",
+    branchChanged: "已切换",
+    offlineShort: "离线",
+
+    directory: "工作目录",
+    repository: "命令涉及仓库",
+    edited: "编辑过的仓库",
+    noRepository: "此目录不属于 Git 仓库",
+    loading: "正在确认仓库…",
+    failed: "暂时无法确认仓库状态",
+    offline: "已离线 · 上次状态",
+    detached: "游离 HEAD",
+    dirty: "有未提交修改",
+    clean: "工作树干净",
+    changed: "已从 {{branch}} 切换",
+    more: "另有 {{count}} 个仓库",
+    less: "收起",
+    copy: "复制 {{path}}",
+    copied: "已复制",
+  },
   homeOverview: {
     removeToday: "从今日活跃移除 {{name}}",
     removeTodayHint: "仅从今日列表隐藏，保留会话",

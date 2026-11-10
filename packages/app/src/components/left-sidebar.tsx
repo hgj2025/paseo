@@ -1,9 +1,15 @@
+import { MobileHostTabs } from "@/components/sidebar/mobile-host-tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getIsElectronMac } from "@/constants/platform";
 import { ActiveSessionSidebar } from "@/home-overview/sidebar";
-import { SidebarHostFilter } from "@/components/sidebar/sidebar-host-filter";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import {
   CircleGauge,
+  MoreHorizontal,
   FolderPlus,
   GitBranch,
   Server,
@@ -38,7 +44,6 @@ import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { DensityIcon } from "@/components/ui/density-icon";
-import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HEADER_INNER_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
@@ -426,6 +431,7 @@ function SidebarFooter({
   handleOpenHostSettings: (serverId: string) => void;
   onBeforeNavigate?: () => void;
 }) {
+  const compact = useIsCompactFormFactor();
   const newAgentKeys = useShortcutKeys("new-agent");
   const settingsKeys = useShortcutKeys("toggle-settings");
 
@@ -433,7 +439,7 @@ function SidebarFooter({
   return (
     <UsageSidebarRoot>
       <View style={styles.footerContainer} testID="sidebar-footer">
-        <SidebarFooterRows onBeforeNavigate={onBeforeNavigate} />
+        {!compact && <SidebarFooterRows onBeforeNavigate={onBeforeNavigate} />}
         <View style={styles.sidebarFooter} testID="sidebar-footer-bottom-line">
           <FooterIconButton
             onPress={handleOpenProject}
@@ -448,6 +454,7 @@ function SidebarFooter({
             onAddHost={handleAddHost}
             onOpenHostSettings={handleOpenHostSettings}
           />
+          {compact && <MobileNavigationMenu onBeforeNavigate={onBeforeNavigate} />}
           <View style={styles.footerSpacer} />
           <SidebarHelpMenu />
           <FooterIconButton
@@ -460,6 +467,31 @@ function SidebarFooter({
         </View>
       </View>
     </UsageSidebarRoot>
+  );
+}
+
+function MobileNavigationMenu({ onBeforeNavigate }: { onBeforeNavigate?: () => void }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const beforeNavigate = useCallback(() => {
+    setOpen(false);
+    onBeforeNavigate?.();
+  }, [onBeforeNavigate]);
+  return (
+    <DropdownMenu compactMode="sheet" open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        style={styles.footerIconButton}
+        accessibilityRole="button"
+        accessibilityLabel={t("mobileHome.more")}
+        testID="sidebar-mobile-more"
+      >
+        <DensityIcon icon={MoreHorizontal} size="md" color="foregroundMuted" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" sheetTitle={t("mobileHome.more")}>
+        <SidebarNavRows onBeforeNavigate={beforeNavigate} />
+        <SidebarFooterRows onBeforeNavigate={beforeNavigate} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -537,8 +569,19 @@ function MobileSidebar({
   insetsBottom,
   closeSidebar,
 }: MobileSidebarProps) {
+  const isHome = usePathname() === "/home";
+  const hosts = useHosts();
+  const [selectedHostId, setSelectedHostId] = useState<string | null>(null);
+  const selectHostFilter = useSidebarViewStore((state) => state.selectHostFilter);
+  const selectHost = useCallback(
+    (id: string | null) => {
+      if (id !== null) selectHostFilter(id);
+      setSelectedHostId(id);
+    },
+    [selectHostFilter],
+  );
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
-  const { gesture: closeGesture, gestureRef: closeGestureRef } = useCloseAgentListGesture();
+  const { gesture: closeGesture, gestureRef: closeGestureRef } = useCloseAgentListGesture(!isHome);
 
   const handleWorkspacePress = useCallback(() => {
     closeSidebar();
@@ -561,58 +604,53 @@ function MobileSidebar({
     >
       <View style={styles.sidebarContent} pointerEvents="auto">
         <WindowChromeSafeArea placement="below" />
-        <SidebarNavRows style={styles.sidebarHeaderGroup} onBeforeNavigate={closeSidebar} />
-        <WindowChromeSafeArea
-          placement="inline"
-          pointerEvents="box-none"
-          style={styles.mobileCloseButtonRow}
-        >
-          <Pressable
-            style={styles.mobileCloseButton}
-            onPress={closeSidebar}
-            testID="sidebar-close"
-            nativeID="sidebar-close"
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel={labels.closeSidebar}
-            hitSlop={8}
-          >
-            {({ hovered, pressed }) => (
-              <X
-                size={theme.iconSize.md}
-                color={hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted}
-              />
-            )}
-          </Pressable>
-        </WindowChromeSafeArea>
+        <MobileHostTabs
+          hosts={hosts}
+          selectedHostId={selectedHostId}
+          onSelect={selectHost}
+          actions={
+            <>
+              <SidebarDisplayPreferencesMenu />
+              {!isHome && (
+                <FooterIconButton
+                  onPress={closeSidebar}
+                  label={labels.closeSidebar}
+                  testID="sidebar-close"
+                  icon={X}
+                />
+              )}
+            </>
+          }
+        />
 
-        {active ? <ActiveSessionSidebar compact onBeforeNavigate={closeSidebar} /> : null}
-
-        {isInitialLoad && !hasActiveHostFilter ? (
-          <SidebarAgentListSkeleton />
-        ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onWorkspacePress={handleWorkspacePress}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            parentGestureRef={closeGestureRef}
-            dragGestureHostActive={active}
-            listHeaderComponent={workspacesSectionHeaderElement}
-          />
+        {selectedHostId === null && active && (
+          <ActiveSessionSidebar fill compact onBeforeNavigate={closeSidebar} />
         )}
+        {selectedHostId !== null &&
+          (isInitialLoad && !hasActiveHostFilter ? (
+            <SidebarAgentListSkeleton />
+          ) : (
+            <SidebarWorkspaceList
+              collapsedProjectKeys={collapsedProjectKeys}
+              onToggleProjectCollapsed={toggleProjectCollapsed}
+              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+              groupMode={groupMode}
+              workspaceGroups={workspaceGroups}
+              projectIconTargets={projectIconTargets}
+              pinnedGroups={pinnedGroups}
+              projects={projects}
+              hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+              hasActiveProjectFilter={hasActiveProjectFilter}
+              workspaceEntriesByKey={workspaceEntriesByKey}
+              isRefreshing={isManualRefresh && isRevalidating}
+              onRefresh={handleRefresh}
+              onWorkspacePress={handleWorkspacePress}
+              onAddProject={handleOpenProject}
+              onImportSession={handleImportSession}
+              parentGestureRef={closeGestureRef}
+              dragGestureHostActive={active}
+            />
+          ))}
 
         <SidebarFooter
           handleOpenProject={handleOpenProject}
@@ -653,7 +691,18 @@ function DesktopSidebar({
   insetsTop,
   active,
 }: DesktopSidebarProps) {
+  const displayPreferencesAction = useMemo(() => <SidebarDisplayPreferencesMenu />, []);
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
+  const hosts = useHosts();
+  const [selectedHostId, setSelectedHostId] = useState<string | null>(null);
+  const selectHostFilter = useSidebarViewStore((state) => state.selectHostFilter);
+  const selectHost = useCallback(
+    (id: string | null) => {
+      if (id !== null) selectHostFilter(id);
+      setSelectedHostId(id);
+    },
+    [selectHostFilter],
+  );
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
@@ -765,30 +814,37 @@ function DesktopSidebar({
           {!getIsElectronMac() ? <SidebarNavRows style={sidebarHeaderGroupStyle} /> : null}
         </View>
 
-        {active ? <ActiveSessionSidebar /> : null}
+        <MobileHostTabs
+          desktop
+          hosts={hosts}
+          selectedHostId={selectedHostId}
+          onSelect={selectHost}
+          actions={displayPreferencesAction}
+        />
 
-        {isInitialLoad && !hasActiveHostFilter ? (
-          <SidebarAgentListSkeleton />
-        ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            listHeaderComponent={workspacesSectionHeaderElement}
-          />
-        )}
+        {selectedHostId === null && active && <ActiveSessionSidebar fill />}
+        {selectedHostId !== null &&
+          (isInitialLoad && !hasActiveHostFilter ? (
+            <SidebarAgentListSkeleton />
+          ) : (
+            <SidebarWorkspaceList
+              collapsedProjectKeys={collapsedProjectKeys}
+              onToggleProjectCollapsed={toggleProjectCollapsed}
+              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+              groupMode={groupMode}
+              workspaceGroups={workspaceGroups}
+              projectIconTargets={projectIconTargets}
+              pinnedGroups={pinnedGroups}
+              projects={projects}
+              hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+              hasActiveProjectFilter={hasActiveProjectFilter}
+              workspaceEntriesByKey={workspaceEntriesByKey}
+              isRefreshing={isManualRefresh && isRevalidating}
+              onRefresh={handleRefresh}
+              onAddProject={handleOpenProject}
+              onImportSession={handleImportSession}
+            />
+          ))}
 
         <SidebarCalloutSlot />
 
@@ -811,31 +867,6 @@ function DesktopSidebar({
   );
 }
 
-function WorkspacesSectionHeader() {
-  return (
-    <SidebarSectionHeader title="Workspaces">
-      <SidebarHostFilter />
-      <Tooltip delayDuration={300}>
-        <TooltipTrigger asChild>
-          <View>
-            <SidebarDisplayPreferencesMenu />
-          </View>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="center" offset={8}>
-          <IconTooltipContent label="Display preferences" />
-        </TooltipContent>
-      </Tooltip>
-    </SidebarSectionHeader>
-  );
-}
-
-// Stable element so the sidebar list's listHeaderComponent prop keeps identity across
-// renders (WorkspacesSectionHeader takes no props).
-const workspacesSectionHeaderElement = <WorkspacesSectionHeader />;
-
-// Static styles for Animated.Views — must NOT use Unistyles dynamic theme to
-// avoid the "Unable to find node on an unmounted component" crash when Unistyles
-// tries to patch the native node that Reanimated also manages.
 const staticStyles = RNStyleSheet.create({
   desktopSidebar: {
     position: "relative" as const,
@@ -859,25 +890,6 @@ const styles = StyleSheet.create((theme) => ({
   sidebarContent: {
     flex: 1,
     minHeight: 0,
-  },
-  mobileCloseButtonRow: {
-    position: "absolute",
-    top: theme.spacing[3],
-    left: 0,
-    right: 0,
-    zIndex: 2,
-    alignItems: "flex-end",
-  },
-  mobileCloseButton: {
-    // The 16px X paints farther inside its 32px hit target than the 14px Settings2 glyph.
-    // This optical inset puts their painted right edges on the same sidebar rail.
-    marginRight: theme.spacing[2] + 1.5,
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surfaceSidebar,
   },
   desktopSidebarBorder: {
     borderRightWidth: 1,

@@ -1,3 +1,4 @@
+import { SwipeToAction } from "./swipe-to-action";
 import { memo, useCallback, useMemo, useState, type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { View, Text, type GestureResponderEvent } from "react-native";
@@ -74,6 +75,7 @@ export function SidebarWorkspaceRow({
   dragHandleProps,
 }: SidebarWorkspaceRowProps) {
   const { t } = useTranslation();
+  const compact = useIsCompactFormFactor();
   const toast = useToast();
   const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
@@ -153,29 +155,37 @@ export function SidebarWorkspaceRow({
 
   return (
     <>
-      <WorkspaceRowBody
-        workspace={workspace}
-        selected={selected}
-        shortcutNumber={shortcutNumber}
-        showShortcutBadge={showShortcutBadge}
-        hostBadge={hostBadge}
-        isCreating={isCreating}
-        isArchiving={isArchiving}
-        onPress={onPress}
-        drag={drag}
-        isDragging={isDragging}
-        dragHandleProps={dragHandleProps}
-        archiveLabel={t("sidebar.workspace.actions.archive")}
-        archiveStatus={isArchiving ? "pending" : "idle"}
-        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
-        onArchive={handleArchive}
-        onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
-        onCopyPath={handleCopyPath}
-        onRename={handleOpenRename}
-        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
-        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
-        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
-      />
+      <SwipeToAction
+        enabled={compact}
+        disabled={isArchiving || isCreating}
+        label={t("sidebar.workspace.actions.archive")}
+        onAction={handleArchive}
+        testID={`workspace-swipe-${workspace.workspaceKey}`}
+      >
+        <WorkspaceRowBody
+          workspace={workspace}
+          selected={selected}
+          shortcutNumber={shortcutNumber}
+          showShortcutBadge={showShortcutBadge}
+          hostBadge={hostBadge}
+          isCreating={isCreating}
+          isArchiving={isArchiving}
+          onPress={onPress}
+          drag={drag}
+          isDragging={isDragging}
+          dragHandleProps={dragHandleProps}
+          archiveLabel={t("sidebar.workspace.actions.archive")}
+          archiveStatus={isArchiving ? "pending" : "idle"}
+          archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+          onArchive={handleArchive}
+          onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
+          onCopyPath={handleCopyPath}
+          onRename={handleOpenRename}
+          onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+          onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
+          archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+        />
+      </SwipeToAction>
       <WorkspaceRenameModal
         visible={isRenameOpen}
         workspace={workspace}

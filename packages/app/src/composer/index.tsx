@@ -1,3 +1,4 @@
+import { ComposerExecutionContext } from "./execution-context";
 import { rememberSentMessage, recallMessage, canRecallMessage } from "./recall-message";
 import { useModelHostContext } from "@/screens/workspace/model-host-context";
 import { executionMember } from "@getpaseo/protocol/workspace-team";
@@ -2638,6 +2639,15 @@ function ComposerContentImpl({
     />
   );
 
+  const collapseControl = useMemo(
+    () =>
+      canCollapse && !composerCollapsed ? (
+        <Button size="xs" variant="ghost" onPress={toggleComposer} testID="team-composer-toggle">
+          {t("workspace.team.group.collapseComposer")}
+        </Button>
+      ) : null,
+    [canCollapse, composerCollapsed, toggleComposer, t],
+  );
   return (
     <>
       <ComposerKeyboardRegistration
@@ -2662,8 +2672,17 @@ function ComposerContentImpl({
             {isFullscreen ? null : queueList}
             {!isFullscreen && sendErrorNode}
 
+            {!isFullscreen && (
+              <ComposerExecutionContext
+                key={`${serverId}:${agentId}:${cwd}`}
+                serverId={serverId}
+                agentId={agentId}
+                cwd={cwd}
+                trailing={collapseControl}
+              />
+            )}
             <View ref={messageInputContainerRef} style={messageInputContainerStyle}>
-              {!isFullscreen && (
+              {!isFullscreen && (workspaceToolbar || composerCollapsed) && (
                 <View style={styles.teamComposerHeader}>
                   <View style={styles.teamToolbarSlot}>{workspaceToolbar}</View>
                   {composerCollapsed && (hasText || selectedAttachments.length > 0) && (
@@ -2673,7 +2692,8 @@ function ComposerContentImpl({
                     <Text style={styles.teamDraftLabel}>{queuedMessages.length}</Text>
                   )}
                   {composerCollapsed && isAgentRunning && activeActionContent}
-                  {canCollapse && (
+
+                  {canCollapse && composerCollapsed && (
                     <Button
                       size="xs"
                       variant="ghost"
@@ -2792,12 +2812,14 @@ const styles = StyleSheet.create((theme: Theme) => ({
     maxWidth: "100%",
   },
   inputAreaContent: {
+    minHeight: 0,
     flexShrink: 1,
     width: "100%",
     maxWidth: theme.contentMaxWidth,
-    gap: theme.spacing[3],
+    gap: theme.spacing[1],
   },
   messageInputContainer: {
+    minHeight: 0,
     flexShrink: 1,
     position: "relative",
     width: "100%",

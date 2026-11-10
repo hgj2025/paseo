@@ -1,3 +1,6 @@
+import { FloatingHeaderLayout } from "@/components/floating-header";
+import { MobileHostTabs } from "@/components/sidebar/mobile-host-tabs";
+import { SwipeToAction } from "@/components/sidebar/swipe-to-action";
 import { useDismissedSessions } from "./sidebar-dismissed";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { activeSessionHeightStore, resolveActiveSessionHeight } from "./sidebar-height";
@@ -156,12 +159,22 @@ it("shows cross-host active sessions in a narrow sidebar without idle rows and o
   root = createRoot(container);
   act(() =>
     root?.render(
-      <ActiveSessionSidebarView sessions={sessions} loading={false} openSession={open} />,
+      <ActiveSessionSidebarView
+        selectedSessionKey={JSON.stringify(["vm", "same"])}
+        sessions={sessions}
+        loading={false}
+        openSession={open}
+      />,
     ),
   );
   const ui = within(container);
   expect(ui.getByText("今日活跃")).toBeTruthy();
   expect(ui.queryByText("Old idle")).toBeNull();
+  const selectedRow = ui.getByRole("button", { name: "devbox · Finished · 已完成" });
+  expect(selectedRow.getAttribute("aria-current")).toBe("page");
+  expect(
+    ui.getAllByRole("button").filter((node) => node.getAttribute("aria-current") === "page"),
+  ).toHaveLength(1);
   act(() => ui.getByRole("button", { name: "devbox · Finished · 已完成" }).click());
   expect(open).toHaveBeenCalledWith("vm", "same");
   expect(container.getBoundingClientRect().width).toBe(300);
@@ -431,4 +444,199 @@ it("shows one daily entry for cross-host panes and opens the captain", async () 
   expect(within(container).queryByText("Codex")).toBeNull();
   act(() => within(container).getByText("Gaia conversation").click());
   expect(open).toHaveBeenCalledExactlyOnceWith("mac", "captain");
+});
+
+const swipeButtonStyle = { height: 64, width: "100%" };
+const swipeDestinationStyle = {
+  position: "fixed" as const,
+  top: 130,
+  left: 90,
+  width: 20,
+  height: 20,
+};
+it("reveals the mobile swipe action before removal and preserves ordinary row navigation", async () => {
+  await page.viewport(800, 700);
+  const remove = vi.fn();
+  const open = vi.fn();
+  container = document.createElement("div");
+  container.style.cssText = "position:relative;width:320px;margin-left:220px;padding-top:100px";
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <>
+        <SwipeToAction enabled label="移除" onAction={remove} testID="mobile-swipe-test">
+          <button type="button" onClick={open} style={swipeButtonStyle}>
+            Swipe this session
+          </button>
+        </SwipeToAction>
+        <div data-testid="swipe-destination" style={swipeDestinationStyle} />
+      </>,
+    ),
+  );
+  const ui = within(container);
+  expect(ui.queryByRole("button", { name: "移除" })).toBeNull();
+  const target = ui.getByText("Swipe this session");
+  const bounds = target.getBoundingClientRect();
+  const sendTouch = (type: string, x: number) => {
+    const touch = new Touch({
+      identifier: 1,
+      target,
+      clientX: x,
+      clientY: bounds.top + 24,
+      pageX: x,
+      pageY: bounds.top + 24,
+    });
+    const touches = type === "touchend" ? [] : [touch];
+    act(() =>
+      target.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          touches,
+          targetTouches: touches,
+          changedTouches: [touch],
+        }),
+      ),
+    );
+  };
+  sendTouch("touchstart", bounds.left + 220);
+  for (const distance of [20, 40, 60, 80, 100, 120]) {
+    await new Promise(requestAnimationFrame);
+    sendTouch("touchmove", bounds.left + 220 - distance);
+  }
+  sendTouch("touchend", bounds.left + 100);
+  await vi.waitFor(() => expect(ui.getByRole("button", { name: "移除" })).toBeTruthy());
+  expect(remove).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
+  await page.elementLocator(container).screenshot({ path: "/private/tmp/paseo-mobile-swipe.png" });
+  act(() => ui.getByRole("button", { name: "移除" }).click());
+  expect(remove).toHaveBeenCalledOnce();
+});
+
+it("uses swipe removal for compact active sessions without a permanent X", () => {
+  const sessions = buildHomeSessions(
+    [agent({ title: "Mobile session", lastActivityAt: new Date() })],
+    [{ serverId: "mac", label: "Mac", fresh: true, connected: true }],
+  );
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <ActiveSessionSidebarView
+        compact
+        fill
+        sessions={sessions}
+        loading={false}
+        openSession={noop}
+      />,
+    ),
+  );
+  const ui = within(container);
+  expect(ui.getByTestId("active-session-swipe-mac-same")).toBeTruthy();
+  expect(ui.queryByRole("button", { name: "从今日活跃移除 Mobile session" })).toBeNull();
+  expect(ui.getByText("Mobile session")).toBeTruthy();
+});
+
+it("replaces the phone home hierarchy with Active and one tab per host", async () => {
+  const select = vi.fn();
+  container = document.createElement("div");
+  container.style.cssText = "width:360px";
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const hosts = [
+    { serverId: "hgj-id", label: "hgj" },
+    { serverId: "home-id", label: "home" },
+  ];
+  act(() => root?.render(<MobileHostTabs hosts={hosts} selectedHostId={null} onSelect={select} />));
+  const ui = within(container);
+  expect(ui.getByRole("tab", { name: "活跃" }).getAttribute("aria-selected")).toBe("true");
+  expect(ui.queryByText("首页")).toBeNull();
+  expect(ui.queryByText("工作区")).toBeNull();
+  expect(ui.queryByText("Hot")).toBeNull();
+  act(() => ui.getByRole("tab", { name: "hgj" }).click());
+  expect(select).toHaveBeenLastCalledWith("hgj-id");
+  act(() =>
+    root?.render(<MobileHostTabs hosts={hosts} selectedHostId="home-id" onSelect={select} />),
+  );
+  expect(ui.getByRole("tab", { name: "home" }).getAttribute("aria-selected")).toBe("true");
+  act(() => ui.getByRole("tab", { name: "活跃" }).click());
+  expect(select).toHaveBeenLastCalledWith(null);
+});
+
+const chatScrollStyle = { height: "100%", overflow: "auto" as const };
+const chatLineStyle = { height: 42 };
+const flatHeaderStyle = { height: 88, flexShrink: 0, backgroundColor: "#171919" };
+const renderChatBelowHeader = () => (
+  <div data-testid="chat-below-header" style={chatScrollStyle}>
+    {Array.from({ length: 40 }, (_, index) => (
+      <div key={index} style={chatLineStyle}>
+        Message {index}
+      </div>
+    ))}
+  </div>
+);
+const flatChatHeader = (
+  <div style={flatHeaderStyle} data-testid="flat-chat-header">
+    Conversation · hgj
+  </div>
+);
+it("reserves the opaque conversation header height so scrolling messages never pass under the title", () => {
+  container = document.createElement("div");
+  container.style.cssText = "display:flex;flex-direction:column;width:360px;height:480px";
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <FloatingHeaderLayout header={flatChatHeader} floating={false}>
+        {renderChatBelowHeader}
+      </FloatingHeaderLayout>,
+    ),
+  );
+  const ui = within(container);
+  const title = ui.getByTestId("flat-chat-header");
+  const content = ui.getByTestId("chat-below-header");
+  const headerBottom = title.getBoundingClientRect().bottom;
+  expect(content.getBoundingClientRect().top).toBeGreaterThanOrEqual(headerBottom);
+  expect(container.scrollWidth).toBeLessThanOrEqual(360);
+  content.scrollTop = 200;
+  expect(title.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+    container.getBoundingClientRect().top,
+  );
+  expect(content.getBoundingClientRect().top).toBeGreaterThanOrEqual(headerBottom);
+});
+
+it("desktop sidebar presents Hot and direct host tabs without a workspace tab or host dropdown", () => {
+  const select = vi.fn();
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <MobileHostTabs
+        desktop
+        hosts={[
+          { serverId: "hgj", label: "hgj" },
+          { serverId: "devbox", label: "devbox" },
+          { serverId: "home", label: "home" },
+        ]}
+        selectedHostId="hgj"
+        onSelect={select}
+      />,
+    ),
+  );
+  const ui = within(container!);
+  expect(ui.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    "",
+    "hgj",
+    "devbox",
+    "home",
+  ]);
+  expect(ui.queryByText("工作区")).toBeNull();
+  expect(ui.getByRole("tab", { name: "hgj" }).getAttribute("aria-selected")).toBe("true");
+  act(() => ui.getByRole("tab", { name: "devbox" }).click());
+  expect(select).toHaveBeenLastCalledWith("devbox");
+  act(() => ui.getByRole("tab", { name: "活跃" }).click());
+  expect(select).toHaveBeenLastCalledWith(null);
 });

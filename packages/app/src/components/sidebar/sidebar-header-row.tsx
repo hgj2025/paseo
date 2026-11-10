@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useContext } from "react";
 import { MoreHorizontal } from "lucide-react-native";
 import { SidebarRailContext } from "./sidebar-rail-context";
@@ -5,7 +6,11 @@ import { RailButton } from "@/home-overview/navigation-rail-view";
 import { useCallback, useState, type ComponentType, type ReactNode, type Ref } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { HEADER_INNER_HEIGHT, HEADER_INNER_HEIGHT_MOBILE } from "@/constants/layout";
+import {
+  HEADER_INNER_HEIGHT,
+  HEADER_INNER_HEIGHT_MOBILE,
+  useIsCompactFormFactor,
+} from "@/constants/layout";
 import { DensityIcon } from "@/components/ui/density-icon";
 import { Shortcut } from "@/components/ui/shortcut";
 import { density, densityIconBox } from "@/styles/density";
@@ -42,6 +47,14 @@ interface SidebarHeaderRowProps {
   rowRef?: Ref<View>;
 }
 
+function useMobileSidebarLabel(label: string) {
+  const compact = useIsCompactFormFactor();
+  const { t } = useTranslation();
+  if (compact && (label === "项目记忆" || label === "Project memory"))
+    return t("mobileHome.memory");
+  return label;
+}
+
 export function SidebarHeaderRow({
   icon,
   label,
@@ -56,22 +69,20 @@ export function SidebarHeaderRow({
   rowRef,
 }: SidebarHeaderRowProps) {
   const rail = useContext(SidebarRailContext);
+  const displayLabel = useMobileSidebarLabel(label);
   const [isHovered, setIsHovered] = useState(false);
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const isHighlighted = isHovered || isActive;
   const iconSize = variant === "header" ? "md" : "sm";
 
-  let right = trailing ?? null;
-  if (right === null && shortcutKeys && isHovered) {
-    right = <Shortcut chord={shortcutKeys} />;
-  }
+  const right = resolveHeaderTrailing(trailing, shortcutKeys, isHovered);
 
   if (rail)
     return (
       <RailButton
         icon={icon ?? MoreHorizontal}
-        label={accessibilityLabel ?? label}
+        label={accessibilityLabel ?? displayLabel}
         active={isActive}
         onPress={onPress}
         testID={testID ?? "rail-plugin"}
@@ -91,7 +102,7 @@ export function SidebarHeaderRow({
           nativeID={nativeID}
           accessible
           accessibilityRole="button"
-          accessibilityLabel={accessibilityLabel ?? label}
+          accessibilityLabel={accessibilityLabel ?? displayLabel}
           accessibilityState={isActive ? SELECTED_STATE : undefined}
           aria-selected={isActive}
           style={styles.button}
@@ -105,7 +116,9 @@ export function SidebarHeaderRow({
           ) : (
             <View style={variant === "header" ? styles.iconSpacer : styles.iconSpacerCompact} />
           )}
-          <Text style={[styles.label, isHighlighted && styles.labelHighlighted]}>{label}</Text>
+          <Text style={[styles.label, isHighlighted && styles.labelHighlighted]}>
+            {displayLabel}
+          </Text>
         </Pressable>
         {right === null ? null : (
           <Pressable onPress={onPress} accessible={false} focusable={false} style={styles.trailing}>
@@ -115,6 +128,15 @@ export function SidebarHeaderRow({
       </View>
     </View>
   );
+}
+
+function resolveHeaderTrailing(
+  trailing: ReactNode,
+  shortcutKeys: ShortcutKey[][] | null,
+  hovered: boolean,
+) {
+  if (trailing != null) return trailing;
+  return shortcutKeys && hovered ? <Shortcut chord={shortcutKeys} /> : null;
 }
 
 const SELECTED_STATE = { selected: true } as const;
@@ -146,7 +168,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     // Same row geometry as the settings sidebar items. Shorter than the header
     // strip so the hover highlight clears the strip's bottom separator.
-    minHeight: density.tightRowHeight,
+    minHeight: { ...density.tightRowHeight, xs: 48 },
     borderRadius: theme.borderRadius.lg,
   },
   rowHighlighted: {
@@ -158,7 +180,7 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-    minHeight: density.tightRowHeight,
+    minHeight: { ...density.tightRowHeight, xs: 48 },
     paddingVertical: theme.spacing[1],
     // Match the project rows' inner padding so the icons align on one vertical
     // edge with the list below.

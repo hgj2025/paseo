@@ -1,3 +1,4 @@
+import { SwipeToAction } from "@/components/sidebar/swipe-to-action";
 import { Button } from "@/components/ui/button";
 import { isNative } from "@/constants/platform";
 import { X } from "lucide-react-native";
@@ -14,14 +15,18 @@ import { todaySessions, type HomeSession } from "./model";
 
 export function ActiveSessionSidebarView({
   sessions,
+  selectedSessionKey,
   loading,
   openSession,
   compact = false,
+  fill = false,
   onBeforeNavigate,
 }: {
   sessions: readonly HomeSession[];
+  selectedSessionKey?: string;
   loading: boolean;
   compact?: boolean;
+  fill?: boolean;
   onBeforeNavigate?: () => void;
   openSession(serverId: string, agentId: string): void;
 }) {
@@ -42,13 +47,13 @@ export function ActiveSessionSidebarView({
     saveHeight(resolveActiveSessionHeight(sizes[0]! * windowHeight, windowHeight));
     setPreviewHeight(null);
   });
-  const sectionStyle = useMemo(
-    () => [
+  const sectionStyle = useMemo(() => {
+    if (fill) return [styles.section, { flex: 1, minHeight: 0, maxHeight: "100%" as const }];
+    return [
       styles.section,
       compact ? styles.compactSection : { height: sectionHeight, maxHeight: sectionHeight },
-    ],
-    [compact, sectionHeight],
-  );
+    ];
+  }, [compact, fill, sectionHeight]);
   const [signalFilter, setSignalFilter] = useState<HomeSession["state"] | null>(null);
   const toggleSignal = useStableEvent((state: HomeSession["state"]) => {
     setSignalFilter((current) =>
@@ -99,6 +104,7 @@ export function ActiveSessionSidebarView({
   const renderItem = useStableEvent(({ item }: { item: HomeSession }) => (
     <ActiveSessionRow
       item={item}
+      isCurrent={sessionKey(item) === selectedSessionKey}
       compact={compact}
       openSession={handleOpenSession}
       toggleSignal={toggleSignal}
@@ -109,7 +115,7 @@ export function ActiveSessionSidebarView({
   return (
     <View style={sectionStyle} testID="sidebar-cross-host-active">
       <View style={styles.heading}>
-        <Text style={styles.label}>{t("homeOverview.today")}</Text>
+        {!fill && <Text style={styles.label}>{t("homeOverview.today")}</Text>}
         {signalFilter !== null && (
           <Pressable
             accessibilityRole="button"
@@ -125,12 +131,13 @@ export function ActiveSessionSidebarView({
       <FlatList
         nestedScrollEnabled
         data={visibleSessions}
+        extraData={selectedSessionKey}
         style={styles.list}
         keyExtractor={sessionKey}
         ListEmptyComponent={empty}
         renderItem={renderItem}
       />
-      {!compact && (
+      {!compact && !fill && (
         <View style={styles.resizeBoundary}>
           <ResizeHandle
             testID="active-session-sidebar-resize"
@@ -154,6 +161,7 @@ const rowStyle = ({ hovered, pressed }: { hovered?: boolean; pressed: boolean })
 ];
 function ActiveSessionRow({
   item,
+  isCurrent,
   compact,
   openSession,
   toggleSignal,
@@ -161,6 +169,7 @@ function ActiveSessionRow({
   dismissSession,
 }: {
   item: HomeSession;
+  isCurrent: boolean;
   dismissSession(key: string): void;
   compact: boolean;
   signalFilter: HomeSession["state"] | null;
@@ -179,78 +188,91 @@ function ActiveSessionRow({
   const filterSignal = useStableEvent(() => toggleSignal(item.state));
   const selected = signalFilter !== null && signalGroup(signalFilter) === signalGroup(item.state);
   const signalAccessibilityState = useMemo(() => ({ selected }), [selected]);
+  const rowAccessibilityState = useMemo(() => ({ selected: isCurrent }), [isCurrent]);
   const open = useStableEvent(() => openSession(item.agent.serverId, item.agent.id));
   const pressableStyle = useStableEvent((state: Parameters<typeof rowStyle>[0]) => [
     rowStyle(state),
     compact && styles.compactRow,
+    isCurrent && styles.currentRow,
   ]);
   return (
-    <View style={styles.rowContainer} onPointerEnter={enter} onPointerLeave={leave}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${item.agent.serverLabel} · ${item.agent.title || item.agent.provider} · ${t(`homeOverview.state.${item.state}`)}`}
-        onPress={open}
-        onFocus={focus}
-        onBlur={blur}
-        style={pressableStyle}
-      >
-        <View style={styles.line}>
-          <Text numberOfLines={1} style={styles.title}>
-            {item.agent.title || item.agent.provider}
+    <SwipeToAction
+      enabled={compact}
+      onAction={dismiss}
+      label={t("mobileHome.remove")}
+      testID={`active-session-swipe-${item.agent.serverId}-${item.agent.id}`}
+    >
+      <View style={styles.rowContainer} onPointerEnter={enter} onPointerLeave={leave}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={rowAccessibilityState}
+          aria-current={isCurrent ? "page" : undefined}
+          accessibilityLabel={`${item.agent.serverLabel} · ${item.agent.title || item.agent.provider} · ${t(`homeOverview.state.${item.state}`)}`}
+          onPress={open}
+          onFocus={focus}
+          onBlur={blur}
+          style={pressableStyle}
+        >
+          <View style={styles.line}>
+            <Text numberOfLines={1} style={styles.title}>
+              {item.agent.title || item.agent.provider}
+            </Text>
+          </View>
+          <Text numberOfLines={1} style={styles.meta}>
+            {item.agent.serverLabel} · {item.agent.provider}
           </Text>
-        </View>
-        <Text numberOfLines={1} style={styles.meta}>
-          {item.agent.serverLabel} · {item.agent.provider}
-        </Text>
-      </Pressable>
-      <View
-        style={[
-          styles.removeSlot,
-          compact && styles.compactRemoveSlot,
-          !showActions && styles.hiddenActions,
-        ]}
-        pointerEvents={showActions ? "auto" : "none"}
-      >
+        </Pressable>
+        {!compact && (
+          <View
+            style={[
+              styles.removeSlot,
+              compact && styles.compactRemoveSlot,
+              !showActions && styles.hiddenActions,
+            ]}
+            pointerEvents={showActions ? "auto" : "none"}
+          >
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  leftIcon={X}
+                  accessibilityLabel={t("homeOverview.removeToday", {
+                    name: item.agent.title || item.agent.provider,
+                  })}
+                  onPress={dismiss}
+                  onFocus={focus}
+                  onBlur={blur}
+                  disabled={!showActions}
+                />
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <Text>{t("homeOverview.removeTodayHint")}</Text>
+              </TooltipContent>
+            </Tooltip>
+          </View>
+        )}
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
-            <Button
-              size="xs"
-              variant="ghost"
-              leftIcon={X}
-              accessibilityLabel={t("homeOverview.removeToday", {
-                name: item.agent.title || item.agent.provider,
+            <Pressable
+              testID={`sidebar-signal-${item.agent.serverId}-${item.agent.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t("homeOverview.filterSignal", {
+                state: t(`homeOverview.state.${item.state}`),
               })}
-              onPress={dismiss}
-              onFocus={focus}
-              onBlur={blur}
-              disabled={!showActions}
-            />
+              accessibilityState={signalAccessibilityState}
+              onPress={filterSignal}
+              style={[styles.signalSlot, compact && styles.compactSignalSlot]}
+            >
+              <View style={[styles.signal, signalStyle(item.state)]} />
+            </Pressable>
           </TooltipTrigger>
           <TooltipContent side="right">
-            <Text>{t("homeOverview.removeTodayHint")}</Text>
+            <Text>{t(`homeOverview.state.${item.state}`)}</Text>
           </TooltipContent>
         </Tooltip>
       </View>
-      <Tooltip delayDuration={200}>
-        <TooltipTrigger asChild>
-          <Pressable
-            testID={`sidebar-signal-${item.agent.serverId}-${item.agent.id}`}
-            accessibilityRole="button"
-            accessibilityLabel={t("homeOverview.filterSignal", {
-              state: t(`homeOverview.state.${item.state}`),
-            })}
-            accessibilityState={signalAccessibilityState}
-            onPress={filterSignal}
-            style={[styles.signalSlot, compact && styles.compactSignalSlot]}
-          >
-            <View style={[styles.signal, signalStyle(item.state)]} />
-          </Pressable>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          <Text>{t(`homeOverview.state.${item.state}`)}</Text>
-        </TooltipContent>
-      </Tooltip>
-    </View>
+    </SwipeToAction>
   );
 }
 function signalGroup(state: HomeSession["state"]) {
@@ -285,7 +307,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   resizeBoundary: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 10 },
   compactSection: { maxHeight: "40%" },
-  compactRow: { minHeight: 48 },
+  compactRow: { minHeight: 56, paddingRight: 56 },
   heading: {
     flexDirection: "row",
     alignItems: "center",
@@ -316,6 +338,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: 3,
   },
   hover: { backgroundColor: theme.colors.surface2 },
+  currentRow: { backgroundColor: theme.colors.surface3 },
   line: { flexDirection: "row", alignItems: "center", gap: 8 },
   hiddenActions: { opacity: 0 },
   removeSlot: {

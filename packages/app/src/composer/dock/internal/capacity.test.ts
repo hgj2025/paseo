@@ -8,7 +8,7 @@ import {
 } from "./capacity";
 
 describe("composer viewport", () => {
-  it("caps the complete compact composer at sixty percent of keyboard-reserved space", () => {
+  it("reserves enough compact space for the input and repository chrome above the keyboard", () => {
     const open = updateComposerCapacity(undefined, {
       height: 582,
       bottomInset: 24,
@@ -16,9 +16,11 @@ describe("composer viewport", () => {
       centered: false,
       keyboardShift: 308,
     });
-    expect(resolveInlineComposerCapacity(open.capacity, true)).toBe(147);
+    expect(resolveInlineComposerCapacity(open.capacity, true)).toBe(224);
     expect(resolveInlineComposerCapacity(open.capacity, false)).toBe(245);
     expect(resolveInlineComposerCapacity(undefined, true)).toBeUndefined();
+    expect(resolveInlineComposerCapacity(150, true)).toBe(150);
+    expect(resolveInlineComposerCapacity(500, true)).toBe(300);
   });
   it("lets a fullscreen composer fill the viewport while inline keeps its cap", () => {
     const open = updateComposerCapacity(undefined, {
@@ -29,7 +31,7 @@ describe("composer viewport", () => {
       keyboardShift: 308,
     });
     expect(resolveComposerSlotCapacity(open, { compact: true, fullscreen: true })).toBe(582);
-    expect(resolveComposerSlotCapacity(open, { compact: true, fullscreen: false })).toBe(147);
+    expect(resolveComposerSlotCapacity(open, { compact: true, fullscreen: false })).toBe(224);
     expect(resolveComposerSlotCapacity(undefined, { compact: true, fullscreen: true })).toBe(
       undefined,
     );

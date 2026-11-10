@@ -1,9 +1,34 @@
+import { SessionFilesTabs, SessionFilesView } from "../panels/session-files-view";
+import { ExecutionContextView } from "./execution-context-view";
+import { executionDirectories } from "./execution-context-model";
+import { i18n } from "@/i18n/i18next";
+import { page } from "vitest/browser";
+import type { StreamItem } from "@/types/stream";
 import React, { act, useCallback, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Pressable, Text } from "react-native";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RetainedPanelActivity } from "@/components/retained-panel";
 import { ComposerTrackPill, ComposerTrackRow, type ComposerTrackPillSegment } from "./tracks";
+
+vi.mock("react-native-unistyles", async () => {
+  const base =
+    await vi.importActual<typeof import("../../test-stubs/react-native-unistyles")>(
+      "react-native-unistyles",
+    );
+  const { darkClaudeTheme } = await import("@/styles/theme");
+  const theme = {
+    ...darkClaudeTheme,
+    colors: { ...darkClaudeTheme.colors, statusDotRunning: "#268ae0", statusDotDanger: "#f12e2f" },
+  };
+  return {
+    ...base,
+    StyleSheet: {
+      create: (styles: unknown) => (typeof styles === "function" ? styles(theme) : styles),
+    },
+    useUnistyles: () => ({ theme, rt: {}, breakpoint: "md" }),
+  };
+});
 
 const SUBAGENT_SEGMENTS: ComposerTrackPillSegment[] = [{ bucket: null, text: "3 subagents" }];
 
@@ -254,4 +279,239 @@ describe("composer track pill status mark", () => {
     const animated = segments[1]?.querySelectorAll("*") ?? [];
     expect([...animated].filter((element) => element.getAnimations().length > 0)).toHaveLength(1);
   });
+});
+
+const copyExecutionPath = vi.fn(async (_path: string) => {});
+describe("composer execution context", () => {
+  it("finds edits outside the launch directory and ignores failed tools and read-only paths", () => {
+    const tool = (detail: object, status = "completed") =>
+      ({ kind: "tool_call", payload: { source: "agent", data: { detail, status } } }) as StreamItem;
+    expect(
+      executionDirectories("/projects/chat", [
+        tool({ type: "edit", filePath: "/projects/paseo/src/app.ts" }),
+        tool({ type: "write", filePath: "readme.md" }),
+        tool({ type: "read", filePath: "/secret/read.txt" }),
+        tool({ type: "edit", filePath: "/failed/a.ts" }, "failed"),
+        tool({ type: "shell", cwd: "/projects/paseo", command: "git status" }),
+      ]),
+    ).toEqual([
+      { path: "/projects/chat", edited: true },
+      { path: "/projects/paseo/src", edited: true },
+      { path: "/projects/paseo", edited: false },
+    ]);
+  });
+  it("shows full directory, real repository roots, branch changes and offline status at desktop and narrow widths", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const container = mount(
+      <ExecutionContextView
+        onCopy={copyExecutionPath}
+        cwd="/Users/bytedance/Documents/ChatGPT/ccproxy 2"
+        connected
+        loading={false}
+        failed={false}
+        repositories={[
+          {
+            root: "/Users/bytedance/code/github/paseo",
+            branch: "codex/execution-context",
+            dirty: true,
+            edited: true,
+            previousBranch: "main",
+          },
+          {
+            root: "/Users/bytedance/Documents/ChatGPT/ccproxy 2",
+            branch: "main",
+            dirty: false,
+            edited: false,
+          },
+          { root: "/home/research/projects/backend", branch: null, dirty: true, edited: true },
+        ]}
+      />,
+    );
+    await page.viewport(1100, 320);
+    container.style.cssText = "width: 1000px; background: #272727; padding: 16px";
+    expect(container.textContent).toContain("codex/execution-context");
+    expect(container.textContent).toContain("已切换");
+    expect(container.textContent).not.toContain("/Users/bytedance/code/github/paseo");
+    expect(container.textContent).not.toContain("/home/research/projects/backend");
+    const collapsedHeight = container.getBoundingClientRect().height;
+    const toggle = container.querySelector('[data-testid="execution-context-toggle"]')!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const summaryCopy = Array.from(container.querySelectorAll('[role="button"]')).find(
+      (node) => node.textContent === "codex/execution-context",
+    )!;
+    await act(async () => {
+      (summaryCopy as HTMLElement).click();
+    });
+    expect(copyExecutionPath).toHaveBeenLastCalledWith("codex/execution-context");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const branchCopy = Array.from(container.querySelectorAll('[role="button"]')).find(
+      (node) => node.textContent === "codex/execution-context",
+    );
+    expect(branchCopy).toBeDefined();
+    await act(async () => {
+      (branchCopy as HTMLElement).click();
+    });
+    expect(copyExecutionPath).toHaveBeenLastCalledWith("codex/execution-context");
+    expect(container.textContent).toContain("游离 HEAD");
+    expect(container.textContent).toContain("已从 main 切换");
+    expect(container.textContent).toContain("/Users/bytedance/code/github/paseo");
+    expect(container.getBoundingClientRect().height).toBeGreaterThan(collapsedHeight);
+    await page.screenshot({ path: "/private/tmp/paseo-execution-context-desktop.png" });
+    await page.viewport(400, 450);
+    container.style.width = "340px";
+    await page.screenshot({ path: "/private/tmp/paseo-execution-context-narrow.png" });
+    expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth);
+    click(toggle);
+    expect(container.textContent).not.toContain("/home/research/projects/backend");
+    expect(container.getBoundingClientRect().height).toBeLessThan(80);
+    await page.screenshot({ path: "/private/tmp/paseo-execution-context-collapsed.png" });
+    const entry = mounted[mounted.length - 1]!;
+    act(() =>
+      entry.root.render(
+        <ExecutionContextView
+          onCopy={copyExecutionPath}
+          cwd="/repo"
+          connected={false}
+          loading={false}
+          failed={false}
+          repositories={[]}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain("离线");
+  });
+});
+
+describe("session repository sidebar", () => {
+  it("groups edited files, collapses repositories and opens file and directory actions", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const open = vi.fn(),
+      browse = vi.fn(),
+      refresh = vi.fn();
+    const container = mount(
+      <>
+        <SessionFilesTabs mode="session" onChange={vi.fn()} />
+        <SessionFilesView
+          loading={false}
+          failed={false}
+          offline={false}
+          onRetry={refresh}
+          repositories={[
+            {
+              key: "main",
+              host: "hgj",
+              root: "/Users/bytedance/vmcode/mock2.0/mock_platform",
+              git: true,
+              pending: false,
+              branch: "feature/venv-boe-support",
+              files: [
+                { path: "/Users/bytedance/vmcode/mock2.0/mock_platform/src/server.ts", open },
+                { path: "/Users/bytedance/vmcode/mock2.0/mock_platform/src/handler.ts", open },
+              ],
+              directories: ["/Users/bytedance/vmcode/mock2.0/mock_platform"],
+              browse,
+            },
+            {
+              key: "worktree",
+              host: "hgj",
+              root: "/Users/bytedance/vmcode/mock2.0/wt-platform-tcc-mock",
+              git: true,
+              pending: false,
+              branch: "research/tcc-mock-20261102",
+              files: [
+                {
+                  path: "/Users/bytedance/vmcode/mock2.0/wt-platform-tcc-mock/config/routes.json",
+                  open,
+                },
+              ],
+              directories: [],
+              browse,
+            },
+          ]}
+        />
+      </>,
+    );
+    container.style.cssText =
+      "width:360px;height:760px;background:#272727;padding:0;display:flex;flex-direction:column";
+    await page.viewport(380, 800);
+    expect(container.textContent).toContain("2 个仓库 / 目录 · 3 个文件");
+    const find = (text: string) =>
+      Array.from(container.querySelectorAll('[role="button"]')).find(
+        (node) => node.textContent === text,
+      )!;
+    const toggle = Array.from(container.querySelectorAll('[role="button"]')).find((node) =>
+      node.textContent?.includes("mock_platform"),
+    )!;
+    expect(container.textContent).not.toContain("server.ts");
+    expect(container.textContent).not.toContain("/Users/bytedance/vmcode");
+    expect(container.textContent).not.toContain("浏览文件");
+    expect(container.textContent).toContain("feature/venv-boe-support");
+    expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth);
+    await page.screenshot({ path: "/private/tmp/paseo-session-repositories-collapsed.png" });
+    click(toggle);
+    expect(container.textContent).toContain("/Users/bytedance/vmcode");
+    click(find("server.ts"));
+    expect(open).toHaveBeenCalledOnce();
+    click(find("浏览文件"));
+    expect(browse).toHaveBeenCalledOnce();
+    click(find("刷新"));
+    expect(refresh).toHaveBeenCalledOnce();
+    click(toggle);
+    expect(container.textContent).not.toContain("server.ts");
+    expect(container.textContent).not.toContain("/Users/bytedance/vmcode");
+    expect(container.textContent).toContain("feature/venv-boe-support");
+  });
+});
+
+const mobileComposerFrameStyle = {
+  height: 224,
+  width: 360,
+  display: "flex",
+  flexDirection: "column" as const,
+  overflow: "hidden" as const,
+};
+const mobileInputReserveStyle = { height: 104, flexShrink: 0 };
+it("bounds expanded mobile branch details while preserving the input and send row", async () => {
+  const copy = vi.fn(async () => {});
+  const container = mount(
+    <div style={mobileComposerFrameStyle}>
+      <ExecutionContextView
+        compact
+        cwd="/work/project"
+        connected
+        loading={false}
+        failed={false}
+        onCopy={copy}
+        repositories={Array.from({ length: 12 }, (_, i) => ({
+          root: `/work/repository-${i}`,
+          branch: `feature/branch-${i}`,
+          dirty: true,
+          edited: true,
+        }))}
+      />
+      <div data-testid="input-reserve" style={mobileInputReserveStyle}>
+        Message input and send
+      </div>
+    </div>,
+  );
+  const toggle = container.querySelector('[data-testid="execution-context-toggle"]')!;
+  const input = container.querySelector('[data-testid="input-reserve"]')!;
+  const original = input.getBoundingClientRect();
+  click(toggle);
+  const branch = container.querySelector('[data-testid="composer-execution-context"]')!;
+  const details = container.querySelector('[data-testid="execution-context-details"]')!;
+  expect(branch.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+    input.getBoundingClientRect().top + 1,
+  );
+  expect(input.getBoundingClientRect().height).toBe(original.height);
+  expect(input.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+    container.firstElementChild!.getBoundingClientRect().bottom + 1,
+  );
+  expect(details.scrollHeight).toBeGreaterThan(details.clientHeight);
+  await page.viewport(400, 320);
+  await page.screenshot({ path: "/private/tmp/paseo-mobile-branch-bounded.png" });
+  click(toggle);
+  expect(container.querySelector('[data-testid="execution-context-details"]')).toBeNull();
 });
