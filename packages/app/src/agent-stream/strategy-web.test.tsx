@@ -179,7 +179,7 @@ describe("createWebStreamStrategy", () => {
     expect(rowRenderCount.mock.calls.length).toBeLessThanOrEqual(historyVirtualized.length);
   });
 
-  it("retains a row's DOM and local state when recent history becomes virtualized", () => {
+  it("retains a row's DOM and local state when recent history becomes virtualized", async () => {
     const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -242,6 +242,9 @@ describe("createWebStreamStrategy", () => {
         }),
       ),
     );
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
     expect(
       (container.querySelector('[data-history-row-id="message-1"]') as HTMLElement).style.transform,
     ).toBe("translateY(120px)");

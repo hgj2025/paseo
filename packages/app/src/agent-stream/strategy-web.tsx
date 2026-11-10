@@ -566,8 +566,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       "[data-history-row-id][data-index]",
     ) ?? []) {
       const index = Number(element.dataset.index);
+      const measurement = rowVirtualizer.measurementsCache[index];
+      if (!measurement || String(measurement.key) !== element.dataset.historyRowId) continue;
       const height = measureVirtualElement(element, undefined, rowVirtualizer);
-      if (rowVirtualizer.measurementsCache[index]?.size === height) continue;
+      if (height <= 0) continue;
+      if (measurement.size === height) continue;
       rowVirtualizer.resizeItem(index, height);
       resized = true;
     }
@@ -738,7 +741,8 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       (element) => {
         const bounds = element.getBoundingClientRect();
         const id = element.dataset.historyRowId!;
-        measuredRowHeights.current.set(id, { width, height: bounds.height });
+        if (width > 0 && bounds.height > 0)
+          measuredRowHeights.current.set(id, { width, height: bounds.height });
         return { id, top: bounds.top - viewportTop + scrollTop, height: bounds.height };
       },
     );
@@ -763,11 +767,22 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   useLayoutEffect(() => {
     // Commit positions for every resized row before accepting reading geometry.
     // Child layout can change during this commit, ahead of ResizeObserver delivery.
-    if (!isActive || measureVirtualizedRows()) return;
-    reconcileReadingPosition();
+    if (!isActive) return;
+    if (!shouldUseVirtualizer) {
+      reconcileReadingPosition();
+      return;
+    }
+    // resizeItem notifies React. Running it in every layout commit can recursively
+    // commit another range before the preceding measurement batch has settled.
+    const frame = window.requestAnimationFrame(() => {
+      if (!isActiveRef.current || measureVirtualizedRows()) return;
+      reconcileReadingPosition();
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [
     contentWidth,
     isActive,
+    shouldUseVirtualizer,
     segments,
     virtualRows,
     measureVirtualizedRows,
