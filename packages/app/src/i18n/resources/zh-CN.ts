@@ -2,6 +2,17 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  conversationQuota: {
+    loading: "正在获取额度…",
+    unavailable: "额度暂不可用",
+    details: "额度详情",
+    used: "已用 {{percent}}",
+    reset: "{{minutes}} 分钟后恢复",
+    resetting: "等待额度更新",
+    updated: "{{minutes}} 分钟前更新",
+    stale: "数据可能已过期",
+    full: "额度已满",
+  },
   sessionFiles: {
     session: "当前会话",
     directory: "文件目录",

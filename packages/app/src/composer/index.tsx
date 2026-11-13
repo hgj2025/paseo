@@ -1,3 +1,4 @@
+import { ConversationQuotaBar } from "@/usage/conversation-quota-bar";
 import { ComposerExecutionContext } from "./execution-context";
 import { rememberSentMessage, recallMessage, canRecallMessage } from "./recall-message";
 import { useModelHostContext } from "@/screens/workspace/model-host-context";
@@ -2671,6 +2672,13 @@ function ComposerContentImpl({
           <View style={inputAreaContentStyle}>
             {isFullscreen ? null : queueList}
             {!isFullscreen && sendErrorNode}
+            {hasAgent && (
+              <ConversationQuotaBar
+                key={`${serverId}:${agentId}`}
+                serverId={serverId}
+                agentId={agentId}
+              />
+            )}
 
             {!isFullscreen && (
               <ComposerExecutionContext

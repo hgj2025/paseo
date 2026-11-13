@@ -175,7 +175,11 @@ export function useUsageHostReports(serverId: string | null): UsageReportEntry[]
  * The reports of the account an agent runs under, as its meter's tooltip or sheet shows them.
  * Fetched while either is mounted, so only while it is open.
  */
-export function useAgentUsage(serverId: string, agentId: string): AgentUsageView {
+export function useAgentUsage(
+  serverId: string,
+  agentId: string,
+  options: { active?: boolean; poll?: boolean } = {},
+): AgentUsageView {
   const queryClient = useQueryClient();
   const canReport = useHostReportsUsage(serverId);
   const queryKey = agentUsageQueryKey(serverId, agentId);
@@ -184,7 +188,9 @@ export function useAgentUsage(serverId: string, agentId: string): AgentUsageView
     // Consuming the signal cancels the request when the details close, so a reopen sends a new
     // request instead of joining one scoped to the login the agent ran under before.
     queryFn: ({ signal }) => streamReports({ queryClient, queryKey, serverId, agentId, signal }),
-    enabled: canReport,
+    enabled: canReport && options.active !== false,
+    refetchInterval: options.poll && options.active !== false ? REPORTS_STALE_TIME_MS : false,
+    refetchIntervalInBackground: false,
     // Another agent's reports never stand in while this one's load.
     dataShape: "value",
     // Dropped as soon as the details close: an agent resumed under another login keeps its ID, so

@@ -2,6 +2,7 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ptBR: TranslationResources = {
+  conversationQuota: en.conversationQuota,
   sessionFiles: en.sessionFiles,
   mobileHome: en.mobileHome,
   executionContext: en.executionContext,

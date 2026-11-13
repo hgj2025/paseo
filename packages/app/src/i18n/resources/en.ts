@@ -1,4 +1,15 @@
 export const en = {
+  conversationQuota: {
+    loading: "Loading usage…",
+    unavailable: "Usage unavailable",
+    details: "Usage details",
+    used: "{{percent}} used",
+    reset: "Resets in {{minutes}} min",
+    resetting: "Awaiting reset update",
+    updated: "Updated {{minutes}} min ago",
+    stale: "May be outdated",
+    full: "Limit reached",
+  },
   sessionFiles: {
     session: "Current session",
     directory: "File tree",
