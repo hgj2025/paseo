@@ -1,3 +1,5 @@
+import { getTeamDirectoryStore } from "./team-directory.js";
+import { getOrCreateServerId } from "./server-id.js";
 import { getWorkspaceTeamService } from "./workspace-team-runtime.js";
 import { AgentDirectory } from "./agent/directory.js";
 import { searchTimeline } from "./agent/chat-search/index.js";
@@ -699,6 +701,8 @@ export class Session {
       ),
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
+  private readonly directoryWatchers = new Set<object>();
+  private readonly directoryServerId: string | undefined;
   private readonly clientId: string;
   private readonly authorization: SessionAuthorization;
   private appVersion: string | null;
@@ -860,6 +864,7 @@ export class Session {
       daemonRuntimeConfig,
       getWebSocketRuntimeMetrics,
     } = options;
+    this.directoryServerId = options.serverId;
     this.browserToolsBroker = options.browserToolsBroker;
     this.clientId = clientId;
     this.authorization = new SessionAuthorization(permissions);
@@ -2910,10 +2915,58 @@ export class Session {
     }
   }
 
+  private async handleTeamDirectory(
+    msg: Extract<SessionInboundMessage, { type: "collaboration.directory.request" }>,
+  ): Promise<void> {
+    const store = getTeamDirectoryStore(
+      this.paseoHome,
+      this.directoryServerId ?? getOrCreateServerId(this.paseoHome),
+    );
+    try {
+      const source = this.delivery.currentSource;
+      if (!msg.snapshot && source && !this.directoryWatchers.has(source)) {
+        let unsubscribe: (() => void) | undefined;
+        const owner = this.delivery.operation(
+          (message) => message.type === "collaboration.directory.changed",
+          () => {
+            unsubscribe?.();
+            this.directoryWatchers.delete(source);
+          },
+        );
+        try {
+          unsubscribe = store.subscribe(() => {
+            if (this.authorization.allowsPermission("workspace.write"))
+              owner.emit({ type: "collaboration.directory.changed" });
+          });
+          this.directoryWatchers.add(source);
+        } catch (error) {
+          await owner.release();
+          throw error;
+        }
+      }
+      const snapshot = msg.snapshot ? await store.receive(msg.snapshot) : await store.read();
+      this.emit({
+        type: "collaboration.directory.response",
+        payload: { requestId: msg.requestId, snapshot, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "collaboration.directory.response",
+        payload: {
+          requestId: msg.requestId,
+          snapshot: null,
+          error: error instanceof Error ? error.message : "Directory unavailable.",
+        },
+      });
+    }
+  }
+
   private dispatchWorkspaceAndProjectMessage(
     msg: SessionInboundMessage,
   ): Promise<void> | undefined {
     switch (msg.type) {
+      case "collaboration.directory.request":
+        return this.handleTeamDirectory(msg);
       case "workspace.team.execute.request":
         return this.handleWorkspaceTeam(msg);
       case "fetch_workspaces_request":

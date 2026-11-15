@@ -298,3 +298,53 @@ completion of every member counts as finished. Missing/offline runners stay unkn
 A missing Captain does not suppress otherwise usable member rows. Independent agents
 remain independent, even with identical titles. Removing a daily row remains a local
 presentation preference and does not end the team.
+
+## Shared member directory (no session data)
+
+`$PASEO_HOME/team-directory.json` is an optional, independently configured member directory.
+It is not a conversation team, a host discovery database, or a messaging authorization grant.
+There is no new service or database. One daemon is the owner; its file is edited locally.
+The desktop App reads that file and distributes snapshots to paired, connected daemons
+advertising `teamDirectory`. The owner daemon watches the file directory (including atomic rename saves), debounces
+changes, and notifies the App to distribute the new content. There is no periodic poll.
+Unchanged content is not resent to acknowledged targets; reconnecting targets receive
+the latest snapshot. Failed targets retry on a subsequent edit or connection change.
+A replica is never redistributed as an owner. Closing the App pauses distribution;
+existing replicas remain readable but are not evidence of current availability.
+
+Example owner file (replace host IDs with actual stable daemon IDs):
+
+```json
+{
+  "ownerHostId": "srv_owner",
+  "revision": 1,
+  "members": [
+    {
+      "id": "home-mac",
+      "name": "Home Mac",
+      "hostId": "srv_home",
+      "role": "member",
+      "skills": []
+    }
+  ]
+}
+```
+
+Increase `revision` after every edit, including member removal. Only configured members
+are shared; pairing a host does not add it to this file. Empty `members` clears a roster.
+Snapshots strictly reject extra fields, including agentId, sessionId, workspaceId,
+conversation content and task history. Duplicate member IDs are rejected. Files are
+written atomically with mode 0600; failed/older snapshots do not replace valid data.
+A conflicting owner or changed content at the same revision is rejected. To change owner,
+remove the old replica locally first. The authenticated `collaboration.directory.request`
+RPC requires `workspace.write` for both read and import, consistent with the coordinator's
+paired-host administrative authority; no new access credential is introduced. The owner
+cannot be overwritten through this RPC. Owner configuration is intentionally explicit;
+no conversation teams are automatically exported into the shared directory.
+
+`list_team_members` exposes this as `directory`, separate from `teams`. All local agents
+with Paseo team tools can see the daemon-wide directory. Seeing a directory member does
+not mean the calling conversation belongs to a team or has a target session. Existing
+session-specific dispatch rules still apply: no session is selected or messaged merely
+because it runs on the listed host. Upgrade the coordinating App and each participating
+daemon to enable distribution. The relay is unchanged.

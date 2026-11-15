@@ -1,3 +1,4 @@
+import type { TeamDirectory } from "@getpaseo/protocol/team-directory";
 import type { TeamAction, WorkspaceTeam } from "@getpaseo/protocol/workspace-team";
 import { messageTooLargeError } from "./daemon-client-transport-utils.js";
 import { legacyUsageIcon } from "./legacy-usage-icons.js";
@@ -2351,6 +2352,30 @@ export class DaemonClient {
     );
   }
 
+  subscribeTeamDirectoryChanged(listener: () => void) {
+    return this.on("collaboration.directory.changed", listener);
+  }
+  async teamDirectory(snapshot?: TeamDirectory) {
+    if (this.lastServerInfoMessage?.features?.teamDirectory !== true)
+      throw new Error("Update this daemon to synchronize the team directory.");
+    const requestId = this.createRequestId();
+    const result = await this.sendRequest({
+      requestId,
+      message: {
+        type: "collaboration.directory.request",
+        requestId,
+        ...(snapshot ? { snapshot } : {}),
+      },
+      timeout: 10000,
+      options: { skipQueue: true },
+      select: (msg) =>
+        msg.type === "collaboration.directory.response" && msg.payload.requestId === requestId
+          ? msg.payload
+          : null,
+    });
+    if (result.error) throw new Error(result.error);
+    return result.snapshot;
+  }
   registerBrowserHost(
     registration: Omit<
       Extract<SessionInboundMessage, { type: "browser.host.register.request" }>,

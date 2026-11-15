@@ -1,3 +1,8 @@
+import {
+  TeamDirectoryRequestSchema,
+  TeamDirectoryResponseSchema,
+  TeamDirectoryChangedSchema,
+} from "./team-directory.js";
 import { WorkspaceTeamRequestSchema, WorkspaceTeamResponseSchema } from "./workspace-team.js";
 import { AgentMessageSchema } from "./agent-message.js";
 import { PluginRegistryIdentitySchema } from "./plugin-registry.js";
@@ -3199,6 +3204,7 @@ export const SubscriptionReleaseResponseSchema = z.object({
 
 export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceTeamRequestSchema,
+  TeamDirectoryRequestSchema,
   BrowserHostRegisterRequestSchema,
   SubscriptionReleaseRequestSchema,
   SessionEventsSetSubscriptionRequestSchema,
@@ -3682,6 +3688,7 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceTeams: z.boolean().optional(),
         sessionTeams: z.boolean().optional(),
         conversationExecution: z.boolean().optional(),
+        teamDirectory: z.boolean().optional(),
         workspaceTeamGroups: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
@@ -6852,6 +6859,8 @@ export const AgentSkillsImportLegacySelectionResponseSchema = z.object({
 });
 
 export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+  TeamDirectoryChangedSchema,
+  TeamDirectoryResponseSchema,
   WorkspaceTeamResponseSchema,
   BrowserHostRegisterResponseSchema,
   SubscriptionReleaseResponseSchema,

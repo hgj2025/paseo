@@ -1,3 +1,4 @@
+import { getTeamDirectoryStore } from "../../team-directory.js";
 import { teamStorageKey, executionMember } from "@getpaseo/protocol/workspace-team";
 import { getWorkspaceTeamService } from "../../workspace-team-runtime.js";
 import { AgentDirectory } from "../directory.js";
@@ -1889,13 +1890,25 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     {
       title: "List team members",
       description:
-        "Read your teams and their named members, roles, skills, hosts and exact session IDs. A Captain should call this before assigning work; names are aliases for stable member IDs. Team data is stored on the team workspace host.",
+        "Read your conversation teams and the shared member directory (names, roles, skills and hosts). The directory contains no session IDs and does not imply membership or online status. A Captain should call this before assigning work; names are aliases for stable member IDs. Team data is stored on the team workspace host.",
       inputSchema: {},
     },
     async () => {
       const entries = callerAgentId ? await teams().listForAgent(callerAgentId) : [];
       for (const team of entries) team.tasks = team.tasks.slice(-10);
-      return { content: [], structuredContent: ensureValidJson({ teams: entries }) };
+      const directory = await getTeamDirectoryStore(
+        options.paseoHome ?? resolvePaseoHome(),
+        teams().serverId,
+      ).read();
+      return {
+        content: [],
+        structuredContent: ensureValidJson({
+          teams: entries,
+          directory,
+          directoryNotice:
+            "Shared directory lists configured members, not session membership or online status. It grants no task dispatch permission. Replicas may be stale while the coordinator is offline.",
+        }),
+      };
     },
   );
   registerTool(

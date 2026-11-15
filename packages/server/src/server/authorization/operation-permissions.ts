@@ -6,6 +6,7 @@ type OutboundOperation = SessionOutboundMessage["type"];
 export type PermissionRequirement = DaemonPermission | readonly DaemonPermission[] | null;
 
 const INBOUND_PERMISSION = {
+  "collaboration.directory.request": "workspace.write",
   "workspace.team.execute.request": "workspace.write",
   abort_request: "workspace.write",
   "agent.config.apply.request": ["workspace.write", "hub.execute"],
@@ -216,6 +217,8 @@ const INBOUND_PERMISSION = {
 } as const satisfies Record<InboundOperation, PermissionRequirement>;
 
 const OUTBOUND_PERMISSION = {
+  "collaboration.directory.response": "workspace.write",
+  "collaboration.directory.changed": "workspace.write",
   "workspace.team.execute.response": "workspace.write",
   "agent.create.response": ["workspace.write", "hub.execute"],
   "agent.create.update": ["workspace.write", "hub.execute"],

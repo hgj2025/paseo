@@ -1,3 +1,4 @@
+import { mountTeamDirectory } from "./team-directory";
 import { useSyncExternalStore, useMemo } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import equal from "fast-deep-equal/es6";
@@ -613,14 +614,21 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
         queryClient,
         serverId: host.serverId,
       });
+      const unmountDirectory = getDesktopHost()
+        ? mountTeamDirectory(client, host.serverId, getHostRuntimeStore())
+        : () => {};
       if (!browserAutomationCapabilities) {
-        return unmountServerData;
+        return () => {
+          unmountDirectory();
+          unmountServerData();
+        };
       }
       const unmountBrowserAutomation = mountBrowserAutomationDaemonClientHandler(client, {
         serverId: host.serverId,
       });
       return () => {
         unmountBrowserAutomation();
+        unmountDirectory();
         unmountServerData();
       };
     },

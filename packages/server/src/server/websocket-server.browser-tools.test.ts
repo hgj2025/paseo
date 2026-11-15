@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer, type Server as HTTPServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -277,6 +280,7 @@ function createRequestIdSequence(): () => string {
 function createVoiceAssistantWebSocketServer(params: {
   httpServer: HTTPServer;
   broker: BrowserToolsBroker;
+  home?: string;
 }): VoiceAssistantWebSocketServer {
   const { httpServer, broker } = params;
   const agentManager = {
@@ -301,7 +305,7 @@ function createVoiceAssistantWebSocketServer(params: {
     createStub<AgentManager>(agentManager),
     createStub<AgentStorage>({}),
     createStub<DownloadTokenStore>({}),
-    "/tmp/paseo-browser-tools-websocket-test",
+    params.home ?? "/tmp/paseo-browser-tools-websocket-test",
     createStub<DaemonConfigStore>(daemonConfigStore),
     null,
     { allowedOrigins: new Set(["*"]) },
@@ -457,3 +461,55 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+it("reads and distributes a session-free directory over the real daemon WebSocket RPC", async () => {
+  const home = await mkdtemp(join(tmpdir(), "paseo-directory-rpc-"));
+  const httpServer = createServer();
+  const wsServer = createVoiceAssistantWebSocketServer({
+    httpServer,
+    broker: createBroker(),
+    home,
+  });
+  const snapshot = {
+    ownerHostId: "another-owner",
+    revision: 1,
+    members: [{ id: "home", name: "Home", hostId: "srv_home", role: "member", skills: [] }],
+  };
+  let client: DaemonClient | undefined;
+  try {
+    await listen(httpServer);
+    client = new DaemonClient({
+      url: `ws://127.0.0.1:${getPort(httpServer)}/ws`,
+      clientType: "browser",
+      reconnect: { enabled: false },
+    });
+    await client.connect();
+    expect(client.getLastServerInfoMessage()?.features?.teamDirectory).toBe(true);
+    expect(await client.teamDirectory()).toBeNull();
+    expect(await client.teamDirectory(snapshot)).toEqual(snapshot);
+    expect(await client.teamDirectory()).toEqual(snapshot);
+    const changed = new Promise<void>((resolve) => {
+      const off = client!.subscribeTeamDirectoryChanged(() => {
+        off();
+        resolve();
+      });
+    });
+    const updated = { ...snapshot, revision: 2 };
+    await writeFile(join(home, "team-directory.json"), JSON.stringify(updated));
+    await changed;
+    expect(await client.teamDirectory()).toEqual(updated);
+    await expect(client.teamDirectory({ ...snapshot, revision: 2, members: [] })).rejects.toThrow(
+      "revision",
+    );
+    await writeFile(
+      join(home, "team-directory.json"),
+      JSON.stringify({ ...snapshot, ownerHostId: "srv-test" }),
+    );
+    await expect(client.teamDirectory({ ...snapshot, revision: 2 })).rejects.toThrow("locally");
+  } finally {
+    await client?.close();
+    await wsServer.close();
+    await closeHttpServer(httpServer);
+    await rm(home, { recursive: true, force: true });
+  }
+});

@@ -1174,6 +1174,35 @@ describe("browser MCP tools", () => {
 });
 
 describe("workspace team MCP tools", () => {
+  it("shows the shared directory to an unjoined agent without inventing session membership", async () => {
+    const home = await mkdtemp(join(tmpdir(), "paseo-directory-mcp-"));
+    const directory = {
+      ownerHostId: "owner",
+      revision: 1,
+      members: [{ id: "mac", name: "Other Mac", hostId: "remote", role: "member", skills: [] }],
+    };
+    await writeFile(join(home, "team-directory.json"), JSON.stringify(directory));
+    const server = await createAgentMcpServer({
+      agentManager: new BoundaryAgentManagerFake() as AgentManager,
+      agentStorage: new BoundaryAgentStorageFake() as AgentStorage,
+      providerSnapshotManager:
+        new BoundaryProviderSnapshotManagerFake() as unknown as ProviderSnapshotManager,
+      callerAgentId: randomUUID(),
+      paseoHome: home,
+      logger: createTestLogger(),
+    });
+    const client = await connectInMemoryMcpClient(server);
+    try {
+      const result = await client.callTool({ name: "list_team_members", arguments: {} });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ teams: [], directory });
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("resolves named members and dispatches one remote task with a readable receipt", async () => {
     const home = await mkdtemp(join(tmpdir(), "paseo-team-tools-"));
     const callerAgentId = randomUUID();
