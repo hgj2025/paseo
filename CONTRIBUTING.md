@@ -4,6 +4,10 @@ This guide is here to save us both time and help you find a useful way to contri
 
 Paseo grows through bug reports, testing, workflow discussions, plugins, documentation, and people helping each other. The sections below explain where each contribution belongs and what to expect.
 
+## Local fork handoff
+
+For this customized checkout, start with the [engineering handoff](docs/handoff/README.md). It distinguishes repository documentation, uncommitted local work, and deployment evidence.
+
 ## Philosophy
 
 **Paseo has a lean, opinionated core built to be extended.**
