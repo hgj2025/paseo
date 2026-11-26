@@ -2,7 +2,7 @@ import { ConversationQuotaBar } from "@/usage/conversation-quota-bar";
 import { ComposerExecutionContext } from "./execution-context";
 import { rememberSentMessage, recallMessage, canRecallMessage } from "./recall-message";
 import { useModelHostContext } from "@/screens/workspace/model-host-context";
-import { executionMember } from "@getpaseo/protocol/workspace-team";
+import { executionMember, resolveTeamMemberAliases } from "@getpaseo/protocol/workspace-team";
 import {
   useWorkspaceLayoutStore,
   collectAllPanes,
@@ -1291,6 +1291,27 @@ function ComposerContentImpl({
   const teamContext = useWorkspaceTeam();
   const workspaceToolbar = useWorkspaceToolbar();
   const team = teamContext?.team;
+  const teamModels = useSessionStore(
+    useShallow((state) =>
+      (team?.members ?? []).map((member) => {
+        const execution = executionMember(member);
+        const session = state.sessions[execution.serverId];
+        return (
+          session?.agents.get(execution.agentId)?.model ??
+          session?.agentDetails.get(execution.agentId)?.model
+        );
+      }),
+    ),
+  );
+  const teamRoster = useMemo(
+    () =>
+      resolveTeamMemberAliases(team?.members ?? [], team?.captainId ?? null, {
+        models: new Map(
+          (team?.members ?? []).map((member, index) => [member.id, teamModels[index]]),
+        ),
+      }),
+    [team, teamModels],
+  );
   const teamSender = team?.members.find(
     (member) =>
       executionMember(member).serverId === serverId && executionMember(member).agentId === agentId,
@@ -1306,9 +1327,9 @@ function ComposerContentImpl({
     () =>
       parseTeamMentions(
         teamDraftText,
-        teamSender ? teamMentionCandidates(team?.members ?? [], teamSender.id) : [],
+        teamSender ? teamMentionCandidates(teamRoster, teamSender.id) : [],
       ),
-    [teamDraftText, team, teamSender],
+    [teamDraftText, teamRoster, teamSender],
   );
   const recipient = useMemo(
     () =>
@@ -1326,8 +1347,8 @@ function ComposerContentImpl({
   const selectedMemberIds = useMemo(() => recipientIds(recipient), [recipient]);
 
   const teamCandidates = useMemo(
-    () => (teamSender ? teamMentionCandidates(team?.members ?? [], teamSender.id) : undefined),
-    [team, teamSender],
+    () => (teamSender ? teamMentionCandidates(teamRoster, teamSender.id) : undefined),
+    [teamRoster, teamSender],
   );
   const savedCollapsed = useTeamComposerStore((state) => state.collapsed[teamComposerKey]);
   const hasPeerPane = useWorkspaceLayoutStore((state) => {
@@ -2250,6 +2271,12 @@ function ComposerContentImpl({
             totalCostUsd={agentState.totalCostUsd}
             glyphSize={contextWindowMeterGlyphSize}
           />
+          <ConversationQuotaBar
+            key={`${serverId}:${agentId}`}
+            serverId={serverId}
+            agentId={agentId}
+            size={contextWindowMeterGlyphSize}
+          />
         </View>
       ) : null,
     [
@@ -2672,13 +2699,6 @@ function ComposerContentImpl({
           <View style={inputAreaContentStyle}>
             {isFullscreen ? null : queueList}
             {!isFullscreen && sendErrorNode}
-            {hasAgent && (
-              <ConversationQuotaBar
-                key={`${serverId}:${agentId}`}
-                serverId={serverId}
-                agentId={agentId}
-              />
-            )}
 
             {!isFullscreen && (
               <ComposerExecutionContext
@@ -2849,7 +2869,8 @@ const styles = StyleSheet.create((theme: Theme) => ({
     gap: theme.spacing[1],
   },
   contextWindowMeterSlot: {
-    width: 28,
+    flexDirection: "row",
+    gap: theme.spacing[1],
     height: 28,
     flexShrink: 0,
     alignItems: "center",

@@ -34,6 +34,8 @@ leaf.
 - Good: `/` -> `/h/[serverId]`
 - Bad: `/` -> `/h/[serverId]/workspace/[workspaceId]`
 
+On compact phone layouts, `/` opens `/home` after bootstrap when a host is registered. This shows the full-screen conversation sidebar; the last workspace is preserved for explicit navigation. Desktop startup continues through the host boundary. Explicit workspace and agent deep links keep their targets.
+
 `/h/[serverId]` is the host home route. The host index restores the last
 remembered workspace for that host after the remembered selection has hydrated
 and the workspace has not been proven missing. If there is no restorable

@@ -1,5 +1,7 @@
 import { getTeamDirectoryStore } from "./team-directory.js";
 import { getOrCreateServerId } from "./server-id.js";
+import { RemoteAgents } from "./agent/remote-agents.js";
+import { getCollaborationBridge } from "./agent/collaboration-bridge.js";
 import { getWorkspaceTeamService } from "./workspace-team-runtime.js";
 import { AgentDirectory } from "./agent/directory.js";
 import { searchTimeline } from "./agent/chat-search/index.js";
@@ -1290,12 +1292,42 @@ export class Session {
     this.refreshObservationProducers();
   }
 
+  private readonly viewedHistoryObservers = new Map<
+    string,
+    Map<string, { release(): Promise<void> }>
+  >();
+
+  private observeViewedHistory(agentId: string): void {
+    for (const { owner, agentIds } of this.timelineSubscriptions.values()) {
+      if (!agentIds.has(agentId) || owner.signal.aborted) continue;
+      const observations = this.viewedHistoryObservers.get(owner.id);
+      if (!observations || observations.has(agentId)) continue;
+      const observation = this.agentManager.observePersistedHistory(agentId);
+      if (observation) {
+        observations.set(agentId, observation);
+        void observation.ready.catch((err) =>
+          this.sessionLogger.warn(
+            { err, agentId },
+            "Viewed history observation could not initialize",
+          ),
+        );
+      }
+    }
+  }
+
   private subscribeAgentTimelines(agentIds: string[]): OwnedSubscription {
-    const owner = this.delivery.begin("timelines", undefined, (id) => {
+    const owner = this.delivery.begin("timelines", undefined, async (id) => {
+      const observations = this.viewedHistoryObservers.get(id);
+      this.viewedHistoryObservers.delete(id);
       this.timelineSubscriptions.delete(id);
       this.refreshObservationProducers();
+      await Promise.all(
+        [...(observations?.values() ?? [])].map((observation) => observation.release()),
+      );
     });
     this.timelineSubscriptions.set(owner.id, { owner, agentIds: new Set(agentIds) });
+    this.viewedHistoryObservers.set(owner.id, new Map());
+    for (const agentId of agentIds) this.observeViewedHistory(agentId);
     this.refreshObservationProducers();
     return owner;
   }
@@ -2213,6 +2245,7 @@ export class Session {
   public setPermissions(permissions: readonly DaemonPermission[]): void {
     this.authorization.replacePermissions(permissions);
     if (!this.authorization.allowsPermission("workspace.write")) {
+      void this.delivery.releaseFamily("collaboration-bridge").catch(() => {});
       void this.delivery
         .releaseFamily("browser-host")
         .catch((error) =>
@@ -2303,6 +2336,45 @@ export class Session {
     msg: SessionInboundMessage,
     source?: object,
   ): Promise<void> | undefined {
+    if (msg.type === "collaboration.bridge.register.request") {
+      let unregister: (() => void) | undefined;
+      const owner = this.delivery.begin("collaboration-bridge", undefined, () => unregister?.());
+      unregister = getCollaborationBridge(this.paseoHome).register({
+        id: owner.id,
+        hostIds: msg.hostIds,
+        send: (message) => owner.emit(message),
+      });
+      this.emit({
+        type: "collaboration.bridge.register.response",
+        payload: { requestId: msg.requestId, subscriptionId: owner.responseId },
+      });
+      return Promise.resolve();
+    }
+    if (msg.type === "collaboration.bridge.routes") {
+      if (source)
+        getCollaborationBridge(this.paseoHome).update(
+          this.delivery.subscriptionIds(source, "collaboration-bridge"),
+          msg.hostIds,
+        );
+      return Promise.resolve();
+    }
+    if (msg.type === "collaboration.bridge.changed") {
+      if (source)
+        getCollaborationBridge(this.paseoHome).changed(
+          this.delivery.subscriptionIds(source, "collaboration-bridge"),
+          msg.hostId,
+          msg.agentId,
+        );
+      return Promise.resolve();
+    }
+    if (msg.type === "collaboration.bridge.execute.response") {
+      if (source)
+        getCollaborationBridge(this.paseoHome).receive(
+          this.delivery.subscriptionIds(source, "collaboration-bridge"),
+          msg,
+        );
+      return Promise.resolve();
+    }
     if (msg.type === "browser.host.register.request") return this.registerBrowserHost(msg);
     if (msg.type === "browser.automation.execute.response") {
       if (source)
@@ -2665,6 +2737,8 @@ export class Session {
     source?: object,
   ): Promise<void> | undefined {
     switch (msg.type) {
+      case "synchronize_agent_history_request":
+        return this.handleRefreshAgentRequest(msg);
       case "fetch_agent_timeline_request":
         return this.handleFetchAgentTimelineRequest(msg, source);
       case "agent.timeline.append.request":
@@ -2967,6 +3041,15 @@ export class Session {
     switch (msg.type) {
       case "collaboration.directory.request":
         return this.handleTeamDirectory(msg);
+      case "collaboration.health.request": {
+        return new RemoteAgents(this.paseoHome).health().then((result) => {
+          this.emit({
+            type: "collaboration.health.response",
+            payload: { requestId: msg.requestId, ...result },
+          });
+          return undefined;
+        });
+      }
       case "workspace.team.execute.request":
         return this.handleWorkspaceTeam(msg);
       case "fetch_workspaces_request":
@@ -4706,12 +4789,28 @@ export class Session {
   }
 
   private async handleRefreshAgentRequest(
-    msg: Extract<SessionInboundMessage, { type: "refresh_agent_request" }>,
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "refresh_agent_request" | "synchronize_agent_history_request" }
+    >,
   ): Promise<void> {
     const { agentId, requestId } = msg;
     this.sessionLogger.info({ agentId }, `Refreshing agent ${agentId} from persistence`);
 
     try {
+      if (msg.type === "synchronize_agent_history_request") {
+        await this.agentManager.synchronizePersistedHistory(agentId);
+        this.emit({
+          type: "status",
+          payload: {
+            status: "agent_refreshed",
+            agentId,
+            requestId,
+            timelineSize: this.agentManager.getTimeline(agentId).length,
+          },
+        });
+        return;
+      }
       await this.restoreOwningWorkspaceForLegacyAgentRefresh(agentId);
       await unarchiveAgentState(this.agentStorage, this.agentManager, agentId);
       let snapshot: ManagedAgent;
@@ -7844,6 +7943,7 @@ export class Session {
         agentStorage: this.agentStorage,
         logger: this.sessionLogger,
       });
+      this.observeViewedHistory(msg.agentId);
       const agentPayload = await this.buildAgentPayload(snapshot);
 
       const fetchedControlTimeline = this.agentManager.fetchTimeline(msg.agentId, {

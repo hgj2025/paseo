@@ -1,3 +1,4 @@
+import { HistoryHealthBadge } from "@/history-health/badge";
 import { SwipeToAction } from "@/components/sidebar/swipe-to-action";
 import { Button } from "@/components/ui/button";
 import { isNative } from "@/constants/platform";
@@ -217,6 +218,7 @@ function ActiveSessionRow({
             <Text numberOfLines={1} style={styles.title}>
               {item.agent.title || item.agent.provider}
             </Text>
+            <HistoryHealthBadge serverId={item.agent.serverId} agentId={item.agent.id} />
           </View>
           <Text numberOfLines={1} style={styles.meta}>
             {item.agent.serverLabel} · {item.agent.provider}

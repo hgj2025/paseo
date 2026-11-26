@@ -352,6 +352,7 @@ export interface ProviderSessionSummary {
 }
 
 export interface ProviderCommand {
+  kind?: "command" | "skill";
   name: string;
   description: string;
   argumentHint?: string;
@@ -1041,7 +1042,12 @@ const noticeSchema = z
   })
   .strip();
 const commandSchema = z
-  .object({ name: idSchema, description: z.string(), argumentHint: z.string().optional() })
+  .object({
+    name: idSchema,
+    description: z.string(),
+    argumentHint: z.string().optional(),
+    kind: z.enum(["command", "skill"]).optional(),
+  })
   .strip();
 const usageSchema = z
   .object({

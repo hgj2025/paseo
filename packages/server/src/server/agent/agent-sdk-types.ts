@@ -675,6 +675,9 @@ export interface AgentSession {
   steerActiveTurn?(prompt: AgentPromptInput, options: SteerActiveTurnOptions): Promise<SteerResult>;
   subscribe(callback: (event: AgentStreamEvent) => void): () => void;
   streamHistory(): AsyncGenerator<AgentStreamEvent>;
+  /** Read a fresh transcript without replacing or starting the provider runtime. */
+  readPersistedHistory?(): AsyncGenerator<AgentStreamEvent>;
+  getPersistedHistoryPath?(): string | null;
   getRuntimeInfo(): Promise<AgentRuntimeInfo>;
   getAvailableModes(): Promise<AgentMode[]>;
   getCurrentMode(): Promise<string | null>;

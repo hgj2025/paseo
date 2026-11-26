@@ -1,3 +1,4 @@
+import { HistoryHealthBadge } from "@/history-health/badge";
 import { useWorkspaceFilePanelToggle } from "./workspace-file-panel-context";
 import { useWorkspaceTeamMenu } from "./workspace-team-menu";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
@@ -727,6 +728,7 @@ function TabHandleContent({
           {presentation.label}
         </Text>
       ) : null}
+      {presentation.historyTarget && <HistoryHealthBadge {...presentation.historyTarget} />}
       {/* The dot is a laid-out sibling of the label, not an overlay, so a truncated label ends
           before it instead of running underneath it. */}
       {presentation.modified ? (

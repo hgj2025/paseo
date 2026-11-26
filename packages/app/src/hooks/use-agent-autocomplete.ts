@@ -522,7 +522,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
         type: "team_member" as const,
         id: `team:${member.id}`,
         label: `@${member.alias}`,
-        description: `${t("workspace.team.members")} · ${member.role || member.provider}`,
+        description: `${t("workspace.team.members")} · ${member.role || member.execution?.provider || member.provider}`,
         member,
       }));
     // Above-input lists pin and select their last row. Keep members nearest the input,

@@ -459,6 +459,14 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
         yield mapStreamEvent(provider, event);
       }
     },
+    getPersistedHistoryPath: inner.getPersistedHistoryPath?.bind(inner),
+    readPersistedHistory: inner.readPersistedHistory
+      ? async function* () {
+          for await (const event of inner.readPersistedHistory!()) {
+            yield mapStreamEvent(provider, event);
+          }
+        }
+      : undefined,
     getRuntimeInfo: async () => mapRuntimeInfo(provider, await inner.getRuntimeInfo()),
     getAvailableModes: () => inner.getAvailableModes(),
     getCurrentMode: () => inner.getCurrentMode(),
@@ -769,6 +777,8 @@ function buildResolvedBuiltinProviders(
     : AGENT_PROVIDER_DEFINITIONS;
 
   for (const definition of definitions) {
+    // OpenCode is retired from this installation. Keep stored transcripts intact.
+    if (definition.id === "opencode") continue;
     const override = providerOverrides[definition.id];
     const factory = getProviderClientFactory(definition.id);
     resolvedProviders.set(

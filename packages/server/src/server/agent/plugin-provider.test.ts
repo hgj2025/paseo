@@ -505,6 +505,73 @@ describe("PluginAgentClientRegistry", () => {
     await registry.shutdown();
   });
 
+  test("does not give models with explicit thinking options the catalog default", async () => {
+    const harness = createProviderHarness({
+      handleInput: async (input, emit) => {
+        if (input.type !== "catalog") return false;
+        emit({
+          type: "catalog",
+          requestId: input.requestId,
+          catalog: {
+            models: [
+              { id: "orchestrator", label: "Orchestrator", thinkingOptions: [] },
+              { id: "own", label: "Own", thinkingOptions: [{ id: "low", label: "Low" }] },
+              { id: "legacy", label: "Legacy" },
+            ],
+            modes: [],
+            thinkingOptions: [{ id: "high", label: "High" }],
+            defaultThinkingOption: "high",
+          },
+        });
+        return true;
+      },
+    });
+    const registry = new PluginAgentClientRegistry(createTestLogger());
+    registry.replace([harness.registration]);
+    try {
+      const client = registry.clients()[harness.registration.id]!;
+      const catalog = await client.fetchCatalog({ scope: "global" });
+      expect(
+        catalog.models.map((model) => ({ id: model.id, default: model.defaultThinkingOptionId })),
+      ).toEqual([
+        { id: "orchestrator", default: undefined },
+        { id: "own", default: undefined },
+        { id: "legacy", default: "high" },
+      ]);
+    } finally {
+      await registry.shutdown();
+    }
+  });
+
+  test("preserves provider skill classification and defaults legacy commands", async () => {
+    const harness = createProviderHarness();
+    const registry = new PluginAgentClientRegistry(createTestLogger());
+    registry.replace([harness.registration]);
+    try {
+      const session = await registry.clients()[harness.registration.id]!.createSession({
+        provider: harness.registration.id,
+        cwd: "/workspace",
+      });
+      const opened = harness.inputs.find((input) => input.type === "session.open");
+      if (!opened || opened.type !== "session.open") throw new Error("Session not opened");
+      harness.emit({
+        type: "session.commands",
+        sessionId: opened.sessionId,
+        commands: [
+          { name: "guide", description: "Guide", kind: "skill" },
+          { name: "compact", description: "Compact" },
+        ],
+      });
+      expect(await session.listCommands?.()).toEqual([
+        { name: "guide", description: "Guide", kind: "skill", argumentHint: "" },
+        { name: "compact", description: "Compact", kind: "command", argumentHint: "" },
+      ]);
+      await session.close();
+    } finally {
+      await registry.shutdown();
+    }
+  });
+
   test("terminalizes an active turn exactly once when its plugin provider is removed", async () => {
     const harness = createProviderHarness({ completeTurn: false });
     const registry = new PluginAgentClientRegistry(createTestLogger());

@@ -1,3 +1,4 @@
+import { useHistoryHealthObservation } from "@/history-health/use-observation";
 import { useModelHostContext } from "@/screens/workspace/model-host-context";
 import { useConversationHistory } from "@/screens/workspace/conversation-history-context";
 import { ModelLimitNotice } from "./model-limit-notice";
@@ -829,6 +830,12 @@ function ChatAgentContent({
       : ("cold" as const),
   );
   const hasAppliedAuthoritativeHistory = replicaTimelineStatus === "synced";
+  useHistoryHealthObservation({
+    serverId,
+    agentId,
+    active: isPaneVisible,
+    ready: hasAppliedAuthoritativeHistory,
+  });
   const agentHistorySyncGeneration = useSessionStore((state) =>
     agentId ? (state.sessions[serverId]?.agentHistorySyncGeneration?.get(agentId) ?? -1) : -1,
   );

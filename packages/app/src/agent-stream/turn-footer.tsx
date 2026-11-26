@@ -19,7 +19,7 @@ import type { TurnFooterHost } from "./layout";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 
-export const TURN_FOOTER_BOTTOM_SPACING = SPACING[8];
+export const TURN_FOOTER_BOTTOM_SPACING = SPACING[2];
 
 export type TurnContentStrategy = StreamStrategy;
 export type AssistantTurnForkHandler = (input: {

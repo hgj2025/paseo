@@ -1,3 +1,7 @@
+import { beginNavigationTrace, navigationDispatched } from "@/navigation/diagnostics/collector";
+import { AgentStatusDot } from "@/components/agent-status-dot";
+import type { ComponentProps } from "react";
+import { HistoryHealthBadge } from "@/history-health/badge";
 import { SwipeToAction } from "./swipe-to-action";
 import { appendWorkspaceAgentRows, uniqueConversationRows } from "./unique-conversation-rows";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
@@ -7,8 +11,8 @@ import equal from "fast-deep-equal";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { Button } from "@/components/ui/button";
-import { useHostRuntimeClient } from "@/runtime/host-runtime";
-import { useCallback, useMemo, useState } from "react";
+import { getHostRuntimeStore, useHosts, useHostRuntimeClient } from "@/runtime/host-runtime";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Pencil, X } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -25,9 +29,38 @@ export function useSidebarConversations(
   workspaceId: string,
   workspaceDirectory?: string,
 ) {
+  const hosts = useHosts();
+  const runtime = getHostRuntimeStore();
+  const readFreshHosts = () =>
+    JSON.stringify(
+      hosts
+        .filter((host) => {
+          const snapshot = runtime.getSnapshot(host.serverId);
+          return (
+            snapshot?.connectionStatus === "online" && snapshot.agentDirectoryStatus === "ready"
+          );
+        })
+        .map((host) => host.serverId),
+    );
+  const freshHosts = useSyncExternalStore(
+    (notify) => runtime.subscribeAll(notify),
+    readFreshHosts,
+    readFreshHosts,
+  );
+  const freshHostIds = useMemo(() => new Set(JSON.parse(freshHosts) as string[]), [freshHosts]);
   const key = `${serverId}:${workspaceId}`;
-  const entries = useWorkspaceLayoutStore((state) => state.conversationsByWorkspace[key]);
+  const savedEntries = useWorkspaceLayoutStore((state) => state.conversationsByWorkspace[key]);
+  const activeLayout = useWorkspaceLayoutStore((state) => state.layoutByWorkspace[key]);
   const activeId = useWorkspaceLayoutStore((state) => state.activeConversationByWorkspace[key]);
+  // The active layout is live; saved layouts are snapshots taken on navigation.
+  // In particular, sending a draft replaces its target before the snapshot is saved.
+  const entries = useMemo(() => {
+    if (!activeId || !activeLayout || !savedEntries?.[activeId]) return savedEntries;
+    return {
+      ...savedEntries,
+      [activeId]: { ...savedEntries[activeId], layout: activeLayout },
+    };
+  }, [savedEntries, activeId, activeLayout]);
   const { t } = useTranslation();
   const rows = useStoreWithEqualityFn(
     useSessionStore,
@@ -82,7 +115,34 @@ export function useSidebarConversations(
         workspaceId,
         represented,
         workspaceDirectory,
-      );
+      ).map((row) => {
+        // Root targets can belong to another host; agent IDs alone are not global.
+        const agent = row.agentId
+          ? state.sessions[row.serverId]?.agents.get(row.agentId)
+          : undefined;
+        return {
+          id: row.id,
+          serverId: row.serverId,
+          agentId: row.agentId,
+          title: row.title,
+          ended: row.ended,
+          standalone: row.standalone,
+          agentWorkspaceId: row.agentWorkspaceId,
+          activity:
+            agent && !agent.archivedAt && !row.ended
+              ? {
+                  status:
+                    agent.status === "idle" && agent.turn.phase === "open"
+                      ? "running"
+                      : agent.status,
+                  fresh: freshHostIds.has(row.serverId),
+                  requiresAttention: agent.requiresAttention,
+                  attentionReason: agent.attentionReason,
+                  pendingPermissionCount: agent.pendingPermissions.length,
+                }
+              : undefined,
+        };
+      });
     },
     equal,
   );
@@ -135,7 +195,9 @@ function ConversationRow({
   onOpenWorkspace,
   standalone = false,
   agentWorkspaceId,
+  activity,
 }: {
+  activity?: ComponentProps<typeof AgentStatusDot> & { fresh: boolean };
   standalone?: boolean;
   agentWorkspaceId?: string;
   ownerServerId: string;
@@ -178,8 +240,10 @@ function ConversationRow({
       navigateToAgent({ serverId, workspaceId: agentWorkspaceId ?? workspaceId, agentId });
       return;
     }
+    const trace = agentId ? beginNavigationTrace({ serverId, agentId, workspaceId }) : undefined;
     useWorkspaceLayoutStore.getState().selectConversation(workspaceKey, id);
     onOpenWorkspace();
+    navigationDispatched(trace);
   }, [
     standalone,
     agentId,
@@ -255,7 +319,9 @@ function ConversationRow({
             <Text numberOfLines={1} style={[styles.title, ended && styles.muted]}>
               {title}
             </Text>
+            {agentId && <HistoryHealthBadge serverId={serverId} agentId={agentId} />}
             {ended && <Text style={styles.muted}>{t("conversation.ended")}</Text>}
+            {activity && <ConversationActivity activity={activity} />}
           </Pressable>
           {agentId && (
             <View
@@ -306,7 +372,23 @@ function ConversationRow({
     </>
   );
 }
+function ConversationActivity({
+  activity,
+}: {
+  activity: ComponentProps<typeof AgentStatusDot> & { fresh: boolean };
+}) {
+  const { t } = useTranslation();
+  if (activity.fresh) return <AgentStatusDot {...activity} showInactive />;
+  return <View accessibilityLabel={t("homeOverview.state.unknown")} style={styles.unknownStatus} />;
+}
+
 const styles = StyleSheet.create((theme) => ({
+  unknownStatus: {
+    width: 8,
+    height: 8,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.foregroundExtraMuted,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

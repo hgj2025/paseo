@@ -287,6 +287,32 @@ describe("buildSidebarProjectRowModel", () => {
 });
 
 describe("project new conversation", () => {
+  it("uses the chosen devbox workspace instead of a matching Mac directory", async () => {
+    const client = { createWorkspace: vi.fn() };
+    const target = { serverId: "devbox", projectId: "remote-project", iconWorkingDir: "/repo" };
+    const result = await prepareSidebarConversationWorkspace(client, target, [
+      workspace({ serverId: "mac", workspaceId: "mac-workspace" }),
+      workspace({ serverId: "devbox", workspaceId: "devbox-workspace" }),
+    ]);
+    expect(result.workspaceId).toBe("devbox-workspace");
+    expect(client.createWorkspace).not.toHaveBeenCalled();
+  });
+  it("creates a workspace with the chosen host's project and directory", async () => {
+    const client = {
+      createWorkspace: vi.fn().mockResolvedValue({ workspace: { id: "remote-new" } }),
+    };
+    const target = {
+      serverId: "devbox",
+      projectId: "remote-project",
+      iconWorkingDir: "/home/research/repo",
+    };
+    await prepareSidebarConversationWorkspace(client, target, [workspace({ serverId: "mac" })]);
+    expect(client.createWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: { kind: "directory", path: "/home/research/repo", projectId: "remote-project" },
+      }),
+    );
+  });
   const target = { serverId: "srv", projectId: "rea", iconWorkingDir: "/repo" };
   it("reuses the directory workspace without creating another workspace", async () => {
     const client = { createWorkspace: vi.fn() };

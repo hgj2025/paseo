@@ -6,12 +6,31 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { useAgentUsage } from "./queries";
 import { AgentUsage } from "./agent-usage";
-import { UsageMeter } from "./meter";
+import { ContextWindowRing, getRingGeometry } from "@/components/context-window-ring";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { Theme } from "@/styles/theme";
 import { formatPct } from "./format";
 import { windowTone } from "./tone";
 import { conversationQuota, quotaTiming } from "./conversation-quota";
 
-export function ConversationQuotaBar({ serverId, agentId }: { serverId: string; agentId: string }) {
+function quotaResetLabel(
+  minutes: number | null | undefined,
+  t: (key: string, options?: { minutes: number }) => string,
+) {
+  if (minutes === 0) return t("conversationQuota.resetting");
+  if (minutes != null) return t("conversationQuota.reset", { minutes });
+  return "";
+}
+export function ConversationQuotaBar({
+  serverId,
+  agentId,
+  size = 14,
+}: {
+  serverId: string;
+  agentId: string;
+  size?: number;
+}) {
+  const geometry = getRingGeometry(size);
   const active = useRetainedPanelActive();
   const view = useAgentUsage(serverId, agentId, { active, poll: true });
   const { t } = useTranslation();
@@ -29,10 +48,22 @@ export function ConversationQuotaBar({ serverId, agentId }: { serverId: string; 
   const accessibilityState = useMemo(() => ({ expanded: open }), [open]);
   const close = useCallback(() => setOpen(false), []);
   const show = useCallback(() => setOpen(true), []);
-  let resetLabel = "";
-  if (timing?.resetMinutes === 0) resetLabel = t("conversationQuota.resetting");
-  else if (timing?.resetMinutes != null)
-    resetLabel = t("conversationQuota.reset", { minutes: timing.resetMinutes });
+  const resetLabel = quotaResetLabel(timing?.resetMinutes, t);
+  const tone = quota ? windowTone(quota.window) : "default";
+  const meterColors = useCallback(
+    (theme: Theme) => {
+      let progressColor = theme.colors.foregroundMuted;
+      if (!timing?.stale && tone === "danger") progressColor = theme.colors.statusDanger;
+      if (!timing?.stale && tone === "warning") progressColor = theme.colors.statusWarning;
+      return { trackColor: theme.colors.surface3, progressColor };
+    },
+    [tone, timing?.stale],
+  );
+  let summary = t(
+    view.kind === "loading" ? "conversationQuota.loading" : "conversationQuota.unavailable",
+  );
+  if (quota)
+    summary = `5h ${t("conversationQuota.used", { percent: formatPct(quota.percent) })} · ${resetLabel}${timing?.stale ? ` · ${t("conversationQuota.stale")}` : ""}`;
   if (view.kind === "none") return null;
   // Providers without a five-hour quota retain their existing detailed usage UI.
   if (
@@ -43,38 +74,34 @@ export function ConversationQuotaBar({ serverId, agentId }: { serverId: string; 
     return null;
   return (
     <>
-      <Pressable
-        onPress={show}
-        accessibilityRole="button"
-        accessibilityState={accessibilityState}
-        accessibilityLabel={t("conversationQuota.details")}
-        style={styles.row}
-        testID="conversation-quota-bar"
-      >
-        {quota ? (
-          <>
-            <Text style={styles.text}>5h {formatPct(quota.percent)}</Text>
-            <UsageMeter
-              percent={quota.percent}
-              tone={windowTone(quota.window)}
-              style={styles.meter}
-            />
-            <Text numberOfLines={1} style={styles.trailing}>
-              {quota.percent >= 100 ? `${t("conversationQuota.full")} · ` : ""}
-              {resetLabel}
-            </Text>
-            {timing?.stale && <Text style={styles.text}>{t("conversationQuota.stale")}</Text>}
-          </>
-        ) : (
-          <Text style={styles.text}>
-            {t(
-              view.kind === "loading"
-                ? "conversationQuota.loading"
-                : "conversationQuota.unavailable",
-            )}
-          </Text>
-        )}
-      </Pressable>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Pressable
+            onPress={show}
+            accessibilityRole="button"
+            accessibilityState={accessibilityState}
+            accessibilityLabel={summary}
+            style={styles.trigger}
+            testID="conversation-quota-ring"
+          >
+            <View style={styles.glyph}>
+              <ContextWindowRing
+                size={size}
+                radius={geometry.radius}
+                strokeWidth={geometry.strokeWidth}
+                percentage={quota?.percent ?? null}
+                uniProps={meterColors}
+              />
+              <Text style={styles.digit} pointerEvents="none">
+                5
+              </Text>
+            </View>
+          </Pressable>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <Text style={styles.tooltip}>{summary}</Text>
+        </TooltipContent>
+      </Tooltip>
       {open && (
         <AdaptiveModalSheet
           header={header}
@@ -98,17 +125,15 @@ export function ConversationQuotaBar({ serverId, agentId }: { serverId: string; 
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[2],
-    paddingVertical: theme.spacing[1],
-    minHeight: 32,
-    flexWrap: "wrap",
+  trigger: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
+  glyph: { alignItems: "center", justifyContent: "center" },
+  digit: {
+    position: "absolute",
+    fontSize: 10,
+    fontWeight: "600",
+    color: theme.colors.foregroundMuted,
   },
+  tooltip: { color: theme.colors.popoverForeground, fontSize: theme.fontSize.sm },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  trailing: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, flexShrink: 1 },
-  meter: { width: 64 },
   details: { padding: theme.spacing[3], gap: theme.spacing[2] },
 }));

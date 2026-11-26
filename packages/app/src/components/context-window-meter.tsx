@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
-import Svg, { Circle } from "react-native-svg";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { ContextWindowRing, getRingGeometry } from "./context-window-ring";
+import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -45,10 +45,6 @@ function getUsagePercentage(maxTokens: number, usedTokens: number): number | nul
   return (usedTokens / maxTokens) * 100;
 }
 
-function clampPercentage(value: number): number {
-  return Math.max(0, Math.min(100, value));
-}
-
 function formatSessionCost(value: number): string | null {
   if (!Number.isFinite(value) || value <= 0) {
     return null;
@@ -79,67 +75,14 @@ function getMeterGeometry(showPercentage: boolean, glyphSize?: number) {
     };
   }
   const resolvedSize = glyphSize ?? SVG_SIZE;
-  const resolvedStrokeWidth = glyphSize ? 2 : STROKE_WIDTH;
+  const geometry = getRingGeometry(resolvedSize, STROKE_WIDTH);
   return {
     svgSize: resolvedSize,
-    radius: (resolvedSize - resolvedStrokeWidth) / 2,
-    strokeWidth: resolvedStrokeWidth,
+    radius: geometry.radius,
+    strokeWidth: geometry.strokeWidth,
     containerStyle: styles.container,
   };
 }
-
-// Wrap the whole SVG: withUnistyles adds a div on web, which cannot sit inside an SVG.
-const ContextWindowRing = withUnistyles(function ContextWindowRing({
-  size,
-  radius,
-  strokeWidth,
-  percentage,
-  trackColor,
-  progressColor,
-}: {
-  size: number;
-  radius: number;
-  strokeWidth: number;
-  percentage: number | null;
-  trackColor: string;
-  progressColor: string;
-}) {
-  const center = size / 2;
-  const circumference = 2 * Math.PI * radius;
-  return (
-    <Svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      <Circle
-        cx={center}
-        cy={center}
-        r={radius}
-        fill="none"
-        stroke={trackColor}
-        strokeWidth={strokeWidth}
-      />
-      {percentage !== null ? (
-        <Circle
-          cx={center}
-          cy={center}
-          r={radius}
-          fill="none"
-          stroke={progressColor}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference - (clampPercentage(percentage) / 100) * circumference}
-          // SVG strokes start at three o'clock; the ring reads clockwise from twelve.
-          transform={`rotate(-90 ${center} ${center})`}
-        />
-      ) : null}
-    </Svg>
-  );
-});
 
 export function ContextWindowMeter({
   serverId,

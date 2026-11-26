@@ -225,9 +225,8 @@ function createGitSnapshot(
 describe("CheckoutSession", () => {
   describe("status", () => {
     it("emits a checkout status response built from the git snapshot", async () => {
-      const { checkout, emitted } = makeCheckoutSession({
-        git: { getSnapshot: async () => createGitSnapshot("/repo", "main") },
-      });
+      const getSnapshot = vi.fn().mockResolvedValue(createGitSnapshot("/repo", "main"));
+      const { checkout, emitted } = makeCheckoutSession({ git: { getSnapshot } });
 
       await checkout.handleStatusRequest({
         type: "checkout_status_request",
@@ -235,6 +234,11 @@ describe("CheckoutSession", () => {
         requestId: "r1",
       });
 
+      expect(getSnapshot).toHaveBeenCalledWith("/repo", {
+        force: true,
+        includeForge: false,
+        reason: "manual-refresh",
+      });
       expect(emitted).toEqual([
         {
           type: "checkout_status_response",

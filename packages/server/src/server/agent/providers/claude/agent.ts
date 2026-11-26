@@ -33,6 +33,7 @@ import {
 import {
   getClaudeContextWindowMaxTokens,
   getClaudeModelsWithSettings,
+  mergeClaudeDiscoveredModels,
   normalizeClaudeRuntimeModelId,
   resolveConfiguredClaudeModel,
 } from "./models.js";
@@ -1613,8 +1614,9 @@ export class ClaudeAgentClient implements AgentClient {
     }
     const env = this.buildProviderEnv();
     let discoveredModelIds = new Set<string>();
+    let advertisedModels: Awaited<ReturnType<typeof discoverClaudeModels>> = [];
     try {
-      const advertisedModels = await runProviderRefreshActivity(context, "models", () =>
+      advertisedModels = await runProviderRefreshActivity(context, "models", () =>
         this.discoverModels({
           resolveBinary: this.resolveBinary,
           runtimeSettings: this.runtimeSettings,
@@ -1644,7 +1646,7 @@ export class ClaudeAgentClient implements AgentClient {
     );
     const modeCatalog = claudeModeCatalog(env);
     return {
-      models,
+      models: mergeClaudeDiscoveredModels(models, advertisedModels),
       ...modeCatalog,
     };
   }
@@ -2497,6 +2499,36 @@ class ClaudeAgentSession implements AgentSession {
     }
 
     await this.interruptActiveTurn();
+  }
+
+  getPersistedHistoryPath(): string | null {
+    return this.claudeSessionId ? this.resolveHistoryPath(this.claudeSessionId) : null;
+  }
+
+  async *readPersistedHistory(): AsyncGenerator<AgentStreamEvent> {
+    if (this.turnState !== "idle" || this.mainTurnInFlight) {
+      throw new Error("Cannot synchronize history while Claude is running");
+    }
+    if (!this.claudeSessionId) throw new Error("Claude session has no persisted history");
+    const historyPath = this.resolveHistoryPath(this.claudeSessionId);
+    if (!historyPath) throw new Error("Claude transcript was not found");
+    // A separate parser keeps replay caches and live task state untouched. No SDK query starts.
+    const content = fs.readFileSync(historyPath, "utf8");
+    const reader = new ClaudeAgentSession(this.config, {
+      logger: this.logger,
+      resolveBinary: this.resolveBinary,
+      launchEnv: this.launchEnv,
+      runtimeSettings: this.runtimeSettings,
+    });
+    const replay = reader.ingestPersistedSidechains(
+      content,
+      readClaudeSidechainHistory(historyPath),
+    );
+    reader.ingestPersistedHistory(content, replay);
+    if (reader.persistedHistory.length === 0) {
+      throw new Error("Claude transcript contains no replayable history; keeping existing history");
+    }
+    yield* reader.streamHistory();
   }
 
   async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
@@ -6289,6 +6321,12 @@ function convertClaudeHistoryEntryPreamble(
   const taskNotificationItem = mapTaskNotificationSystemRecordToToolCall(entry);
   if (taskNotificationItem) {
     return { shortCircuit: [taskNotificationItem] };
+  }
+
+  // Request/debug snapshots can embed copies of old messages (including tool_use).
+  // They are not transcript messages: replaying one can reopen a completed call.
+  if (entry.type !== "user" && entry.type !== "assistant") {
+    return { shortCircuit: [] };
   }
 
   if (entry.isCompactSummary) {

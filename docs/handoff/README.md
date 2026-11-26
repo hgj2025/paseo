@@ -7,7 +7,8 @@
 1. [工程地图](repository-map.md)：定位包和功能入口。
 2. [开发与验证](development.md)：隔离开发环境、构建与测试。
 3. [部署与待办](deployment-status.md)：区分源码、安装产物和各 host 状态。
-4. 阅读仓库根目录 [AGENTS.md](../../AGENTS.md)、[CLAUDE.md](../../CLAUDE.md) 的当前开发约束。
+4. [官方差异与 agy 接入](upstream-integration.md)：合并范围、定向移植和验证边界。
+5. 阅读仓库根目录 [AGENTS.md](../../AGENTS.md)、[CLAUDE.md](../../CLAUDE.md) 的当前开发约束。
 
 ## 文档导航
 

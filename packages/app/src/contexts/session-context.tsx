@@ -495,8 +495,10 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   }, [client, serverId, setInitializingAgents, setViewedTimelineSync, voiceRuntime]);
 
   useEffect(() => {
+    // The owner above is recreated when its client changes, even if the host
+    // stays online while switching transports. Initialize every replacement.
     viewedTimelineSyncRef.current?.setConnected(isConnected);
-  }, [isConnected]);
+  }, [client, isConnected, serverId, setInitializingAgents, setViewedTimelineSync, voiceRuntime]);
 
   // Daemon message handlers - directly update Zustand store
   useEffect(() => {

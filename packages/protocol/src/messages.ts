@@ -3,6 +3,16 @@ import {
   TeamDirectoryResponseSchema,
   TeamDirectoryChangedSchema,
 } from "./team-directory.js";
+import {
+  CollaborationHealthRequestSchema,
+  CollaborationHealthResponseSchema,
+  CollaborationRoutesSchema,
+  CollaborationChangedSchema,
+  CollaborationRegisterRequestSchema,
+  CollaborationRegisterResponseSchema,
+  CollaborationExecuteRequestSchema,
+  CollaborationExecuteResponseSchema,
+} from "./collaboration-bridge.js";
 import { WorkspaceTeamRequestSchema, WorkspaceTeamResponseSchema } from "./workspace-team.js";
 import { AgentMessageSchema } from "./agent-message.js";
 import { PluginRegistryIdentitySchema } from "./plugin-registry.js";
@@ -1846,6 +1856,10 @@ export const RefreshAgentRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+export const SynchronizeAgentHistoryRequestMessageSchema = RefreshAgentRequestMessageSchema.extend({
+  type: z.literal("synchronize_agent_history_request"),
+});
+
 export const CancelAgentRequestMessageSchema = z.object({
   type: z.literal("cancel_agent_request"),
   agentId: z.string(),
@@ -3205,6 +3219,11 @@ export const SubscriptionReleaseResponseSchema = z.object({
 export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceTeamRequestSchema,
   TeamDirectoryRequestSchema,
+  CollaborationHealthRequestSchema,
+  CollaborationRegisterRequestSchema,
+  CollaborationChangedSchema,
+  CollaborationRoutesSchema,
+  CollaborationExecuteResponseSchema,
   BrowserHostRegisterRequestSchema,
   SubscriptionReleaseRequestSchema,
   SessionEventsSetSubscriptionRequestSchema,
@@ -3290,6 +3309,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
+  SynchronizeAgentHistoryRequestMessageSchema,
   CancelAgentRequestMessageSchema,
   ShutdownServerRequestMessageSchema,
   RestartServerRequestMessageSchema,
@@ -3688,7 +3708,10 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceTeams: z.boolean().optional(),
         sessionTeams: z.boolean().optional(),
         conversationExecution: z.boolean().optional(),
+        collaborationBridge: z.boolean().optional(),
+        connectionDiagnostics: z.boolean().optional(),
         teamDirectory: z.boolean().optional(),
+        teamPathContext: z.boolean().optional(),
         workspaceTeamGroups: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
@@ -6861,8 +6884,11 @@ export const AgentSkillsImportLegacySelectionResponseSchema = z.object({
 export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   TeamDirectoryChangedSchema,
   TeamDirectoryResponseSchema,
+  CollaborationHealthResponseSchema,
   WorkspaceTeamResponseSchema,
   BrowserHostRegisterResponseSchema,
+  CollaborationRegisterResponseSchema,
+  CollaborationExecuteRequestSchema,
   SubscriptionReleaseResponseSchema,
   SessionEventsSetSubscriptionResponseSchema,
   HubExecutionAgentCreateResponseSchema,

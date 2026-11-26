@@ -1884,7 +1884,10 @@ export class VoiceAssistantWebSocketServer {
         workspaceTeams: true,
         sessionTeams: true,
         conversationExecution: true,
+        collaborationBridge: true,
+        connectionDiagnostics: true,
         teamDirectory: true,
+        teamPathContext: true,
         workspaceTeamGroups: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: true,

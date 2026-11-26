@@ -516,10 +516,14 @@ beforeEach(() => {
   mockState.reset();
 });
 
-test("builds registry with no overrides — same as built-in count", () => {
+test("builds registry without retired providers", () => {
   const registry = buildProviderRegistry(logger);
 
-  expect(Object.keys(registry)).toHaveLength(AGENT_PROVIDER_DEFINITIONS.length);
+  expect(Object.keys(registry)).toEqual(
+    AGENT_PROVIDER_DEFINITIONS.filter((definition) => definition.id !== "opencode").map(
+      (definition) => definition.id,
+    ),
+  );
 });
 
 test("includes mock provider only for development builds", () => {
@@ -1790,4 +1794,11 @@ describe("fetchCatalog", () => {
     expect(catalog.models.map((model) => model.id)).toEqual(["catalog-model"]);
     expect(catalog.modes.map((mode) => mode.id)).toEqual(["ask"]);
   });
+});
+
+test("retired OpenCode is absent even when an old config enables it", () => {
+  const registry = buildProviderRegistry(createTestLogger(), {
+    providerOverrides: { opencode: { enabled: true } },
+  });
+  expect(registry.opencode).toBeUndefined();
 });

@@ -1,3 +1,5 @@
+import { SessionArchiveCoordinator } from "@/session-management/runtime";
+import { NavigationDiagnosticCollector } from "@/navigation/diagnostics/collector";
 import { DesktopNavigationRail } from "@/home-overview/navigation-rail";
 import { NAVIGATION_RAIL_WIDTH } from "@/home-overview/navigation-rail-view";
 import { ExecutionDiagnosticCollector } from "@/execution-diagnostics/collector";
@@ -624,6 +626,8 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
         <ExecutionDiagnosticCollector />
+        <NavigationDiagnosticCollector />
+        <SessionArchiveCoordinator />
         <ChangelogHost />
         <QuittingOverlay />
       </AppearanceStyleBoundary>

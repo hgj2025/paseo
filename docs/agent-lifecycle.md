@@ -280,3 +280,23 @@ Each agent is a single JSON file. Fields relevant to this doc:
 | `lastStatus`                                 | `AgentStatus` | `initializing` / `idle` / `running` / `error` / `closed`                           |
 
 See [`docs/data-model.md`](./data-model.md) for the full agent record.
+
+### Manual Claude history alignment
+
+For a loaded Claude session, `paseo agent reload <id> --history-only` reads the latest native transcript without restarting
+the runtime or interrupting work. It rejects while Paseo owns a running turn. Replay is collected
+before replacing the canonical timeline; missing, unreadable or empty transcripts keep the existing
+timeline. A new timeline epoch notifies connected clients to fetch the aligned history. Session IDs
+and workspaces are preserved. The normal Reload agent action keeps its existing restart behavior. The owning daemon must be upgraded.
+
+Claude transcripts now also align automatically while viewed. The existing timeline subscription
+owns a reference-counted observation, shared across clients. Opening/reconnecting checks file
+identity, size and modification time; unchanged files do not replay. Transcript edits are debounced
+for one second and publish through the existing timeline replacement event. Owned turns defer
+alignment until settlement. Leaving the last view cancels queued work and releases the filesystem
+subscription. No all-session history replay or periodic synchronization job is added.
+
+Claude transcript replay accepts canonical user/assistant messages plus explicitly mapped system
+events. Diagnostic records such as `api-request-blob` may contain copies of old tool calls and must
+not enter the timeline: they can otherwise overwrite a completed result with a running snapshot
+and assign import-time timestamps to old calls.

@@ -82,10 +82,24 @@ Bulk-close actions apply only to the dock's tabs. Explorer tabs can be reordered
 between compatible panes, but the dock cannot be split or maximized. Selecting an Explorer tab
 does not change workspace focus.
 
-Files shows the current Git branch beside repository root directories, including nested repositories
-and linked worktrees. Ordinary subdirectories do not repeat the branch. Detached checkouts show
-`HEAD (<short SHA>)`; hover a truncated label to read it in full. Branch labels update when directory
-listings reload, including the Files toolbar's Refresh action. There is no background branch polling.
+Files defaults to the current conversation's repository activity, with a separate File tree view.
+Activity comes from the conversation's agent timelines, including retired members and previous
+execution bindings. Git dirty state cannot attribute a file to a conversation: only completed
+structured edit/write records count as recorded file edits. Shell working directories are shown
+separately because commands can change files without producing structured edit records. Historical
+records may omit files from multi-file tools; this view is an activity index, not a complete audit.
+Checkouts group by host and actual repository root, so linked worktrees remain distinct. Branches
+are current checkout state, not edit-time branch history. Loading the index does not change the
+chat's loaded timeline window.
+
+File tree preserves ordinary directory browsing. It shows the current Git branch beside repository
+root directories, including nested repositories and linked worktrees. Ordinary subdirectories do
+not repeat the branch. Detached checkouts show `HEAD (<short SHA>)`; hover a truncated label to read
+it in full. In File tree, branch labels update when directory listings reload, including Refresh.
+The conversation activity view refreshes only while Files is visible in a focused workspace.
+Hidden retained Files tabs unmount their activity/tree content, releasing polling and subscriptions;
+the selected mode and browse location remain in the lightweight panel shell. Closing the desktop
+dock already unmounts it through the split-container visibility gate.
 
 Cmd+E shows or hides Explorer without changing its selected view. Compact layouts use the combined
 full-screen Explorer overlay for Changes, Files, and pull requests, and close it after a file opens. Compact Changes has no tree rail; its overview is the Jump to file action (`packages/app/src/git/jump-to-file/`), a sheet over the same changed-files tree the desktop rail renders.

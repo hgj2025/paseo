@@ -1,17 +1,20 @@
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { useMemo } from "react";
-import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TeamAction } from "@getpaseo/protocol/workspace-team";
 import { useFetchQuery } from "@/data/query";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { useHostFeature } from "@/runtime/host-features";
-import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+import {
+  getHostRuntimeStore,
+  useHostRuntimeClient,
+  useHostRuntimeIsConnected,
+} from "@/runtime/host-runtime";
+import { runExecutionHostOperation } from "./execution-host-operation";
 import type { WorkspaceTeamContextValue } from "./workspace-team-context";
 
 /** Header and panes share the layout owner's team cache and mutation path. */
 export function useWorkspaceTeamState(serverId: string, workspaceId: string, active: boolean) {
-  const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
   const sessionId = useWorkspaceLayoutStore(
@@ -43,8 +46,13 @@ export function useWorkspaceTeamState(serverId: string, workspaceId: string, act
   });
   const execute = useStableEvent(async (action: TeamAction) => {
     if (sessionSupported && !sessionId) throw new Error("Conversation is loading.");
-    if (!client || !connected) throw new Error(t("workspace.terminal.hostDisconnected"));
-    const result = await client.workspaceTeam(workspaceId, action, sessionId);
+    // Resolve again after reconnection; the last render can hold a replaced client.
+    const result = await runExecutionHostOperation(
+      serverId,
+      "Execute conversation action",
+      () => getHostRuntimeStore().getClient(serverId),
+      (owner) => owner.workspaceTeam(workspaceId, action, sessionId),
+    );
     queryClient.setQueryData(queryKey, result);
     return result;
   });

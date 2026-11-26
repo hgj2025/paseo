@@ -9,6 +9,7 @@ import { archiveAgentCommand } from "./agent/lifecycle-command.js";
 import { sendPromptToAgent, waitForAgentRunStartWithTimeout } from "./agent/agent-prompt.js";
 import { RemoteAgents } from "./agent/remote-agents.js";
 import { getOrCreateServerId } from "./server-id.js";
+import { memberPathInstructions, resultPathInstructions } from "./workspace-team-path-context.js";
 import { WorkspaceTeamService, teamTaskMarker } from "./workspace-team-service.js";
 
 interface Dependencies {
@@ -21,6 +22,7 @@ const services = new WeakMap<AgentManager, WorkspaceTeamService>();
 const Inspection = z.object({
   Id: z.string(),
   Provider: z.string(),
+  Cwd: z.string().optional(),
   Model: z.string().nullable().optional(),
   Status: z.string(),
   Archived: z.boolean().optional(),
@@ -94,6 +96,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
           throw new Error("Remote agent is unavailable.");
         return {
           provider: result.Provider,
+          cwd: result.Cwd,
           model: result.Model,
           busy: !["idle", "closed", "error"].includes(result.Status),
           historyEpoch: result.HistoryEpoch,
@@ -119,6 +122,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
         historyEpoch: page?.epoch,
         historySeq: page?.window.maxSeq,
         provider: record.provider,
+        cwd: record.cwd,
         model: snapshot?.config.model ?? record.config?.model,
         busy:
           agentManager.hasInFlightRun(member.agentId) ||
@@ -126,7 +130,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
       };
     },
     async send(member, task) {
-      const prompt = `${teamTaskMarker(task)}\n${member.role.trim() ? `Member prompt constraints (@${member.alias}):\n${member.role.trim()}\n\nTask:\n` : ""}${task.prompt}`;
+      const prompt = `${teamTaskMarker(task)}\n${memberPathInstructions(member)}${member.role.trim() ? `Member prompt constraints (@${member.alias}):\n${member.role.trim()}\n\nTask:\n` : ""}${task.prompt}`;
       if (member.serverId !== serverId) {
         const receipt = await remote.send({
           callerId: "workspace-team",
@@ -152,7 +156,12 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
     },
     async observe(member, task) {
       if (member.serverId !== serverId) {
-        const correlated = await remote.observeTask(member.serverId, member.agentId, task.id);
+        const correlated = await remote.observeTask(
+          member.serverId,
+          member.agentId,
+          task.id,
+          member.workspaceId,
+        );
         if (correlated !== null)
           return z
             .object({
@@ -225,7 +234,7 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
       };
     },
     async notify(captain, task) {
-      const prompt = `${task.groupId ? `[Team request result ${task.groupId}]\n` : ""}Team task ${task.id} ${task.status}. Summarize this result for the user; do not dispatch more work unless the user requested it.\nTask: ${task.prompt}\nResult:\n${task.result}`;
+      const prompt = `${task.groupId ? `[Team request result ${task.groupId}]\n` : ""}Team task ${task.id} ${task.status}. Summarize this result for the user; do not dispatch more work unless the user requested it.\n${memberPathInstructions(captain)}${resultPathInstructions(task)}Task: ${task.prompt}\nResult:\n${task.result}`;
       if (captain.serverId !== serverId) {
         const receipt = await remote.send({
           callerId: "workspace-team-report",

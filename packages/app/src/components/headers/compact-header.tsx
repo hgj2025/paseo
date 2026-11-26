@@ -23,6 +23,7 @@ const NO_SHORTCUT: ShortcutKey[] = [];
 interface CompactHeaderProps {
   /** The leading island: the sidebar menu, or a back button. */
   navigation: "menu" | "back";
+  appearance?: "islands" | "bar";
   /** Back button action. Defaults to navigating back. */
   onBack?: () => void;
   title?: string;
@@ -35,14 +36,10 @@ interface CompactHeaderProps {
   actions?: ReactNode;
 }
 
-/**
- * The phone header: the navigation button and the screen's actions sit in islands, with the title
- * left-aligned between them. It has no background of its own, so it reads the same in flow and floating
- * over content (see `FloatingHeaderLayout`). Its height matches the old flat header, so anything
- * offset by the header height still lines up.
- */
+/** Compact navigation; workspace conversations use an opaque, in-flow bar. */
 export function CompactHeader({
   navigation,
+  appearance = "islands",
   onBack,
   title,
   titleTestID,
@@ -52,15 +49,19 @@ export function CompactHeader({
 }: CompactHeaderProps) {
   const insets = useSafeAreaInsets();
   const rootStyle = useMemo(
-    () => [styles.root, { paddingTop: insets.top + HEADER_TOP_PADDING_MOBILE }],
-    [insets.top],
+    () => [
+      styles.root,
+      appearance === "bar" && styles.barRoot,
+      { paddingTop: insets.top + HEADER_TOP_PADDING_MOBILE },
+    ],
+    [appearance, insets.top],
   );
 
   return (
-    <IconButtonChromeProvider value="header-island">
+    <IconButtonChromeProvider value={appearance === "bar" ? "header-bar" : "header-island"}>
       <View style={rootStyle}>
         <View style={styles.row}>
-          <View style={styles.island}>
+          <View style={appearance === "bar" ? styles.barControls : styles.island}>
             {navigation === "menu" ? <SidebarMenuToggle /> : <BackButton onBack={onBack} />}
           </View>
           <View style={styles.titleGroup}>
@@ -71,7 +72,9 @@ export function CompactHeader({
               subtitle={subtitle}
             />
           </View>
-          {actions ? <View style={styles.island}>{actions}</View> : null}
+          {actions ? (
+            <View style={appearance === "bar" ? styles.barControls : styles.island}>{actions}</View>
+          ) : null}
         </View>
       </View>
     </IconButtonChromeProvider>
@@ -131,6 +134,13 @@ const styles = StyleSheet.create((theme) => ({
   root: {
     paddingHorizontal: theme.spacing[3],
   },
+  barRoot: {
+    backgroundColor: theme.colors.surfaceWorkspace,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    paddingBottom: theme.spacing[2],
+  },
+  barControls: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
   row: {
     height: HEADER_INNER_HEIGHT_MOBILE,
     flexDirection: "row",

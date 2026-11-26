@@ -111,6 +111,7 @@ interface ResolveStartupRouteBaseInput {
 }
 
 export interface ResolveIndexStartupRouteInput extends ResolveStartupRouteBaseInput {
+  mobileHome?: boolean;
   route: IndexStartupRouteTarget;
   anyOnlineHostServerId: string | null;
   workspaceSelection: ActiveWorkspaceSelection | null;
@@ -181,6 +182,8 @@ function resolveReadyIndexStartupRoute(input: ResolveIndexStartupRouteInput): St
   if (!isIndexPathname(input.route.pathname)) {
     return { kind: "render" };
   }
+
+  if (input.mobileHome && input.hosts.length > 0) return { kind: "redirect", href: "/home" };
 
   if (!input.isWorkspaceSelectionLoaded) {
     return { kind: "splash" };

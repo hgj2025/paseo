@@ -70,7 +70,13 @@ export function ExecutionContextView({
             <CopyPath path={cwd} onCopy={onCopy} />
           </View>
           {repositories.map((repo) => (
-            <RepositoryRow key={repo.root} repo={repo} connected={connected} onCopy={onCopy} />
+            <RepositoryRow
+              key={repo.root}
+              repo={repo}
+              connected={connected}
+              onCopy={onCopy}
+              showRoot={repo.root !== cwd}
+            />
           ))}
           {(repositories.length === 0 || failed || !connected) && (
             <Text style={styles.secondary}>{state}</Text>
@@ -121,7 +127,7 @@ function ExecutionSummary({
           {primary?.branch ? basename(primary.root) : summary}
         </Text>
       </Pressable>
-      {primary?.branch && (
+      {primary?.branch && !expanded && (
         <View style={styles.summaryBranch}>
           <CopyPath key={primary.branch} path={primary.branch} onCopy={onCopy} />
           {primary.dirty && <Text style={styles.secondary}>*</Text>}
@@ -213,10 +219,12 @@ function RepositoryRow({
   repo,
   connected,
   onCopy,
+  showRoot,
 }: {
   repo: ExecutionRepository;
   connected: boolean;
   onCopy: (path: string) => Promise<void>;
+  showRoot: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -235,7 +243,7 @@ function RepositoryRow({
         <Text style={styles.secondary}>{t("executionContext.detached")}</Text>
       )}
       {!connected && <Text style={styles.secondary}>{t("executionContext.offlineShort")}</Text>}
-      <CopyPath path={repo.root} onCopy={onCopy} />
+      {showRoot && <CopyPath path={repo.root} onCopy={onCopy} />}
       {repo.previousBranch !== undefined && (
         <Text style={styles.change} accessibilityLiveRegion="polite" numberOfLines={1}>
           {t("executionContext.changed", { branch: repo.previousBranch })}
@@ -261,7 +269,8 @@ const styles = StyleSheet.create((theme) => ({
     gap: 4,
   },
   summary: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     minWidth: 0,
     minHeight: density.rowHeight,
     flexDirection: "row",
@@ -269,7 +278,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   summaryBranch: {
-    flex: 2,
+    flexShrink: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
@@ -282,7 +291,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: density.rowHeight,
   },
   summaryText: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foreground,

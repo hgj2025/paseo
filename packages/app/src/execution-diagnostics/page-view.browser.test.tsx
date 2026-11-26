@@ -6,6 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { i18n } from "@/i18n/i18next";
 import { ExecutionDiagnosticPageView, type DiagnosticSessionRow } from "./page-view";
 import type { SessionDiagnostic } from "./cache";
+import { ExecutionDiagnosticDetail } from "./view";
+import type { ExecutionRow } from "./model";
 
 beforeEach(async () => {
   vi.stubGlobal("React", React);
@@ -101,4 +103,55 @@ it("keeps diagnosis in settings, distinguishes unread sessions and isolates host
   act(() => ui.getByRole("button", { name: "清空本机诊断缓存" }).click());
   act(() => ui.getByRole("button", { name: /^Mac$/ }).click());
   expect(ui.getByText("未分析，选中会话后可读取历史。")).toBeTruthy();
+});
+
+const noMatchRows: ExecutionRow[] = [
+  {
+    id: "empty",
+    command: "rg missing src",
+    evidence: "exit 1",
+    status: "completed",
+    noMatches: true,
+    category: "tool",
+    timing: "unknown",
+    slow: false,
+  },
+  {
+    id: "broken",
+    command: "rg missing absent",
+    evidence: "exit 2: no such file",
+    status: "failed",
+    category: "environment",
+    timing: "unknown",
+    slow: false,
+  },
+];
+function noOlderHistory() {}
+
+it("shows no matches in all records without counting it as an issue", async () => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() =>
+    root?.render(
+      <ExecutionDiagnosticDetail
+        connected
+        serverId="mac"
+        agentId="agent"
+        rows={noMatchRows}
+        pendingCount={0}
+        hasOlder={false}
+        loadingOlder={false}
+        loadOlder={noOlderHistory}
+      />,
+    ),
+  );
+  const screen = within(container);
+  expect(screen.queryByText("rg missing src")).toBeNull();
+  expect(screen.getByText("rg missing absent").textContent).toBe("rg missing absent");
+  act(() => screen.getByRole("button", { name: i18n.t("executionDiagnostics.all") }).click());
+  expect(screen.getByText("rg missing src").textContent).toBe("rg missing src");
+  expect(
+    screen.getByText((text) => text.startsWith(i18n.t("paneFind.noMatches"))).textContent,
+  ).toContain(i18n.t("paneFind.noMatches"));
 });

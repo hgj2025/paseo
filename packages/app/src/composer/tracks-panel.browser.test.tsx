@@ -346,6 +346,8 @@ describe("composer execution context", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent?.split("codex/execution-context")).toHaveLength(2);
+    expect(container.textContent?.split("/Users/bytedance/Documents/ChatGPT/ccproxy 2")).toHaveLength(2);
     const branchCopy = Array.from(container.querySelectorAll('[role="button"]')).find(
       (node) => node.textContent === "codex/execution-context",
     );

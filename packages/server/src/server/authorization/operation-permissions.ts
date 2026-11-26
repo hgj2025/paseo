@@ -7,6 +7,11 @@ export type PermissionRequirement = DaemonPermission | readonly DaemonPermission
 
 const INBOUND_PERMISSION = {
   "collaboration.directory.request": "workspace.write",
+  "collaboration.health.request": "workspace.read",
+  "collaboration.bridge.register.request": "workspace.write",
+  "collaboration.bridge.routes": "workspace.write",
+  "collaboration.bridge.changed": "workspace.write",
+  "collaboration.bridge.execute.response": "workspace.write",
   "workspace.team.execute.request": "workspace.write",
   abort_request: "workspace.write",
   "agent.config.apply.request": ["workspace.write", "hub.execute"],
@@ -157,6 +162,7 @@ const INBOUND_PERMISSION = {
   "push.unregister.request": "workspace.read",
   read_project_config_request: "workspace.read",
   refresh_agent_request: "workspace.write",
+  synchronize_agent_history_request: "workspace.write",
   refresh_providers_snapshot_request: ["daemon.read", "hub.execute"],
   register_push_token: "workspace.read",
   restart_server_request: "daemon.manage",
@@ -217,8 +223,11 @@ const INBOUND_PERMISSION = {
 } as const satisfies Record<InboundOperation, PermissionRequirement>;
 
 const OUTBOUND_PERMISSION = {
-  "collaboration.directory.response": "workspace.write",
   "collaboration.directory.changed": "workspace.write",
+  "collaboration.directory.response": "workspace.write",
+  "collaboration.health.response": "workspace.read",
+  "collaboration.bridge.register.response": "workspace.write",
+  "collaboration.bridge.execute.request": "workspace.write",
   "workspace.team.execute.response": "workspace.write",
   "agent.create.response": ["workspace.write", "hub.execute"],
   "agent.create.update": ["workspace.write", "hub.execute"],

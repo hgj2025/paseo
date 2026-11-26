@@ -45,5 +45,5 @@ export function useHomeOverview() {
       row.state !== "unknown" &&
       (row.agent.requiresAttention || row.state === "waiting" || row.state === "failed"),
   ).length;
-  return { ...directory, hosts, sessions, attentionCount };
+  return { ...directory, hosts, groups, sessions, attentionCount };
 }

@@ -28,6 +28,7 @@ import { estimateStreamItemHeight } from "./web-virtualization";
 import { createReadingAnchor } from "./reading-anchor";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import { useRevisedHistoryRows } from "./history-row-revision";
+import { useStreamContentWidth } from "./use-stream-content-width";
 import { createStreamStrategy } from "./strategy";
 import {
   abandonHistoryStartPaginationRequest,
@@ -441,7 +442,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       unsubscribe?.();
     };
   }, []);
-  const contentWidth = contentRef.current?.getBoundingClientRect().width;
+  const contentWidth = useStreamContentWidth(contentRef, isActive);
   const rowVirtualizer = useVirtualizer({
     count: segments.historyVirtualized.length,
     enabled: shouldUseVirtualizer,
@@ -1201,7 +1202,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       flexDirection: "column",
       minHeight: "100%",
       paddingTop: CONTENT_PADDING_TOP_PX,
-      paddingBottom: 16,
+      paddingBottom: 4,
       paddingLeft: isMobileBreakpoint ? 8 : 16,
       paddingRight: isMobileBreakpoint ? 8 : 16,
       boxSizing: "border-box",

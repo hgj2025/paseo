@@ -26,19 +26,19 @@ Work out of the box once the underlying CLI is installed and authenticated.
 Install the Antigravity CLI (`agy`) on your daemon host, then run `agy` once to sign in. Pick
 **Antigravity** in Paseo. The provider ships with Paseo; no separate plugin install is required.
 
-**Full access** is the only permission mode. Antigravity cannot ask for permission when another
-app drives it, so Paseo starts `agy` with `--dangerously-skip-permissions`. Every tool call,
-including shell commands, runs without asking. Each session starts with a warning explaining
-this, including when you reopen a chat. Antigravity's own policy can still deny
-an action.
+This provider requires `agy` 1.5.0 or later and launches `agy acp --disable-telemetry`.
+Models, model-specific thinking options, commands and skills come from the CLI's ACP catalog.
 
-After a daemon restart, Antigravity remembers the conversation, but Paseo's transcript starts
-fresh because `agy` does not replay its history.
+Paseo shows the CLI's permission modes, including Default, Accept edits, Auto and Plan when
+available for the account. Full access is the default, as in the upstream provider; it approves
+ACP tool requests with an Allow once action. Select Default when you want interactive approvals.
+Antigravity's own policy still applies.
+
+Paseo can restore ACP session history and pass configured MCP servers to the CLI. Legacy
+stream-json conversation IDs and model/effort selections are migrated when reopening a session.
+Do not run the same native conversation concurrently in Paseo and another terminal.
 
 This integration uses your installed CLI and sign-in. It is not endorsed by Google.
-
-Paseo MCP tools and steering are unavailable. Your own `agy` MCP servers still work. Attached
-images are passed as file references for the agent to read.
 
 If `agy` is outside your daemon's PATH, override its command in `~/.paseo/config.json`. Use `env`
 for provider-specific environment variables:
@@ -48,7 +48,7 @@ for provider-specific environment variables:
   "agents": {
     "providers": {
       "antigravity": {
-        "command": ["/absolute/path/to/agy"],
+        "command": ["/absolute/path/to/agy", "acp", "--disable-telemetry"],
         "env": { "EXAMPLE_VARIABLE": "value" }
       }
     }
@@ -100,3 +100,7 @@ Pick any of these from the in-app provider catalog. Each entry is a one-click in
 - [VT Code](https://github.com/vinhnx/VTCode/blob/main/docs/guides/zed-acp.md), open-source multi-provider coding agent.
 
 The in-app catalog is the canonical, version-pinned source. Anything not listed here can still be added manually, see [Custom providers](/docs/custom-providers).
+
+The daemon environment determines which sign-in `agy` uses. An SSH-launched daemon can use a
+different account than a desktop-launched daemon. Provider diagnostics report whether SSH
+variables are present; sign in in the matching environment instead of copying credentials.

@@ -178,6 +178,30 @@ describe("resolveStartupRoute", () => {
     isWorkspaceSelectionLoaded: true,
     hasGivenUpWaitingForHost: false,
   };
+  it("opens mobile home before workspace hydration without changing saved workspace identity", () => {
+    const input = {
+      ...baseIndexInput,
+      mobileHome: true,
+      hosts: [{ serverId: "offline-host" }],
+      workspaceSelection: { serverId: "offline-host", workspaceId: "saved" },
+      isWorkspaceSelectionLoaded: false,
+    };
+    expect(resolveStartupRoute(input)).toEqual({ kind: "redirect", href: "/home" });
+    expect(input.workspaceSelection.workspaceId).toBe("saved");
+  });
+  it("keeps mobile onboarding and explicit routes authoritative", () => {
+    expect(
+      resolveStartupRoute({ ...baseIndexInput, mobileHome: true, hasGivenUpWaitingForHost: true }),
+    ).toEqual({ kind: "redirect", href: "/welcome" });
+    expect(
+      resolveStartupRoute({
+        ...baseIndexInput,
+        mobileHome: true,
+        route: { kind: "index", pathname: "/h/mac/workspace/saved" },
+        hosts: [{ serverId: "mac" }],
+      }),
+    ).toEqual({ kind: "render" });
+  });
   const baseHostInput = {
     route: { kind: "host" as const, serverId: "server-saved" },
     startupBlocker: { kind: "none" as const },

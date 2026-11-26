@@ -142,3 +142,17 @@ describe("execution diagnostics", () => {
     ).not.toMatch(/abc|me:pw|secret|xyz|foo bar|encoded/);
   });
 });
+
+it("excludes no-match searches from failures without rewriting provider history", () => {
+  const item = call("1");
+  if (item.payload.source !== "agent") throw new Error("agent fixture required");
+  item.payload.data.detail = { type: "shell", command: "rg missing src", exitCode: 1, output: "" };
+  item.payload.data.error = { message: "Command failed" };
+  const raw = JSON.stringify(item);
+  expect(analyzeExecutions([item])[0]).toMatchObject({
+    status: "completed",
+    noMatches: true,
+    evidence: "exit 1\nCommand failed",
+  });
+  expect(JSON.stringify(item)).toBe(raw);
+});

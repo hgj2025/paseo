@@ -48,6 +48,35 @@ afterEach(() => {
 });
 
 describe("convertClaudeHistoryEntry", () => {
+  test.each(["api-request-blob", "api-request", "progress", "attachment"])(
+    "does not replay a %s diagnostic snapshot as a new tool execution",
+    (type) => {
+      const mapBlocks = vi
+        .fn()
+        .mockReturnValue([{ type: "tool_call", callId: "already-completed", status: "running" }]);
+      expect(
+        convertClaudeHistoryEntry(
+          {
+            type,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "already-completed",
+                  name: "Bash",
+                  input: { command: "echo done" },
+                },
+              ],
+            },
+          },
+          mapBlocks,
+        ),
+      ).toEqual([]);
+      expect(mapBlocks).not.toHaveBeenCalled();
+    },
+  );
+
   test("maps user tool results to timeline items", () => {
     const toolUseId = "toolu_test";
     const entry = {

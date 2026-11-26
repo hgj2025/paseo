@@ -1,3 +1,4 @@
+import { resolveTeamMemberAliases, type TeamMember } from "@getpaseo/protocol/workspace-team";
 import { describe, expect, it } from "vitest";
 import { parseTeamMentions, teamMentionCandidates } from "./team-mentions";
 const members = [
@@ -48,4 +49,34 @@ describe("team mention candidates", () => {
     );
     expect(teamMentionCandidates(roster, "captain").map((m) => m.id)).toEqual(["linux", "peer"]);
   });
+});
+
+it("inserts and routes the same current-model alias for a legacy split member", () => {
+  const peer: TeamMember = {
+    id: "peer",
+    alias: "Codex",
+    provider: "codex",
+    serverId: "mac",
+    workspaceId: "work",
+    agentId: "anchor",
+    role: "",
+    skills: [],
+    execution: {
+      serverId: "mac",
+      workspaceId: "work",
+      agentId: "runner",
+      provider: "claude",
+      model: "claude-opus-5-5",
+    },
+  };
+  const roster = resolveTeamMemberAliases([peer], null, {
+    models: new Map([[peer.id, "Opus 5.5"]]),
+  });
+  const candidates = teamMentionCandidates(roster, "captain");
+  expect(candidates[0]!.alias).toBe("Opus-5-5");
+  expect(parseTeamMentions("@Opus-5-5 Review the plan", candidates).prompts).toEqual({
+    peer: "Review the plan",
+  });
+  expect(parseTeamMentions("@Codex stale name", candidates).memberIds).toEqual([]);
+  expect(peer.alias).toBe("Codex");
 });

@@ -16,6 +16,12 @@ interface Props {
   loadOlder: () => unknown;
 }
 
+function statusLabel(row: ExecutionRow): string {
+  if (row.noMatches) return "paneFind.noMatches";
+  if (row.recoveredBy) return "executionDiagnostics.recovered";
+  return `executionDiagnostics.status.${row.status}`;
+}
+
 class DiagnosticBoundary extends Component<
   { children: ReactNode; fallback: string },
   { failed: boolean }
@@ -145,12 +151,7 @@ function DiagnosticBody({
               style={styles.rowToggle}
             >
               <Text style={styles.text}>
-                {t(
-                  row.recoveredBy
-                    ? "executionDiagnostics.recovered"
-                    : `executionDiagnostics.status.${row.status}`,
-                )}{" "}
-                · {t(`executionDiagnostics.category.${row.category}`)}
+                {t(statusLabel(row))} · {t(`executionDiagnostics.category.${row.category}`)}
               </Text>
               <Text style={styles.muted}>{duration(row)}</Text>
               <Text

@@ -1,3 +1,4 @@
+import { measureNavigationWork, navigationContentReady } from "@/navigation/diagnostics/collector";
 import { usePaneSurfaceStyle } from "@/panels/pane-appearance";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -544,6 +545,21 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     // When isActive flips back to true, the context change triggers a re-render and
     // the component reads the current (fresh) streamItems/streamHead from props.
     const isActive = useRetainedPanelActive();
+    useEffect(() => {
+      if (isActive && isAuthoritativeHistoryReady)
+        return navigationContentReady(
+          resolvedServerId,
+          agentId,
+          streamItems.length + (streamHead?.length ?? 0),
+        );
+    }, [
+      isActive,
+      isAuthoritativeHistoryReady,
+      resolvedServerId,
+      agentId,
+      streamItems.length,
+      streamHead?.length,
+    ]);
     const effectiveStreamItems = useRetainedValue(streamItems, isActive);
     const effectiveStreamHead = useRetainedValue(streamHead, isActive);
     const effectiveTurnPresentation = useRetainedValue(turnPresentation, isActive);
@@ -551,14 +567,22 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const presentStream = useMemo(() => createStreamPresentation(), []);
     const presentation = useMemo(
       () =>
-        presentStream({
-          tail: effectiveStreamItems,
-          head: effectiveStreamHead ?? EMPTY_STREAM_HEAD,
-          transform: transformTimelineItem,
-          level: toolCallDetailLevel,
-          isTurnActive,
-        }),
+        measureNavigationWork(
+          { serverId: resolvedServerId, agentId },
+          "presentation",
+          effectiveStreamItems.length,
+          () =>
+            presentStream({
+              tail: effectiveStreamItems,
+              head: effectiveStreamHead ?? EMPTY_STREAM_HEAD,
+              transform: transformTimelineItem,
+              level: toolCallDetailLevel,
+              isTurnActive,
+            }),
+        ),
       [
+        resolvedServerId,
+        agentId,
         presentStream,
         effectiveStreamItems,
         effectiveStreamHead,
@@ -582,16 +606,24 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const progressKey = `${remoteProgressKey ?? "local"}:${historyWindowStart}`;
 
     const baseRenderModel = useMemo(() => {
-      return buildAgentStreamRenderModel({
-        isTurnActive,
-        activeTurnStartedAt: effectiveTurnPresentation.startedAt,
-        tail: presentation.tail,
-        head: presentation.head,
-        platform: isWeb ? "web" : "native",
-        isMobileBreakpoint: isMobile,
-        historyStart: historyWindowStart,
-      });
+      return measureNavigationWork(
+        { serverId: resolvedServerId, agentId },
+        "render-model",
+        presentation.tail.length,
+        () =>
+          buildAgentStreamRenderModel({
+            isTurnActive,
+            activeTurnStartedAt: effectiveTurnPresentation.startedAt,
+            tail: presentation.tail,
+            head: presentation.head,
+            platform: isWeb ? "web" : "native",
+            isMobileBreakpoint: isMobile,
+            historyStart: historyWindowStart,
+          }),
+      );
     }, [
+      resolvedServerId,
+      agentId,
       isMobile,
       isTurnActive,
       presentation.head,

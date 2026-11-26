@@ -36,6 +36,7 @@ export interface WorkspaceTabPresentation {
   titleState: "ready" | "loading";
   icon: React.ComponentType<PanelIconProps>;
   statusBucket: SidebarStateBucket | null;
+  historyTarget?: { serverId: string; agentId: string };
 }
 
 const DEFAULT_STATUS_DOT_OFFSET = -2;
@@ -127,7 +128,7 @@ function WorkspaceTabPresentationResolverInner({
       : undefined,
   );
   const executionIcon = useProviderIcon(
-    execution?.provider ?? "codex",
+    execution?.provider ?? tabMember?.provider ?? "codex",
     execution?.serverId ?? serverId,
   );
   const executionStatus = executionAgent
@@ -145,6 +146,13 @@ function WorkspaceTabPresentationResolverInner({
 
   const presentation = useMemo(
     () => ({
+      historyTarget:
+        tab.target.kind === "agent"
+          ? {
+              serverId: execution?.serverId ?? serverId,
+              agentId: execution?.agentId ?? tab.target.agentId,
+            }
+          : undefined,
       key: tab.key,
       kind: tab.kind,
       label: memberLabel ?? descriptor.label,
@@ -157,6 +165,8 @@ function WorkspaceTabPresentationResolverInner({
       statusBucket: execution ? executionStatus : descriptor.statusBucket,
     }),
     [
+      serverId,
+      tab.target,
       tabMember,
       memberLabel,
       execution,

@@ -1,0 +1,11 @@
+{
+  "plugins": ["typescript", "promise", "unicorn"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "no-await-in-loop": "off"
+  }
+}

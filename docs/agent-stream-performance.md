@@ -103,3 +103,67 @@ Healthy numbers (2026-08, Expo web against a local dev daemon, real Claude Haiku
 Total characters painted is roughly the same either way — the reveal changes when they land, not how many arrive.
 
 Measure the **total** length across every `assistant-message` element, not the last one. A turn emits many assistant messages, so the tail element keeps changing identity and its length is not monotonic; sampling only the tail reads those handovers as resets and reports almost no growth. `sampleStreamFrames` does this correctly.
+
+## Execution repository status reads
+
+Composer execution context and session-files repository summaries share the canonical
+`checkoutStatus` cache by host and directory. They do not poll Git every 5/10 seconds.
+Known workspace status is updated by the existing daemon push stream. Additional repository
+status is refreshed after structured shell/edit/write tools reach a terminal status (including
+failure, since a failed command may have modified files). Bursts are coalesced for 250 ms,
+and a newer push/read satisfies the refresh without another request. Concurrent surfaces
+must not cancel and restart the same in-flight checkout read.
+
+Text deltas and unchanged history pages are not refresh evidence. Hidden Apps and inactive
+composer panes do not initiate these reads. Focus/reconnect repairs status for repositories
+without a workspace subscription; external edits in an unsubscribed extra repository are
+therefore reflected on focus or the next relevant tool completion, not by background polling.
+Only the live stream head is rescanned for live text updates; stable historical tool evidence
+is memoized independently. Session-files history retrieval remains separate from Git queries.
+
+For desktop CPU diagnosis, distinguish the renderer from the GPU-process Helper. A manually
+installed `LSEnvironment.PASEO_ELECTRON_FLAGS=--disable-gpu` in the App's Info.plist forces
+software rendering. Remove that override and re-sign/restart the App before attributing
+software-compositing CPU to agent execution. App restart must preserve the daemon and its tasks.
+
+## Retained stream width
+
+Web streams measure content width after commit and with ResizeObserver, not during
+React rendering. Hidden/zero geometry must retain the last positive width: a retained
+workspace is still display:none during its activation render, and treating that zero
+as the current width discards measured row-height estimates. First virtualizer viewport
+initialization remains separate from content-width measurement.
+
+## Desktop navigation diagnostics
+
+The desktop renderer writes `[navigation-perf]` JSON records to the existing Electron
+app log (`~/Library/Logs/Paseo/main.log` on macOS). Each request has a window-local ID,
+host/agent/workspace IDs, monotonic elapsed times, pointer/keyboard input queue delay,
+workspace commit, authoritative content readiness, and two animation-frame opportunities.
+A frame opportunity is not proof that the OS compositor displayed the pixels.
+Each request collects at most 12 overlapping main-thread long tasks and ends on a frame
+opportunity, superseding request, failure, or 5-second timeout. No idle polling occurs.
+The log contains numeric counts and opaque IDs, never titles, messages, command output,
+or paths. Renderer console forwarding uses the existing Electron log rotation.
+
+After the two frame opportunities, navigation diagnostics retain one trace for five
+seconds to attribute delayed history hydration long tasks. This adds no polling or
+network reads. Slow (>16 ms) stream presentation and render-model calculations log
+phase, duration and row count; delayed long-task records remain capped at 12 per
+trace. These records distinguish first-screen readiness from later blocking work.
+
+## Session history load hints
+
+An App-memory cache retains observations for at most 200 host/agent pairs. Active
+session titles and desktop conversation tabs show an amber triangle only when loaded
+history reaches 10,000 source items, readiness waits reach 1,500 ms, or measured
+stream processing reaches 200 ms. These centralized advisory budgets are independent
+of provider token/context limits. The detail sheet distinguishes loaded counts from
+full history and connection/synchronization wait from synchronous processing.
+
+Counts reuse array lengths and timings reuse navigation instrumentation. Workspace/project
+entry also observes the existing visible loading state with one cancellable 1.5-second
+deadline, cleared on readiness, hiding or unmount. This is not a polling loop. There are
+no additional reads, history scans, serialization or polling. Per-session subscribers
+are notified only when observations change. Unopened/unmeasured sessions remain
+unassessed; observations are cleared when the App closes.

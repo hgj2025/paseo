@@ -1,3 +1,4 @@
+import { toolCallDisplayOutcome } from "@/tool-calls/outcome";
 import type { StreamItem } from "@/types/stream";
 
 export type Diagnosis = "tool" | "test" | "environment" | "auth" | "network" | "syntax" | "turn";
@@ -13,6 +14,7 @@ export interface ExecutionRow {
   timing: "reported" | "observed" | "unknown";
   slow: boolean;
   recoveredBy?: string;
+  noMatches?: boolean;
 }
 export interface Observation {
   started: number;
@@ -140,10 +142,8 @@ export function analyzeExecutions(
           ? (detail.text ?? "")
           : "";
     const exitCode = detail.type === "shell" ? detail.exitCode : undefined;
-    const status =
-      data.status === "completed" && typeof exitCode === "number" && exitCode !== 0
-        ? "failed"
-        : data.status;
+    const outcome = toolCallDisplayOutcome({ status: data.status, detail, error: data.error });
+    const status = outcome.status === "executing" ? "running" : outcome.status;
     const text = `${errorText(data.error).slice(0, 8000)}\n${output.slice(
       0,
       8000,
@@ -172,6 +172,7 @@ export function analyzeExecutions(
       ).slice(-3000),
       status,
       category: category(text),
+      ...(outcome.noMatches ? { noMatches: true } : {}),
       durationMs,
       timing:
         durationMs === undefined ? "unknown" : reported !== undefined ? "reported" : "observed",

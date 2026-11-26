@@ -1,3 +1,4 @@
+import { toolCallDisplayOutcome } from "../outcome";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
 import type { StreamItem, ToolCallItem } from "@/types/stream";
 
@@ -68,6 +69,7 @@ export function isGroupableToolCall(item: StreamItem): item is ToolCallItem {
   }
   const descriptor = describeToolCall(item);
   return (
+    !toolCallDisplayOutcome(descriptor).noMatches &&
     descriptor.status !== "failed" &&
     descriptor.status !== "canceled" &&
     !descriptor.error &&

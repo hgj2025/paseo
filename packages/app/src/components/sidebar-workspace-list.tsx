@@ -1,3 +1,4 @@
+import { Combobox } from "@/components/ui/combobox";
 import {
   SidebarConversationList,
   useSidebarConversations,
@@ -405,6 +406,8 @@ const prBadgeStyles = StyleSheet.create((theme) => ({
 }));
 
 function ProjectRowTrailingActions({
+  creatingConversation,
+  conversationHosts,
   projectViewKey,
   displayName,
   worktreeTarget,
@@ -417,6 +420,8 @@ function ProjectRowTrailingActions({
   onRemoveProject,
   removeProjectStatus,
 }: {
+  creatingConversation: boolean;
+  conversationHosts: readonly SidebarProjectHostTarget[];
   emptyProject: boolean;
   projectViewKey: string;
   displayName: string;
@@ -425,7 +430,7 @@ function ProjectRowTrailingActions({
   projectPath: string;
   isHovered: boolean;
   isMobileBreakpoint: boolean;
-  onNewConversation: () => void;
+  onNewConversation: (target: SidebarProjectHostTarget) => void;
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
@@ -434,6 +439,8 @@ function ProjectRowTrailingActions({
     <View style={styles.projectTrailingActions}>
       {worktreeTarget ? (
         <NewConversationButton
+          hosts={conversationHosts}
+          loading={creatingConversation}
           displayName={displayName}
           onPress={onNewConversation}
           visible={actionsVisible || emptyProject}
@@ -706,39 +713,59 @@ function WorkspaceRowRightGroup({
 }
 
 function NewConversationButton({
+  hosts,
   displayName,
   onPress,
   visible,
   loading = false,
   testID,
 }: {
+  hosts: readonly SidebarProjectHostTarget[];
   displayName: string;
-  onPress: () => void;
+  onPress: (target: SidebarProjectHostTarget) => void;
   visible: boolean;
   loading?: boolean;
   testID: string;
 }) {
   const { t } = useTranslation();
+  const knownHosts = useHosts();
+  const anchor = useRef<View>(null);
+  const [open, setOpen] = useState(false);
+  const accessibilityState = useMemo(
+    () => ({ expanded: open, disabled: loading }),
+    [open, loading],
+  );
+  const selectHost = useCallback(
+    (serverId: string) => {
+      const target = hosts.find((host) => host.serverId === serverId);
+      if (!target || loading) return;
+      setOpen(false);
+      onPress(target);
+    },
+    [hosts, loading, onPress],
+  );
 
   const pressableStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.projectIconActionButton,
-      !visible && styles.projectIconActionButtonHidden,
+      !visible && !open && styles.projectIconActionButtonHidden,
       (Boolean(hovered) || pressed) && !loading && styles.projectIconActionButtonHovered,
     ],
-    [visible, loading],
+    [visible, open, loading],
   );
 
-  const handlePress = useCallback(
-    (event: GestureResponderEvent) => {
-      event.stopPropagation();
-      onPress();
-    },
-    [onPress],
-  );
+  const handlePress = useCallback((event: GestureResponderEvent) => {
+    event.stopPropagation();
+    setOpen(true);
+  }, []);
 
   return (
-    <View style={styles.projectTrailingControlSlot} pointerEvents={visible ? "auto" : "none"}>
+    <View
+      ref={anchor}
+      collapsable={false}
+      style={styles.projectTrailingControlSlot}
+      pointerEvents={visible || open ? "auto" : "none"}
+    >
       <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
         <TooltipTrigger asChild disabled={!visible}>
           <Pressable
@@ -746,6 +773,7 @@ function NewConversationButton({
             onPress={handlePress}
             disabled={loading}
             accessibilityRole="button"
+            accessibilityState={accessibilityState}
             accessibilityLabel={`${t("conversation.new")} · ${displayName}`}
             testID={testID}
           >
@@ -769,6 +797,23 @@ function NewConversationButton({
           </View>
         </TooltipContent>
       </Tooltip>
+      {open && (
+        <Combobox
+          options={hosts.map((host) => ({
+            id: host.serverId,
+            label: knownHosts.find((h) => h.serverId === host.serverId)?.label || host.serverId,
+            description: host.iconWorkingDir,
+          }))}
+          value=""
+          open={open}
+          onOpenChange={setOpen}
+          onSelect={selectHost}
+          anchorRef={anchor}
+          title={t("workspace.execution.chooseHost")}
+          desktopPlacement="bottom-start"
+          desktopMinWidth={240}
+        />
+      )}
     </View>
   );
 }
@@ -808,33 +853,36 @@ function ProjectHeaderRow({
   const settingsTarget = project.hosts[0] ?? null;
   const toast = useToast();
   const [creatingConversation, setCreatingConversation] = useState(false);
-  const handleNewConversation = useCallback(async () => {
-    if (!worktreeTarget || creatingConversation) return;
-    setCreatingConversation(true);
-    try {
-      const client = getHostRuntimeStore().getClient(worktreeTarget.serverId);
-      if (!client) throw new Error("Host disconnected");
-      const prepared = await prepareSidebarConversationWorkspace(
-        client,
-        worktreeTarget,
-        project.workspaces,
-      );
-      if (prepared.workspace)
-        getHostRuntimeStore().acceptWorkspaceSnapshots(worktreeTarget.serverId, [
-          normalizeWorkspaceDescriptor(prepared.workspace),
-        ]);
-      onWorkspacePress?.();
-      navigateToWorkspace({
-        serverId: worktreeTarget.serverId,
-        workspaceId: prepared.workspaceId,
-        target: { kind: "draft", draftId: generateDraftId() },
-      });
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setCreatingConversation(false);
-    }
-  }, [creatingConversation, onWorkspacePress, project.workspaces, toast, worktreeTarget]);
+  const handleNewConversation = useCallback(
+    async (target: SidebarProjectHostTarget) => {
+      if (creatingConversation) return;
+      setCreatingConversation(true);
+      try {
+        const client = getHostRuntimeStore().getClient(target.serverId);
+        if (!client) throw new Error("Host disconnected");
+        const prepared = await prepareSidebarConversationWorkspace(
+          client,
+          target,
+          project.workspaces,
+        );
+        if (prepared.workspace)
+          getHostRuntimeStore().acceptWorkspaceSnapshots(target.serverId, [
+            normalizeWorkspaceDescriptor(prepared.workspace),
+          ]);
+        onWorkspacePress?.();
+        navigateToWorkspace({
+          serverId: target.serverId,
+          workspaceId: prepared.workspaceId,
+          target: { kind: "draft", draftId: generateDraftId() },
+        });
+      } catch (error) {
+        toast.error(String(error));
+      } finally {
+        setCreatingConversation(false);
+      }
+    },
+    [creatingConversation, onWorkspacePress, project.workspaces, toast],
+  );
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,
@@ -911,6 +959,8 @@ function ProjectHeaderRow({
         </View>
       </View>
       <ProjectRowTrailingActions
+        creatingConversation={creatingConversation}
+        conversationHosts={project.hosts.filter((host) => host.iconWorkingDir.trim())}
         emptyProject={project.workspaces.length === 0}
         projectViewKey={project.viewKey}
         displayName={displayName}

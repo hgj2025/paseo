@@ -195,3 +195,89 @@ describe("file explorer tree", () => {
     await expect(restoration).resolves.toEqual([".", ".hidden"]);
   });
 });
+
+// Session activity deliberately excludes reads and failed edits.
+describe("session file evidence", () => {
+  it("normalizes relative edits, preserves other checkouts and excludes reads", async () => {
+    const { sessionPaths } = await import("../panels/session-files-model");
+    const tool = (detail: unknown, status = "completed") => ({
+      type: "tool_call",
+      callId: "id",
+      name: "tool",
+      detail,
+      status,
+      error: null,
+    });
+    const entries = [
+      tool({ type: "edit", filePath: "src/../src/a.ts" }),
+      tool({ type: "write", filePath: "/work/other/b.ts" }),
+      tool({ type: "read", filePath: "/unrelated/read.ts" }),
+      tool({ type: "edit", filePath: "/failed/file.ts" }, "failed"),
+      tool({ type: "shell", command: "git status", cwd: "/work/other" }),
+    ];
+    expect(sessionPaths(entries as Parameters<typeof sessionPaths>[0], "/work/main")).toEqual([
+      { path: "/work/main", edited: false },
+      { path: "/work/main/src/a.ts", edited: true },
+      { path: "/work/other/b.ts", edited: true },
+      { path: "/work/other", edited: false },
+    ]);
+  });
+});
+
+it("session file sources retain moved and retired member executions without crossing conversations", async () => {
+  const { conversationFileSources } = await import("../panels/session-files-model");
+  const owner = { serverId: "local", workspaceId: "workspace" };
+  const member = {
+    id: "member",
+    alias: "Worker",
+    serverId: "local",
+    workspaceId: "workspace",
+    agentId: "old",
+    provider: "codex",
+    role: "",
+    skills: [],
+    executionHistory: [
+      { serverId: "local", workspaceId: "workspace", agentId: "old", provider: "codex" },
+    ],
+    execution: {
+      serverId: "remote",
+      workspaceId: "remote-workspace",
+      agentId: "new",
+      provider: "codex",
+    },
+  };
+  const team = {
+    version: 1,
+    workspaceId: "workspace",
+    revision: 1,
+    captainId: null,
+    members: [],
+    tasks: [],
+    retiredMembers: [member],
+  } as const;
+  const sources = conversationFileSources(
+    [
+      { target: { kind: "agent", agentId: "captain" } },
+      {
+        target: {
+          kind: "scoped",
+          serverId: "remote",
+          workspaceId: "remote-workspace",
+          target: { kind: "agent", agentId: "new" },
+        },
+      },
+    ],
+    owner,
+    team as unknown as Parameters<typeof conversationFileSources>[2],
+  );
+  expect(sources.map((source) => `${source.serverId}:${source.agentId}`).sort()).toEqual([
+    "local:captain",
+    "local:old",
+    "remote:new",
+  ]);
+  expect(
+    conversationFileSources([{ target: { kind: "agent", agentId: "other-session" } }], owner).map(
+      (source) => source.agentId,
+    ),
+  ).toEqual(["other-session"]);
+});

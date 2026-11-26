@@ -1,3 +1,4 @@
+import { toolCallDisplayOutcome, type DisplayToolStatus } from "./outcome";
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
 import { buildAgentMessageDisplay } from "@getpaseo/protocol/agent-message-display";
 import type { PlanOutcome } from "@/components/plan-card";
@@ -26,6 +27,8 @@ interface BuildToolCallPresentationInput {
 }
 
 export interface ToolCallPresentation {
+  status: DisplayToolStatus;
+  noMatches: boolean;
   detail: ToolCallDetail | undefined;
   displayName: string;
   summary?: string;
@@ -59,11 +62,12 @@ export function buildToolCallPresentation(
     ? buildAgentMessageDisplay(input.agentMessage).detail
     : input.detail;
   const detailForDisplay = displayDetail(detail);
+  const outcome = toolCallDisplayOutcome({ status: input.status, detail, error: input.error });
   const displayModel = buildToolCallDisplayModel({
     name: input.toolName,
     agentMessage: input.agentMessage,
-    status: displayStatus(input.status),
-    error: input.error ?? null,
+    status: displayStatus(outcome.status),
+    error: outcome.noMatches ? null : (input.error ?? null),
     detail: detailForDisplay,
     metadata: input.metadata,
     cwd: input.cwd,
@@ -76,6 +80,7 @@ export function buildToolCallPresentation(
   const hasDetails = Boolean(input.error) || hasMeaningfulToolCallDetail(detail);
 
   return {
+    ...outcome,
     detail,
     displayName: displayModel.displayName,
     summary: displayModel.summary,

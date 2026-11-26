@@ -1,0 +1,6 @@
+{
+  "id": "checked-cli",
+  "requirements": {
+    "paseo": ">=0.11.2"
+  }
+}

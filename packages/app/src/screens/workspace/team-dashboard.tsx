@@ -321,6 +321,11 @@ function MemberRow({
           <Text style={settingsStyles.rowHint} numberOfLines={1}>
             {executionMember(member).provider} · {model || t("teamPanel.modelPending")} · {host}
           </Text>
+          {member.pathContext && (
+            <Text style={settingsStyles.rowHint} numberOfLines={2}>
+              {member.pathContext.repository} · {member.pathContext.root}
+            </Text>
+          )}
           {Boolean(role) && (
             <Text style={settingsStyles.rowHint} numberOfLines={2}>
               {role}

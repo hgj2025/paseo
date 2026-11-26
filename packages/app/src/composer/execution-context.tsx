@@ -1,11 +1,11 @@
+import { useComposerKeyboardScope } from "./keyboard-scope";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useFetchQueries } from "@/data/query";
+import { useExecutionCheckouts } from "@/git/use-execution-checkouts";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { fetchCheckoutStatus } from "@/git/checkout-status-cache";
-import { executionDirectories } from "./execution-context-model";
+import { executionCheckoutEvidence } from "./execution-context-model";
 import { ExecutionContextView, type ExecutionRepository } from "./execution-context-view";
 
 export function ComposerExecutionContext({
@@ -22,12 +22,14 @@ export function ComposerExecutionContext({
   const compact = useIsCompactFormFactor();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
+  const { isPaneFocused } = useComposerKeyboardScope();
   const head = useSessionStore((state) => state.sessions[serverId]?.agentStreamHead.get(agentId));
   const tail = useSessionStore((state) => state.sessions[serverId]?.agentStreamTail.get(agentId));
-  const directories = useMemo(
-    () => executionDirectories(cwd, [...(tail ?? []), ...(head ?? [])]),
-    [cwd, head, tail],
-  );
+  // History is stable across live text deltas; do not rescan/copy it for every token.
+  const historyEvidence = useMemo(() => executionCheckoutEvidence(cwd, tail ?? []), [cwd, tail]);
+  const liveEvidence = useMemo(() => executionCheckoutEvidence(cwd, head ?? []), [cwd, head]);
+  const directories = [...historyEvidence.directories, ...liveEvidence.directories];
+  const revision = `${historyEvidence.revision}/${liveEvidence.revision}`;
   const [roots, setRoots] = useState<Record<string, string>>({});
   const targets = new Map<string, boolean>();
   for (const directory of directories) {
@@ -35,20 +37,14 @@ export function ComposerExecutionContext({
     targets.set(path, directory.edited || targets.get(path) === true);
   }
   const resolvedDirectories = Array.from(targets, ([path, edited]) => ({ path, edited }));
-  // Additional repositories may have no workspace subscription. Poll while this bar is mounted.
-  const queries = useFetchQueries(
+  const queries = useExecutionCheckouts(
     resolvedDirectories.map((directory) => ({
-      queryKey: ["composerExecutionCheckout", serverId, directory.path],
-      queryFn: () => {
-        if (!client) throw new Error("Host unavailable");
-        return fetchCheckoutStatus({ client, serverId, cwd: directory.path });
-      },
-      enabled: connected && !!client,
-      refetchInterval: 5_000,
-      refetchOnWindowFocus: true,
-      staleTimeMs: 0,
-      dataShape: "value" as const,
+      serverId,
+      cwd: directory.path,
+      client,
+      enabled: connected && isPaneFocused,
     })),
+    revision,
   );
   useEffect(() => {
     const discovered: Record<string, string> = {};

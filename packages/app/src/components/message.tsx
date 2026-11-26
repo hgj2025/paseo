@@ -3073,6 +3073,7 @@ export const ToolCall = memo(function ToolCall({
   forceInline = false,
   maxDetailHeight = 400,
 }: ToolCallProps) {
+  const { t } = useTranslation();
   const { openToolCall } = useToolCallSheet();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false);
 
@@ -3204,14 +3205,18 @@ export const ToolCall = memo(function ToolCall({
     <ExpandableBadge
       testID="tool-call-badge"
       label={presentation.displayName}
-      secondaryLabel={presentation.summary}
+      secondaryLabel={
+        presentation.noMatches
+          ? `${t("paneFind.noMatches")} · ${presentation.summary ?? ""}`
+          : presentation.summary
+      }
       icon={presentation.icon}
       isExpanded={shouldRenderInline && isExpanded}
       onToggle={presentation.canOpenDetails ? handleToggle : undefined}
       onOpenFile={handleOpenFile}
       renderDetails={presentation.canOpenDetails && shouldRenderInline ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
-      isError={status === "failed"}
+      isError={presentation.status === "failed"}
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
       onDetailHoverChange={onInlineDetailsHoverChange}

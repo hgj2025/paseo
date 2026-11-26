@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "pointer": "/items",
+      "type": "array"
+    }
+  ],
+  "select": ["/items"]
+}
