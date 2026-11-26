@@ -30,6 +30,7 @@ interface SidebarNavRowProps {
 
 interface SidebarNavRowsProps extends SidebarNavRowProps {
   pluginsOnly?: boolean;
+  excludePluginIds?: readonly string[];
   /** Style for the group wrapper, which the sidebar owns. */
   style?: StyleProp<ViewStyle>;
   /** Sits to the right of the first row, which shrinks to make room. */
@@ -51,12 +52,20 @@ export function SidebarNavRows({
   style,
   onBeforeNavigate,
   pluginsOnly = false,
+  excludePluginIds,
   firstRowTrailing,
 }: SidebarNavRowsProps) {
   const headerItems = useVisibleSidebarNavItems();
   const visibleItems = useMemo(
-    () => (pluginsOnly ? headerItems.filter((item) => item.kind === "plugin") : headerItems),
-    [headerItems, pluginsOnly],
+    () =>
+      headerItems.filter((item) => {
+        if (pluginsOnly && item.kind !== "plugin") return false;
+        if (item.kind === "plugin" && excludePluginIds?.includes(item.group.pluginId)) {
+          return false;
+        }
+        return true;
+      }),
+    [excludePluginIds, headerItems, pluginsOnly],
   );
   const groupRef = useRef<View | null>(null);
 

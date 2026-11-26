@@ -145,6 +145,7 @@ export const zhCN: TranslationResources = {
     lastActivity: "最后活动",
     homeLabel: "首页 · {{count}} 个会话待查看",
     projects: "展开／收起项目",
+    bots: "Bots",
     schedules: "计划",
     more: "更多导航与插件",
     settings: "设置",

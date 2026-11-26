@@ -145,6 +145,7 @@ export const en = {
     lastActivity: "Last activity",
     homeLabel: "Home · {{count}} sessions need review",
     projects: "Show / hide projects",
+    bots: "Bots",
     schedules: "Schedules",
     more: "More navigation and plugins",
     settings: "Settings",

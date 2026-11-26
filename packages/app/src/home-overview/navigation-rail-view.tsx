@@ -1,8 +1,9 @@
-import type { ComponentType, ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useCallback, type ComponentType, type ReactNode } from "react";
+import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import {
+  Bot,
   Home,
   Folder,
   Plus,
@@ -12,16 +13,22 @@ import {
   MoreHorizontal,
   Settings,
 } from "lucide-react-native";
+import { PressHighlight as Pressable } from "@/components/ui/press-highlight";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+const SELECTED_STATE = { selected: true } as const;
+const UNSELECTED_STATE = { selected: false } as const;
 export const NAVIGATION_RAIL_WIDTH = 52;
 export interface RailProps {
   home: boolean;
   projects: boolean;
+  bots?: boolean;
   settings: boolean;
   attention: number;
   plugins?: ReactNode;
   onHome: () => void;
   onProjects: () => void;
+  onBots?: () => void;
   onNew: () => void;
   onHistory: () => void;
   onSearch: () => void;
@@ -44,19 +51,23 @@ export function RailButton({
   onPress: () => void;
   testID: string;
 }) {
+  const buttonStyle = useCallback(
+    ({ hovered }: { hovered?: boolean }) => [
+      styles.button,
+      ((active && activeBackground) || hovered) && styles.highlight,
+    ],
+    [active, activeBackground],
+  );
   return (
     <Tooltip delayDuration={250}>
       <TooltipTrigger asChild>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ selected: Boolean(active) }}
+          accessibilityState={active ? SELECTED_STATE : UNSELECTED_STATE}
           onPress={onPress}
           testID={testID}
-          style={({ hovered }) => [
-            styles.button,
-            ((active && activeBackground) || hovered) && styles.highlight,
-          ]}
+          style={buttonStyle}
         >
           <Icon size={20} color={active ? styles.activeIcon.color : styles.icon.color} />
         </Pressable>
@@ -88,6 +99,15 @@ export function NavigationRailView(props: RailProps) {
           onPress={props.onProjects}
           testID="rail-projects"
         />
+        {props.onBots ? (
+          <RailButton
+            icon={Bot}
+            label={t("homeOverview.bots")}
+            active={props.bots}
+            onPress={props.onBots}
+            testID="rail-bots"
+          />
+        ) : null}
         <View style={styles.separator} />
         <RailButton
           icon={Plus}

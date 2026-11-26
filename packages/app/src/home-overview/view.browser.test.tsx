@@ -86,6 +86,7 @@ it("defaults to live sessions on every host, exposes unread completion and navig
     hosts,
   );
   const open = vi.fn();
+  const openBots = vi.fn();
   container = document.createElement("div");
   container.style.cssText = "display:flex;width:min(100vw,1000px);height:700px";
   document.body.appendChild(container);
@@ -96,10 +97,12 @@ it("defaults to live sessions on every host, exposes unread completion and navig
         <NavigationRailView
           home
           projects={false}
+          bots={false}
           settings={false}
           attention={1}
           onHome={noop}
           onProjects={noop}
+          onBots={openBots}
           onNew={noop}
           onHistory={noop}
           onSearch={noop}
@@ -118,6 +121,9 @@ it("defaults to live sessions on every host, exposes unread completion and navig
     ),
   );
   const ui = within(container);
+  expect(ui.getByTestId("rail-bots")).toBeTruthy();
+  act(() => ui.getByTestId("rail-bots").click());
+  expect(openBots).toHaveBeenCalledTimes(1);
   expect(ui.queryByText("Old idle")).toBeNull();
   expect(ui.getByRole("button", { name: "devbox · VM finished · 已完成" })).toBeTruthy();
   expect(ui.getByRole("button", { name: "sg · Offline finished · 状态未确认" })).toBeTruthy();
