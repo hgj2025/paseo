@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { createCli } from "./cli.js";
 
 describe("canonical CLI surface", () => {
+  it.each(["send", "agent send"])("%s accepts an explicit behavior override", async (path) => {
+    const cli = createCli();
+    const owner =
+      path === "send" ? cli : cli.commands.find((command) => command.name() === "agent")!;
+    const send = owner.commands.find((command) => command.name() === "send")!;
+    send.action(() => {});
+    await send.parseAsync(["target", "message", "--behavior", "interrupt"], { from: "user" });
+    expect(send.opts().behavior).toBe("interrupt");
+    await send.parseAsync(["target", "message", "--behavior", "steer"], { from: "user" });
+    expect(send.opts().behavior).toBe("steer");
+    await send.parseAsync(["target", "message", "--behavior", "queue"], { from: "user" });
+    expect(send.opts().behavior).toBe("queue");
+    send.exitOverride().configureOutput({ writeErr: () => {} });
+    await expect(
+      send.parseAsync(["target", "message", "--behavior", "wait"], { from: "user" }),
+    ).rejects.toThrow();
+  });
+
   it("offers daemon host selection as a global option", () => {
     expect(createCli().helpInformation()).toContain("--host <host>");
   });
@@ -78,6 +96,16 @@ describe("canonical CLI surface", () => {
     expect(run?.helpInformation()).toContain("--thinking <id>");
     expect(update?.helpInformation()).toContain("--thinking <id>");
     expect(scheduleCreate?.helpInformation()).toContain("--thinking <id>");
+  });
+
+  it("offers archive on finish when creating and updating schedules", () => {
+    const schedule = createCli().commands.find((command) => command.name() === "schedule");
+
+    for (const name of ["create", "update"]) {
+      const help = schedule?.commands.find((command) => command.name() === name)?.helpInformation();
+      expect(help).toContain("--archive-on-finish");
+      expect(help).toContain("--no-archive-on-finish");
+    }
   });
 
   it("offers opening an existing agent in the desktop app", () => {

@@ -89,7 +89,7 @@ function memberDraft(key: string, scope?: WorkspaceScope): WorkspaceTabTarget {
             model: template.model,
             modeId: template.currentModeId,
             thinkingOptionId: template.thinkingOptionId ?? null,
-            featureValues: {},
+            providerOptions: {},
           },
         }
       : {}),

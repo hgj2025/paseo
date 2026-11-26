@@ -19,9 +19,9 @@ export default defineConfig({
     setupFiles: [path.resolve(__dirname, "./src/test-utils/vitest-setup.ts")],
     pool: "forks",
     fileParallelism: false,
-    // Windows runners intermittently starve subprocess-heavy Git tests at the
-    // default worker count, leaving child processes alive past their deadlines.
-    maxWorkers: process.platform === "win32" ? 2 : undefined,
+    // On 4-CPU CI runners, Vitest's default (availableParallelism - 1 = 3) leaves
+    // 25% of the runner idle during parallel unit suites. CLI --maxWorkers still overrides this.
+    maxWorkers: process.env.CI ? "100%" : undefined,
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**", "**/.dev/**"],
   },
 });

@@ -15,12 +15,14 @@ import {
   type OmpRuntime,
   type OmpRuntimeLaunch,
   type OmpRuntimeSession,
+  type OmpPromptInput,
   type OmpStartSessionInput,
 } from "./runtime.js";
 import {
   OmpBranchMessagesResultSchema,
   OmpBranchResultSchema,
   OmpCommandsResultSchema,
+  type OmpExtensionUiResponse,
   OmpHostToolsResultSchema,
   OmpMessagesResultSchema,
   OmpModelSchema,
@@ -82,6 +84,7 @@ export class OmpCliRuntime implements OmpRuntime {
       args,
       cwd: launch.cwd,
       env: launch.env,
+      wrap: launch.wrap,
     };
     const spawn = this.spawnProcess;
     const processOptions = {
@@ -142,14 +145,12 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
     };
   }
 
-  async prompt(
-    message: string,
-    images?: Array<{ type: "image"; data: string; mimeType: string }>,
-  ): Promise<OmpPromptAck> {
+  async prompt({ message, images, streamingBehavior }: OmpPromptInput): Promise<OmpPromptAck> {
     const { id: requestId, promise } = this.process.startRequest({
       type: "prompt",
       message,
       ...(images?.length ? { images } : {}),
+      ...(streamingBehavior ? { streamingBehavior: streamingBehavior } : {}),
     });
     const ack = OmpPromptAckSchema.parse(await promise) ?? {};
     return { requestId, ...ack };
@@ -282,13 +283,6 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
     await this.request({ type: "steer", message, ...(images?.length ? { images } : {}) });
   }
 
-  followUp(
-    message: string,
-    images?: Array<{ type: "image"; data: string; mimeType: string }>,
-  ): void {
-    this.process.send({ type: "follow_up", message, ...(images?.length ? { images } : {}) });
-  }
-
   async handoff(customInstructions?: string): Promise<void> {
     await this.request({
       type: "handoff",
@@ -296,10 +290,7 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
     });
   }
 
-  respondToExtensionUiRequest(
-    id: string,
-    response: { value?: string; confirmed?: boolean; cancelled?: boolean },
-  ): void {
+  respondToExtensionUiRequest(id: string, response: OmpExtensionUiResponse): void {
     this.process.send({ type: "extension_ui_response", id, ...response });
   }
 

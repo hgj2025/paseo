@@ -103,7 +103,7 @@ function DiagnosticBody({
         {(["issues", "slow", "all"] as const).map((value) => (
           <Button
             key={value}
-            size="xs"
+            size="sm"
             variant={filter === value ? "secondary" : "ghost"}
             onPress={() => setFilter(value)}
             accessibilityState={{ selected: filter === value }}
@@ -113,7 +113,7 @@ function DiagnosticBody({
         ))}
         {hasOlder && (
           <Button
-            size="xs"
+            size="sm"
             variant="ghost"
             disabled={loadingOlder}
             onPress={() => {

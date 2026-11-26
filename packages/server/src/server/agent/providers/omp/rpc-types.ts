@@ -152,6 +152,8 @@ export const OmpSessionStateSchema = z
     thinkingLevel: OmpThinkingLevelSchema.optional(),
     isStreaming: z.boolean(),
     isCompacting: z.boolean(),
+    hasPendingAsyncWork: z.boolean().optional(),
+    isSettled: z.boolean().optional(),
     autoCompactionEnabled: z.boolean().optional(),
     fastModeEnabled: z.boolean().optional(),
     fastModeActive: z.boolean().optional(),
@@ -178,6 +180,9 @@ export const OmpSessionStatsSchema = z
       .passthrough()
       .optional(),
     cost: z.number().optional(),
+    toolCalls: z.number().optional(),
+    // Copilot bills by request rather than by token.
+    premiumRequests: z.number().optional(),
     contextUsage: OmpContextUsageSchema.optional(),
   })
   .passthrough();
@@ -477,8 +482,24 @@ const OmpExtensionUiRequestSchema = z
     url: z.string().optional(),
     launchUrl: z.string().optional(),
     instructions: z.string().optional(),
+    /** OMP 19.1+ `form`: the whole HTML form of one `ask` call. */
+    html: z.string().optional(),
+    /** `cancel`: the request OMP settled itself (abort or timeout). */
+    targetId: z.string().optional(),
   })
   .passthrough();
+
+/** Submitted value of one form control: text, or the checked values of a group. */
+export type OmpFormValue = string | string[];
+export type OmpFormData = Record<string, OmpFormValue>;
+
+export interface OmpExtensionUiResponse {
+  value?: string;
+  confirmed?: boolean;
+  cancelled?: boolean;
+  data?: OmpFormData;
+}
+
 const OmpSubagentLifecycleEventSchema = z
   .object({ type: z.literal("subagent_lifecycle"), payload: OmpSubagentLifecyclePayloadSchema })
   .passthrough();
@@ -526,6 +547,14 @@ export const OmpRuntimeEventSchema = z.discriminatedUnion("type", [
   OmpRpcHostToolCancelRequestSchema,
   OmpRpcHostToolUpdateSchema,
   z.object({ type: z.literal("model_changed") }).passthrough(),
+  z
+    .object({
+      type: z.literal("thinking_level_changed"),
+      thinkingLevel: z.string().optional(),
+      // The user's selector ("auto") when it differs from the level OMP runs.
+      configured: z.string().optional(),
+    })
+    .passthrough(),
 ]);
 
 const OmpCommandBase = { id: z.string().optional() };
@@ -535,6 +564,7 @@ export const OmpRpcCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("prompt"),
     message: z.string(),
     images: z.array(OmpImageContentSchema).optional(),
+    streamingBehavior: z.enum(["steer", "followUp"]).optional(),
   }),
   z.object({
     ...OmpCommandBase,

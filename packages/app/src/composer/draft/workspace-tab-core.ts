@@ -1,4 +1,5 @@
 import { resolveSubmissionReadiness } from "@/provider-selection/provider-selection";
+import type { WorkspaceDraftTabSetup } from "@/workspace-tabs/model";
 
 export interface WorkspaceDraftAutoSubmitConfig {
   provider: string;
@@ -24,7 +25,7 @@ export function validateDraftSubmission(input: {
   };
   autoSubmitConfig: WorkspaceDraftAutoSubmitConfig | null;
   workspaceDirectory: string | null;
-  hasClient: boolean;
+  isConnected: boolean;
 }): string | null {
   const {
     text,
@@ -32,7 +33,7 @@ export function validateDraftSubmission(input: {
     composerState,
     autoSubmitConfig,
     workspaceDirectory,
-    hasClient,
+    isConnected,
   } = input;
   const readiness = resolveSubmissionReadiness({
     text,
@@ -46,7 +47,7 @@ export function validateDraftSubmission(input: {
     },
     autoSubmitConfig,
     workspaceDirectory,
-    hasClient,
+    isConnected,
   });
   return readiness.ok ? null : (readiness.reason ?? null);
 }
@@ -60,4 +61,14 @@ export function canAutoCreateTeamDraft(input: {
   return (
     input.hydrated && !input.loading && input.providers.some((entry) => entry.id === input.provider)
   );
+}
+
+export function resolveDraftWorkingDirectory(input: {
+  workspaceDirectory: string | null;
+  initialSetup: WorkspaceDraftTabSetup | null;
+}): string | null {
+  if (input.initialSetup) {
+    return input.initialSetup.cwd;
+  }
+  return input.workspaceDirectory;
 }

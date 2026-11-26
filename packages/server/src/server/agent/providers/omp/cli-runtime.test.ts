@@ -1,5 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import pino from "pino";
 import { describe, expect, test, vi } from "vitest";
@@ -121,6 +124,54 @@ function withoutRequestId(command: Record<string, unknown>): Record<string, unkn
 }
 
 describe("OMP CLI runtime", () => {
+  test("starts OMP behind the session's launch wrap and negotiates through the wrap", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "omp-launch-wrap-"));
+    try {
+      const fakeOmp = path.join(root, "fake-omp.mjs");
+      await writeFile(
+        fakeOmp,
+        [
+          'import { createInterface } from "node:readline";',
+          'const ready = { type: "ready", protocolVersion: 1, supportedProtocolVersions: [1], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 };',
+          'process.stdout.write(JSON.stringify(ready) + "\\n");',
+          'createInterface({ input: process.stdin }).on("line", () => undefined);',
+          "",
+        ].join("\n"),
+      );
+      const launcher = path.join(root, "launcher.mjs");
+      await writeFile(
+        launcher,
+        [
+          'import { spawn } from "node:child_process";',
+          'import { writeFileSync } from "node:fs";',
+          "const [command, ...args] = process.argv.slice(2);",
+          'writeFileSync(new URL("./wrapped.json", import.meta.url), JSON.stringify([command, ...args]));',
+          'const child = spawn(command, args, { stdio: "inherit" });',
+          'child.on("exit", (code) => process.exit(code ?? 1));',
+          "",
+        ].join("\n"),
+      );
+      const runtime = new OmpCliRuntime({
+        logger: pino({ level: "silent" }),
+        command: [process.execPath, fakeOmp],
+      });
+
+      const session = await runtime.startSession({
+        cwd: root,
+        wrap: [process.execPath, launcher],
+      });
+      try {
+        expect(
+          JSON.parse(await readFile(path.join(root, "wrapped.json"), "utf8")).slice(0, 2),
+        ).toEqual([process.execPath, fakeOmp]);
+      } finally {
+        await session.close();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("steer waits for OMP's response and surfaces rejection", async () => {
     const child = createOmpChild();
     let pending: Record<string, unknown> | null = null;
@@ -141,6 +192,26 @@ describe("OMP CLI runtime", () => {
       `${JSON.stringify({ id: pending!.id, type: "response", command: "steer", success: false, error: "rejected" })}\n`,
     );
     await expect(result).rejects.toThrow("rejected");
+    await session.close();
+  });
+  test("sends the prompt streamingBehavior only when one is given", async () => {
+    const child = createOmpChild();
+    const session = await createRuntime(child, []).startSession({ cwd: "/workspace/project" });
+
+    for (const streamingBehavior of ["followUp", undefined] as const) {
+      const pending = capturePendingCommand(child, "prompt");
+      const result = session.prompt({ message: "after this, update the docs", streamingBehavior });
+      const command = await pending;
+      expect(withoutRequestId(command)).toEqual({
+        type: "prompt",
+        message: "after this, update the docs",
+        ...(streamingBehavior ? { streamingBehavior } : {}),
+      });
+      child.stdout.write(
+        `${JSON.stringify({ id: command.id, type: "response", command: "prompt", success: true })}\n`,
+      );
+      await result;
+    }
     await session.close();
   });
   test("uses the configured RPC timeout and attributes the pending phase", async () => {
@@ -438,7 +509,7 @@ describe("OMP CLI runtime", () => {
     replyToCommands(child, () => undefined);
     const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
 
-    await expect(session.prompt("hello")).resolves.toEqual({ requestId: "req_1" });
+    await expect(session.prompt({ message: "hello" })).resolves.toEqual({ requestId: "req_1" });
   });
 
   test("reports OMP 18.3's late prompt rejection as a failed prompt result", async () => {
@@ -455,7 +526,7 @@ describe("OMP CLI runtime", () => {
     const events: unknown[] = [];
     session.onEvent((event) => events.push(event));
 
-    await expect(session.prompt("hello")).resolves.toEqual({ requestId: "req_1" });
+    await expect(session.prompt({ message: "hello" })).resolves.toEqual({ requestId: "req_1" });
 
     expect(events).toContainEqual({
       type: "prompt_result",

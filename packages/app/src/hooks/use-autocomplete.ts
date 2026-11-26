@@ -31,18 +31,22 @@ export function useAutocomplete<
   TOption extends { id: string },
   TKeyPressEvent extends AutocompleteKeyPressEvent = AutocompleteKeyPressEvent,
 >(input: UseAutocompleteInput<TOption, TKeyPressEvent>): UseAutocompleteResult<TKeyPressEvent> {
+  // The user's choice, tied to the query and option ID it was made for. Async file results can
+  // insert rows before team members, so preserving by ID keeps explicit choices stable while
+  // otherwise following the highest-priority row. The shown index is resolved during render, so a
+  // list never paints its first frame without a selection.
   const [selection, setSelection] = useState<{ query: string; id: string } | null>(null);
-  // Async file results can insert rows before members. Preserve an explicit choice by ID;
-  // otherwise follow the highest-priority row instead of keeping a stale numeric index.
-  let selectedIndex = getAutocompleteFallbackIndex(input.options.length, input.optionsPosition);
-  if (selection?.query === input.query) {
-    const index = input.options.findIndex((option) => option.id === selection.id);
-    if (index >= 0) selectedIndex = index;
-  }
-  if (!input.isVisible) selectedIndex = -1;
+  const selectedIndex = resolveSelectedIndex({
+    selection,
+    query: input.query,
+    options: input.isVisible ? input.options : [],
+    optionsPosition: input.optionsPosition,
+  });
+
+  // A choice belongs to one search. Until this clears it, the query check above ignores it.
   useEffect(() => {
-    if (!input.isVisible) setSelection(null);
-  }, [input.isVisible]);
+    setSelection(null);
+  }, [input.isVisible, input.query]);
 
   const onKeyPress = useCallback(
     (event: TKeyPressEvent) => {
@@ -57,21 +61,16 @@ export function useAutocomplete<
           itemCount: input.options.length,
           key: event.key,
         });
-        setSelection({ query: input.query, id: input.options[index].id });
+        const nextOption = input.options[index];
+        if (nextOption) {
+          setSelection({ query: input.query, id: nextOption.id });
+        }
         return true;
       }
 
       if (event.key === "Tab" || event.key === "Enter") {
         event.preventDefault();
-        const fallbackIndex = getAutocompleteFallbackIndex(
-          input.options.length,
-          input.optionsPosition,
-        );
-        const resolvedIndex =
-          selectedIndex >= 0 && selectedIndex < input.options.length
-            ? selectedIndex
-            : fallbackIndex;
-        const selectedOption = input.options[resolvedIndex];
+        const selectedOption = input.options[selectedIndex];
         if (selectedOption) {
           input.onSelectOption(selectedOption, event);
         }
@@ -93,4 +92,20 @@ export function useAutocomplete<
     selectedIndex,
     onKeyPress,
   };
+}
+
+function resolveSelectedIndex<TOption extends { id: string }>(input: {
+  selection: { query: string; id: string } | null;
+  query: string;
+  options: readonly TOption[];
+  optionsPosition?: AutocompleteOptionsPosition;
+}): number {
+  const { selection, options } = input;
+  if (selection && selection.query === input.query) {
+    const index = options.findIndex((option) => option.id === selection.id);
+    if (index >= 0) {
+      return index;
+    }
+  }
+  return getAutocompleteFallbackIndex(options.length, input.optionsPosition);
 }

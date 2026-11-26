@@ -307,7 +307,7 @@ export function WorkspacePaneSession({ children }: { children: ReactNode }) {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="xs"
+                size="sm"
                 leftIcon={MessagesSquare}
                 accessibilityLabel={t("workspace.crossHost.sessions")}
                 testID="workspace-pane-choose-session"

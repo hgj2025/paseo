@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CONTENT_MAX_WIDTH } from "@/styles/theme";
 import type { StreamItem } from "@/types/stream";
 import {
-  clearAssistantImageMetadataCache,
-  setAssistantImageMetadata,
-} from "@/utils/assistant-image-metadata";
+  setAssistantMessageHeight,
+  clearAssistantMessageHeightEstimateCache,
+} from "@/utils/assistant-message-height-estimate";
 import {
   DEFAULT_WEB_MOUNTED_RECENT_STREAM_ITEMS,
   DEFAULT_WEB_PARTIAL_VIRTUALIZATION_THRESHOLD,
   estimateStreamItemHeight,
   findMountedWindowStart,
+  MAX_MOUNTED_WEB_WINDOW_ITEMS,
   getWebMountedRecentStreamItems,
   getWebPartialVirtualizationThreshold,
   splitWebVirtualizedHistory,
@@ -70,6 +71,17 @@ function indexEntries(items: StreamItem[]): IndexedStreamItem[] {
 }
 
 describe("findMountedWindowStart", () => {
+  it("mounts complete autonomous runs and keeps same-run steers together", () => {
+    const items = [
+      { ...userMessage("human", 1), turnId: "first" },
+      { ...assistantMessage("reply", 2), turnId: "first" },
+      { ...toolCall("wake", 3), turnId: "autonomous" },
+      { ...userMessage("steer", 4), turnId: "autonomous" },
+      { ...assistantMessage("done", 5), turnId: "autonomous" },
+    ];
+    expect(findMountedWindowStart({ items, minMountedCount: 1 })).toBe(2);
+  });
+
   it("keeps all items mounted when the chat is below the threshold", () => {
     const items = [userMessage("u1", 1), assistantMessage("a1", 2)];
 
@@ -97,6 +109,37 @@ describe("findMountedWindowStart", () => {
       }),
     ).toBe(39);
   });
+
+  it("keeps a whole turn when the caller does not cap the rewind", () => {
+    const items = Array.from({ length: MAX_MOUNTED_WEB_WINDOW_ITEMS + 40 }, (_, index) => ({
+      ...toolCall(`t${index}`, index % 60),
+      turnId: "long",
+    }));
+
+    expect(findMountedWindowStart({ items, minMountedCount: 20 })).toBe(0);
+  });
+
+  it("stops a long turn at the cap and still honors a larger minimum", () => {
+    const items = Array.from({ length: 200 }, (_, index) => ({
+      ...toolCall(`t${index}`, index % 60),
+      turnId: "long",
+    }));
+
+    expect(
+      findMountedWindowStart({
+        items,
+        minMountedCount: 20,
+        maxMountedCount: MAX_MOUNTED_WEB_WINDOW_ITEMS,
+      }),
+    ).toBe(200 - MAX_MOUNTED_WEB_WINDOW_ITEMS);
+    expect(
+      findMountedWindowStart({
+        items,
+        minMountedCount: 80,
+        maxMountedCount: MAX_MOUNTED_WEB_WINDOW_ITEMS,
+      }),
+    ).toBe(120);
+  });
 });
 
 describe("splitWebVirtualizedHistory", () => {
@@ -118,6 +161,39 @@ describe("splitWebVirtualizedHistory", () => {
     expect(window.virtualizedEntries.at(-1)?.item.id).toBe("a4");
     expect(window.mountedEntries[0]?.item.id).toBe("u5");
     expect(window.mountedEntries).toHaveLength(50);
+  });
+
+  it("virtualizes the older rows of a turn that is longer than the mounted cap", () => {
+    const length = MAX_MOUNTED_WEB_WINDOW_ITEMS + 25;
+    const items = Array.from({ length }, (_, index) => ({
+      ...toolCall(`t${index}`, index % 60),
+      turnId: "long",
+    }));
+
+    const window = splitWebVirtualizedHistory({
+      entries: indexEntries(items),
+      minMountedCount: DEFAULT_WEB_MOUNTED_RECENT_STREAM_ITEMS,
+    });
+
+    expect(window.mountedEntries).toHaveLength(MAX_MOUNTED_WEB_WINDOW_ITEMS);
+    expect(window.virtualizedEntries).toHaveLength(25);
+    expect(window.mountedEntries[0]?.item.id).toBe(`t${length - MAX_MOUNTED_WEB_WINDOW_ITEMS}`);
+    expect(window.virtualizedEntries[0]?.item.id).toBe("t0");
+  });
+
+  it("keeps a turn that fits under the cap mounted together", () => {
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      ...toolCall(`t${index}`, index),
+      turnId: "short",
+    }));
+
+    const window = splitWebVirtualizedHistory({
+      entries: indexEntries(items),
+      minMountedCount: DEFAULT_WEB_MOUNTED_RECENT_STREAM_ITEMS,
+    });
+
+    expect(window.virtualizedEntries).toHaveLength(0);
+    expect(window.mountedEntries).toHaveLength(40);
   });
 });
 
@@ -161,56 +237,18 @@ describe("estimateStreamItemHeight", () => {
     );
   });
 
-  it("uses local image dimensions only from the row's server and workspace", () => {
-    clearAssistantImageMetadataCache();
-    const imageContext = { serverId: "server-one", workspaceRoot: "/workspace/one" };
-    setAssistantImageMetadata(
-      { source: "portrait.png", ...imageContext },
-      { width: 800, height: 1600 },
-    );
+  it("uses the renderer's whole-message measurement at the measured width", () => {
+    clearAssistantMessageHeightEstimateCache();
     const item: StreamItem = {
       kind: "assistant_message",
-      id: "local-image",
-      text: "![Portrait](portrait.png)",
+      id: "measured",
+      text: "First paragraph\n\n![Image](image.png)",
       timestamp: createTimestamp(2),
     };
-
-    expect(estimateStreamItemHeight({ item, contentMaxWidth: 608, imageContext })).toBe(1264);
-    expect(
-      estimateStreamItemHeight({
-        item,
-        contentMaxWidth: 608,
-        imageContext: { ...imageContext, workspaceRoot: "/workspace/two" },
-      }),
-    ).toBe(464);
-    expect(
-      estimateStreamItemHeight({
-        item,
-        contentMaxWidth: 608,
-        imageContext: { ...imageContext, serverId: "server-two" },
-      }),
-    ).toBe(464);
-  });
-
-  it("uses cached assistant image metadata when available", () => {
-    clearAssistantImageMetadataCache();
-    setAssistantImageMetadata(
-      {
-        source: "https://example.com/tall.png",
-      },
-      { width: 800, height: 1600 },
-    );
-
-    const item: StreamItem = {
-      kind: "assistant_message",
-      id: "a-image",
-      text: "Look at this\n\n![Screenshot](https://example.com/tall.png)",
-      timestamp: createTimestamp(2),
-    };
-
-    expect(
-      estimateStreamItemHeight({ item, contentMaxWidth: DEFAULT_CONTENT_MAX_WIDTH }),
-    ).toBeGreaterThan(220);
+    setAssistantMessageHeight({ markdown: item.text, width: 608, height: 640 });
+    expect(estimateStreamItemHeight({ item, contentMaxWidth: 608 })).toBe(640);
+    expect(estimateStreamItemHeight({ item, contentMaxWidth: 320 })).toBe(220);
+    clearAssistantMessageHeightEstimateCache();
   });
 });
 

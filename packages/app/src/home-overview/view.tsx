@@ -73,7 +73,7 @@ export function HomeOverviewView({
       </View>
       <View style={styles.controls}>
         <Button
-          size="xs"
+          size="sm"
           variant={host === null ? "secondary" : "ghost"}
           onPress={() => setHost(null)}
         >
@@ -82,7 +82,7 @@ export function HomeOverviewView({
         {hosts.map((item) => (
           <Button
             key={item.serverId}
-            size="xs"
+            size="sm"
             variant={host === item.serverId ? "secondary" : "ghost"}
             onPress={() => setHost(item.serverId)}
           >

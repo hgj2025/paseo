@@ -38,7 +38,7 @@ export function TeamReportMessage({
     <View style={styles.container} testID="team-report-message">
       <Button
         variant="ghost"
-        size="xs"
+        size="sm"
         leftIcon={expanded ? ChevronDown : ChevronRight}
         onPress={toggle}
         accessibilityLabel={`${label} · ${t(expanded ? "workspace.team.group.hide" : "workspace.team.group.details")}`}

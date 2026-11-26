@@ -65,10 +65,10 @@ export function ExecutionDiagnosticPageView(props: DiagnosticPageProps) {
         style={styles.input}
       />
       <View style={styles.buttons}>
-        <Button size="xs" variant="ghost" disabled={props.loading} onPress={props.refresh}>
+        <Button size="sm" variant="ghost" disabled={props.loading} onPress={props.refresh}>
           {t("executionDiagnostics.refresh")}
         </Button>
-        <Button size="xs" variant="ghost" onPress={props.clear}>
+        <Button size="sm" variant="ghost" onPress={props.clear}>
           {t("executionDiagnostics.clear")}
         </Button>
       </View>
@@ -125,7 +125,7 @@ export function ExecutionDiagnosticPageView(props: DiagnosticPageProps) {
         }}
       />
       {props.hasMore && (
-        <Button size="xs" variant="ghost" disabled={props.loading} onPress={props.loadMore}>
+        <Button size="sm" variant="ghost" disabled={props.loading} onPress={props.loadMore}>
           {t("executionDiagnostics.moreSessions")}
         </Button>
       )}
@@ -134,7 +134,7 @@ export function ExecutionDiagnosticPageView(props: DiagnosticPageProps) {
           <Text style={styles.heading}>{selected.title || selected.id}</Text>
           <View style={styles.buttons}>
             <Button
-              size="xs"
+              size="sm"
               variant="secondary"
               disabled={props.loadingHistory || !props.connected}
               onPress={() => props.loadHistory()}
@@ -143,7 +143,7 @@ export function ExecutionDiagnosticPageView(props: DiagnosticPageProps) {
             </Button>
             {props.hasOlder && (
               <Button
-                size="xs"
+                size="sm"
                 variant="ghost"
                 disabled={props.loadingHistory || !props.connected}
                 onPress={() => props.loadHistory(true)}

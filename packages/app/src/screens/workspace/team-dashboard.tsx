@@ -100,7 +100,7 @@ export function TeamDashboard({
       title: t("workspace.team.dashboard.title"),
       actions: (
         <Button
-          size="xs"
+          size="sm"
           variant="ghost"
           leftIcon={RotateCw}
           disabled={!connected || pending}
@@ -451,7 +451,7 @@ function TaskBrowser({
               options={filters}
               value={view.filter}
               onValueChange={setFilter}
-              size="xs"
+              size="sm"
             />
           </View>
           <ScrollView style={styles.grow}>

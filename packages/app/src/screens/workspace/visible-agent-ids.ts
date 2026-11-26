@@ -12,19 +12,23 @@ import { deriveWorkspacePaneState } from "./workspace-pane-state";
 export function selectVisibleAgentIds(input: {
   layout: WorkspaceLayout | null;
   tabs: WorkspaceTab[];
-  /** The workspace sheet's tab, shown over the panes. */
-  sheetTab?: WorkspaceTab | null;
   routeFocused: boolean;
   focusedPaneOnly: boolean;
   /** Execution-bound panes register their actual target separately. */
   executionMembers?: readonly Pick<TeamMember, "serverId" | "agentId" | "execution">[];
   serverId?: string;
+  explorerPaneId?: string | null;
+  explorerVisible?: boolean;
 }): string[] {
   if (!input.routeFocused || !input.layout) {
     return [];
   }
   const panes = input.focusedPaneOnly
-    ? collectAllPanes(input.layout.root).filter((pane) => pane.id === input.layout?.focusedPaneId)
+    ? collectAllPanes(input.layout.root).filter(
+        (pane) =>
+          pane.id === input.layout?.focusedPaneId ||
+          (input.explorerVisible !== false && pane.id === input.explorerPaneId),
+      )
     : collectAllPanes(input.layout.root);
 
   const targets = panes.flatMap((pane) => {
@@ -32,7 +36,6 @@ export function selectVisibleAgentIds(input: {
       .target;
     return target ? [target] : [];
   });
-  if (input.sheetTab) targets.push(input.sheetTab.target);
   return [
     ...new Set(
       targets.flatMap((target) => {
@@ -52,9 +55,10 @@ export function useVisibleAgentIds(input: {
   workspaceId: string;
   layout: WorkspaceLayout | null;
   tabs: WorkspaceTab[];
-  sheetTab: WorkspaceTab | null;
   routeFocused: boolean;
   focusedPaneOnly: boolean;
+  explorerPaneId?: string | null;
+  explorerVisible?: boolean;
 }): string[] {
   const { context, supported } = useWorkspaceTeamState(
     input.serverId,

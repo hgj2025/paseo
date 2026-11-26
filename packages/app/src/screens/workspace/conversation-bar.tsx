@@ -92,7 +92,7 @@ export function ConversationActions({
     </HeaderToggleButton>
   ) : (
     <Button
-      size="xs"
+      size="sm"
       variant="ghost"
       leftIcon={Users}
       onPress={openHistory}

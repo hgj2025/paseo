@@ -56,17 +56,17 @@ export function useExecutionModelSelection(input: {
 }) {
   const { t } = useTranslation();
   const { context, current, host, scope, enabled, snapshot } = useExecutionScope(input.serverId);
+  const activeHost = current?.serverId ?? context?.serverId;
   const providers = useMemo(
     () =>
-      enabled ? buildSelectableProviderSelectorProviders(snapshot.entries ?? []) : input.providers,
-    [enabled, snapshot.entries, input.providers],
+      enabled
+        ? buildSelectableProviderSelectorProviders(snapshot.entries ?? [], {
+            selectedProvider: host === activeHost ? input.provider || null : null,
+          })
+        : input.providers,
+    [enabled, snapshot.entries, host, activeHost, input.provider, input.providers],
   );
-  const { selected, selectedModel } = resolveExecutionModel(
-    providers,
-    input,
-    host,
-    current?.serverId ?? context?.serverId,
-  );
+  const { selected, selectedModel } = resolveExecutionModel(providers, input, host, activeHost);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const attempt = useRef<{ key: string; id: string } | null>(null);

@@ -333,7 +333,7 @@ function ConversationRow({
               pointerEvents={showActions ? "auto" : "none"}
             >
               <Button
-                size="xs"
+                size="sm"
                 variant="ghost"
                 leftIcon={Pencil}
                 onPress={showRename}
@@ -345,7 +345,7 @@ function ConversationRow({
               />
               {!compact && (
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="ghost"
                   leftIcon={X}
                   onPress={close}

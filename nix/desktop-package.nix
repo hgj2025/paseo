@@ -30,6 +30,8 @@ buildNpmPackage {
       # Exclude mobile-only platform code (we only need the web/electron build)
       !(lib.hasPrefix "/packages/app/android" relPath)
       && !(lib.hasPrefix "/packages/app/ios" relPath)
+      && !(lib.hasPrefix "/packages/react-native-enriched-markdown/android" relPath)
+      && !(lib.hasPrefix "/packages/react-native-enriched-markdown/ios" relPath)
       # Website is unrelated to the desktop app
       && !(lib.hasPrefix "/packages/website" relPath)
       # Documentation, CI definitions and agent/editor configuration. None of
@@ -127,7 +129,7 @@ buildNpmPackage {
         # The Nix output is not a distributable DMG, so leave it unsigned and
         # disable the hardened runtime that requires a matching signature.
         CSC_IDENTITY_AUTO_DISCOVERY=false \
-          ../../node_modules/.bin/electron-builder \
+          npm exec --offline -- electron-builder \
             --config electron-builder.yml \
             --dir \
             --mac \
@@ -257,7 +259,7 @@ buildNpmPackage {
   meta = {
     description = "Paseo desktop app (Electron wrapper)";
     homepage = "https://github.com/getpaseo/paseo";
-    license = lib.licenses.agpl3Plus;
+    license = lib.licenses.asl20;
     mainProgram = "paseo-desktop";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };

@@ -50,13 +50,13 @@ function GroupStep({
         <Text style={styles.member}>{alias(step.memberId)}</Text>
         <GroupStatus status={step.status} />
         <View style={styles.spacer} />
-        <Button variant="ghost" size="xs" onPress={toggle}>
+        <Button variant="ghost" size="sm" onPress={toggle}>
           {t(expanded ? "workspace.team.group.hide" : "workspace.team.group.details")}
         </Button>
         {step.status === "failed" && (
           <Button
             variant="outline"
-            size="xs"
+            size="sm"
             onPress={retry}
             disabled={pending || Boolean(team.status && team.status !== "active")}
             testID="team-group-retry"
@@ -133,7 +133,7 @@ export function TeamGroupCard({ group, compact = false }: { group: TeamGroup; co
           {completed}/{group.memberIds.length}
         </Text>
         <View style={styles.spacer} />
-        <Button size="xs" variant="ghost" onPress={toggle} testID="team-group-expand">
+        <Button size="sm" variant="ghost" onPress={toggle} testID="team-group-expand">
           {t(expanded ? "workspace.team.group.hide" : "workspace.team.group.details")}
         </Button>
       </View>
@@ -174,7 +174,7 @@ export function TeamGroupCard({ group, compact = false }: { group: TeamGroup; co
           ) && <Text style={styles.meta}>{t("workspace.team.group.attentionHint")}</Text>}
           <View style={styles.row}>
             <Button
-              size="xs"
+              size="sm"
               variant="ghost"
               onPress={refresh}
               disabled={pending || Boolean(team.status && team.status !== "active")}

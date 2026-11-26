@@ -7,6 +7,7 @@ import {
   resolveInitialModelBrowserView,
   groupModelBrowserProviders,
   resolveModelBrowserAllView,
+  filterAndRankProfileRows,
   groupProfilesByProviderModel,
   resolveModelBrowserScrolling,
 } from "./model-browser-view";
@@ -156,7 +157,12 @@ describe("model browser all view", () => {
 
   it("browses providers while the query is empty", () => {
     expect(
-      resolveModelBrowserAllView({ providers, normalizedQuery: "", isSearchFocused: false }),
+      resolveModelBrowserAllView({
+        providers,
+        profiles: [],
+        normalizedQuery: "",
+        isSearchFocused: false,
+      }),
     ).toEqual({
       kind: "browse",
     });
@@ -165,6 +171,7 @@ describe("model browser all view", () => {
   it("shows every searchable model as soon as empty search receives focus", () => {
     const view = resolveModelBrowserAllView({
       providers,
+      profiles: [],
       normalizedQuery: "",
       isSearchFocused: true,
     });
@@ -181,6 +188,7 @@ describe("model browser all view", () => {
   it("ranks the same model label across every provider that offers it", () => {
     const view = resolveModelBrowserAllView({
       providers,
+      profiles: [],
       normalizedQuery: "opus",
       isSearchFocused: true,
     });
@@ -195,6 +203,7 @@ describe("model browser all view", () => {
   it("matches models by their provider label", () => {
     const view = resolveModelBrowserAllView({
       providers,
+      profiles: [],
       normalizedQuery: "codex",
       isSearchFocused: true,
     });
@@ -208,6 +217,7 @@ describe("model browser all view", () => {
     expect(
       resolveModelBrowserAllView({
         providers,
+        profiles: [],
         normalizedQuery: "zzzz",
         isSearchFocused: true,
       }),
@@ -229,6 +239,7 @@ describe("model browser all view", () => {
     expect(
       resolveModelBrowserAllView({
         providers: [loading, failed],
+        profiles: [],
         normalizedQuery: "opus",
         isSearchFocused: true,
       }),
@@ -274,5 +285,43 @@ describe("Codex backend browsing", () => {
   it("leaves hosts without both backends unchanged", () => {
     const remote = [provider("claude", "Claude Code")];
     expect(groupModelBrowserProviders(remote)).toBe(remote);
+  });
+});
+
+describe("model browser profile search", () => {
+  const claude = provider("claude", "Claude Code", [
+    modelRow("claude", "Claude Code", "opus-5", "Opus 5"),
+  ]);
+  const reviewer = { id: "reviewer", name: "Reviewer", summary: "Claude Code · Opus 5 · Plan" };
+  const quick = { id: "quick", name: "Quick fix", summary: "Codex · GPT-5.4" };
+  const profiles = [reviewer, quick];
+
+  it("offers profiles whose name matches the query", () => {
+    const view = resolveModelBrowserAllView({
+      providers: [claude],
+      profiles,
+      normalizedQuery: "review",
+      isSearchFocused: true,
+    });
+
+    expect(view).toEqual({ kind: "searchResults", profiles: [reviewer], rows: [] });
+  });
+
+  it("offers profiles whose summary names the queried model next to the model itself", () => {
+    const view = resolveModelBrowserAllView({
+      providers: [claude],
+      profiles,
+      normalizedQuery: "opus",
+      isSearchFocused: true,
+    });
+
+    expect(view.kind === "searchResults" ? view.profiles : []).toEqual([reviewer]);
+    expect(view.kind === "searchResults" ? view.rows.map((row) => row.modelId) : []).toEqual([
+      "opus-5",
+    ]);
+  });
+
+  it("lists every profile while the focused query is empty", () => {
+    expect(filterAndRankProfileRows(profiles, "")).toEqual(profiles);
   });
 });

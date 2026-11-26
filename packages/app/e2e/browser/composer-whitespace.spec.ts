@@ -18,6 +18,7 @@ import {
   expectComposerFullscreenControls,
   sendComposerWithButton,
   queueComposerWithButton,
+  fillComposerDraft,
   configureComposerQueueSend,
   activateRetainedComposerTab,
   switchComposerTabWithKeyboard,
@@ -37,7 +38,7 @@ import {
   closeMobileAgentSidebar,
   expectMobileAgentSidebarHidden,
   expectMobileAgentSidebarVisible,
-  swipeOpenMobileAgentSidebar,
+  openMobileAgentSidebarWithKeyboard,
 } from "../support/helpers/sidebar";
 
 async function composerHeight(page: Page): Promise<number> {
@@ -170,7 +171,8 @@ test("composer growth keeps a bottom-pinned chat at the bottom", async ({ page }
 async function pausePageClock(page: Page): Promise<void> {
   const now = Date.now();
   await page.clock.install({ time: now });
-  await page.clock.pauseAt(now);
+  // The installed clock advances between protocol calls; pause at a future time.
+  await page.clock.pauseAt(now + 60_000);
 }
 
 /** The send error shares the footer with Send, so whatever keeps Send visible keeps it visible. */
@@ -206,7 +208,7 @@ test("compact long drafts stop growing before the header", async ({ page }) => {
   }
 });
 
-test("compact fullscreen editing preserves the live draft and selection and stays open after send", async ({
+test("compact fullscreen editing preserves the live draft and selection and returns to chat after send", async ({
   page,
 }) => {
   const agent = await seedMockAgentWorkspace({
@@ -260,7 +262,7 @@ test("compact fullscreen editing preserves the live draft and selection and stay
       await sendComposerWithButton(page);
       await expect(composerLocator(page)).toHaveValue("");
     });
-    await test.step("sending inside fullscreen clears the editor and keeps fullscreen open", async () => {
+    await test.step("sending inside fullscreen returns to chat and clears the editor", async () => {
       await writeCompactDraft(page, "First line\nSecond line\nThird line");
       await enterComposerFullscreen(page);
       await writeCompactDraft(page, "Short draft");
@@ -274,10 +276,12 @@ test("compact fullscreen editing preserves the live draft and selection and stay
       await resizeComposerViewport(page, "portrait");
       await sendComposerWithButton(page);
       await expect(composerLocator(page)).toHaveValue("");
-      await expectComposerFullscreenControls(page);
-      await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
+      await expectWorkspaceHeaderVisible(page);
+      await expect(page.getByTestId("composer-fullscreen")).toHaveCount(0);
     });
     await test.step("typing and sending keep working after leaving fullscreen again", async () => {
+      await writeCompactDraft(page, "First line\nSecond line\nThird line");
+      await enterComposerFullscreen(page);
       await writeCompactDraft(page, "Typed inside fullscreen");
       await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
       await exitComposerFullscreen(page);
@@ -339,16 +343,16 @@ test("fullscreen submit rejection retains the editable draft and supports retry"
     await writeCompactDraft(page, draft);
     await enterComposerFullscreen(page);
     await sendComposerWithButton(page);
-    await expect(page.getByTestId("composer-fullscreen").getByRole("alert")).toHaveText(
-      "Requested mock prompt rejection",
-    );
+    await expectWorkspaceHeaderVisible(page);
+    await expect(page.getByRole("alert")).toHaveText("Requested mock prompt rejection");
+    await enterComposerFullscreen(page);
     await expectFullscreenErrorAboveSend(page);
     await expect(composerLocator(page)).toHaveValue(draft);
     await expect(composerLocator(page)).toBeEditable();
     await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
     await sendComposerWithButton(page);
     await expect(composerLocator(page)).toHaveValue("");
-    await expectComposerFullscreenControls(page);
+    await expectWorkspaceHeaderVisible(page);
   } finally {
     await agent.cleanup();
   }
@@ -440,9 +444,34 @@ test("fullscreen Send keeps the configured queue behavior while an agent runs", 
     await expectComposerFullscreenControls(page);
     await queueComposerWithButton(page);
     await expect(composerLocator(page)).toHaveValue("");
-    await expectComposerFullscreenControls(page);
-    await exitComposerFullscreen(page);
+    await expectWorkspaceHeaderVisible(page);
     await expectQueuedMessageButton(page);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("editing a queued draft restores its original height with the focus hint visible", async ({
+  page,
+}) => {
+  await configureComposerQueueSend(page);
+  await resizeComposerViewport(page, "portrait");
+  const agent = await startRunningMockAgent(page, {
+    prefix: "composer-queued-draft-height-",
+    model: "one-minute-stream",
+    prompt: "Stay running while a draft is queued.",
+  });
+  try {
+    const draft = "Please review the latest changes.\nPlease review the latest changes.";
+    await fillComposerDraft(page, draft);
+    const originalHeight = await composerHeight(page);
+    await queueComposerWithButton(page);
+    await expect(composerLocator(page)).toHaveValue("");
+    await composerLocator(page).blur();
+    await expect(page.getByText(/ to focus$/)).toBeVisible();
+    await page.getByRole("button", { name: "Edit queued message", exact: true }).click();
+    await expect(composerLocator(page)).toHaveValue(draft);
+    await expectComposerHeight(page, originalHeight);
   } finally {
     await agent.cleanup();
   }
@@ -539,8 +568,8 @@ test("the compact sidebar over a fullscreen editor leaves the exit action alone"
     await writeCompactDraft(page, draft);
     await enterComposerFullscreen(page);
     await expectWorkspaceHeaderHidden(page);
-    // Fullscreen hides the header's menu button; the edge swipe still opens the list over it.
-    await swipeOpenMobileAgentSidebar(page);
+    // Fullscreen hides the header's menu button; the keyboard shortcut opens the list over it.
+    await openMobileAgentSidebarWithKeyboard(page);
     await expectMobileAgentSidebarVisible(page);
     // The list covers the pane, so the editor's exit action is not armed.
     await page.keyboard.press("Escape");

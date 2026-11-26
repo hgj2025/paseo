@@ -26,7 +26,7 @@ function RecipientChip({
   const remove = useStableEvent(() => onRemove(id));
   return (
     <Button
-      size="xs"
+      size="sm"
       variant="secondary"
       testID="team-recipient-chip"
       onPress={remove}
@@ -93,7 +93,7 @@ export function TeamRecipients({
       </View>
       {supported && (
         <SegmentedControl
-          size="xs"
+          size="sm"
           options={options}
           value={recipient.mode ?? "coordinate"}
           onValueChange={setMode}

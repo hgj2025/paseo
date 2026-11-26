@@ -3,8 +3,9 @@ import { useContext } from "react";
 import { MoreHorizontal } from "lucide-react-native";
 import { SidebarRailContext } from "./sidebar-rail-context";
 import { RailButton } from "@/home-overview/navigation-rail-view";
+import { PressHighlight as Pressable } from "@/components/ui/press-highlight";
 import { useCallback, useState, type ComponentType, type ReactNode, type Ref } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import {
   HEADER_INNER_HEIGHT,
@@ -73,6 +74,10 @@ export function SidebarHeaderRow({
   const [isHovered, setIsHovered] = useState(false);
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
+  // The button and its trailing slot are siblings, so the row owns the pressed fill for both.
+  const [isPressed, setIsPressed] = useState(false);
+  const handlePressIn = useCallback(() => setIsPressed(true), []);
+  const handlePressOut = useCallback(() => setIsPressed(false), []);
   const isHighlighted = isHovered || isActive;
   const iconSize = variant === "header" ? "md" : "sm";
 
@@ -92,12 +97,14 @@ export function SidebarHeaderRow({
   return (
     <View ref={rowRef} collapsable={false} style={getContainerStyle(variant)}>
       <View
-        style={[styles.row, isHighlighted && styles.rowHighlighted]}
+        style={[styles.row, isHighlighted && styles.rowHighlighted, isPressed && styles.rowPressed]}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
         <Pressable
           onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
           testID={testID}
           nativeID={nativeID}
           accessible
@@ -121,7 +128,14 @@ export function SidebarHeaderRow({
           </Text>
         </Pressable>
         {right === null ? null : (
-          <Pressable onPress={onPress} accessible={false} focusable={false} style={styles.trailing}>
+          <Pressable
+            onPress={onPress}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            accessible={false}
+            focusable={false}
+            style={styles.trailing}
+          >
             {right}
           </Pressable>
         )}
@@ -173,6 +187,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   rowHighlighted: {
     backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  // The workspace rows' pressed fill.
+  rowPressed: {
+    backgroundColor: theme.colors.surface2,
   },
   button: {
     flex: 1,

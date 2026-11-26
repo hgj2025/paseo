@@ -9,7 +9,6 @@ import {
 } from "@/panels/pane-context";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { getPanelRegistration } from "@/panels/panel-registry";
-import { ensurePanelsRegistered } from "@/panels/register-panels";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 import { RenderProfile } from "@/utils/render-profiler";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
@@ -29,7 +28,7 @@ export interface BuildWorkspacePaneContentModelInput {
   normalizedServerId: string;
   normalizedWorkspaceId: string;
   host: PaneHost;
-  fileNavigationRevision?: number;
+  panelRevision?: number;
   onOpenTab: (target: WorkspaceTabDescriptor["target"]) => void;
   onOpenPreferredTarget: (
     target: WorkspaceTabDescriptor["target"],
@@ -48,7 +47,7 @@ export function buildWorkspacePaneContentModel({
   normalizedServerId,
   normalizedWorkspaceId,
   host,
-  fileNavigationRevision,
+  panelRevision,
   onOpenTab,
   onOpenPreferredTarget,
   onOpenTargetToSide,
@@ -58,7 +57,6 @@ export function buildWorkspacePaneContentModel({
   onOpenWorkspaceFile,
   onOpenImportSheet,
 }: BuildWorkspacePaneContentModelInput): WorkspacePaneContentModel {
-  ensurePanelsRegistered();
   const { scope, target } = resolveWorkspaceTabScope(tab.target, {
     serverId: normalizedServerId,
     workspaceId: normalizedWorkspaceId,
@@ -78,7 +76,7 @@ export function buildWorkspacePaneContentModel({
       tabId: tab.tabId,
       target,
       state: tab.state,
-      fileNavigationRevision,
+      panelRevision,
       openTab: (next) => onOpenTab(bind(next)),
       openPreferredTarget: (next, source) => onOpenPreferredTarget(bind(next), source),
       openTargetToSide: onOpenTargetToSide ? (next) => onOpenTargetToSide(bind(next)) : undefined,
@@ -132,7 +130,7 @@ export function WorkspacePaneContent({
       tabId: paneContextValue.tabId,
       target: paneContextValue.target,
       state: paneContextValue.state,
-      fileNavigationRevision: paneContextValue.fileNavigationRevision,
+      panelRevision: paneContextValue.panelRevision,
       openTab,
       openPreferredTarget,
       openTargetToSide: paneContextValue.openTargetToSide ? openTargetToSide : undefined,
@@ -150,7 +148,7 @@ export function WorkspacePaneContent({
       openPreferredTarget,
       openTargetToSide,
       paneContextValue.serverId,
-      paneContextValue.fileNavigationRevision,
+      paneContextValue.panelRevision,
       paneContextValue.tabId,
       paneContextValue.target,
       paneContextValue.state,

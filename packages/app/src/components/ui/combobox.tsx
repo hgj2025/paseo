@@ -1,3 +1,5 @@
+import { useOverlayRegistration, type KeyboardInputEvent } from "@/keyboard";
+import { Modal } from "@/components/ui/modal";
 import {
   useCallback,
   useEffect,
@@ -12,7 +14,6 @@ import {
   View,
   Text,
   Pressable,
-  Modal,
   ScrollView,
   Platform,
   StatusBar,
@@ -24,10 +25,10 @@ import {
 } from "react-native";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { EditingTextInputHandle } from "@/components/ui/text-input";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import { BottomSheetScrollView, type BottomSheetBackgroundProps } from "@gorhom/bottom-sheet";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -61,20 +62,22 @@ import {
 } from "@/components/adaptive-modal-sheet";
 import { FloatingSurface } from "@/components/ui/floating";
 import { useDismissKeyboardOnOpen } from "@/components/ui/keyboard-dismiss";
-import {
-  getOverlayRoot,
-  OverlayLayerProvider,
-  useOverlayLayer,
-  useWebOverlayRegistration,
-} from "@/lib/overlay-root";
+import { useDismissibleOverlay } from "@/components/ui/overlay-dismissal";
+import { getOverlayRoot, OverlayLayerProvider, useOverlayLayer } from "@/lib/overlay-root";
+import { density, densityIconBox } from "@/styles/density";
+import { DensityIcon } from "@/components/ui/density-icon";
 import { buildDesktopFrameStyle } from "./combobox-frame-style";
 
 export { buildDesktopFrameStyle } from "./combobox-frame-style";
 
 const IS_WEB = isWeb;
+const TRAILING_ACTION_DATASET = { comboboxTrailingAction: true };
+const FOOTER_DATASET = { comboboxFooter: true };
+const FOCUSED_COMBOBOX_ACTION_SELECTOR =
+  '[data-combobox-trailing-action] button, [data-combobox-trailing-action] [role="button"], [data-combobox-footer] button, [data-combobox-footer] [role="button"]';
 
 export type ComboboxOption = ComboboxOptionModel;
-export type ComboboxDesktopPlacement = "top-start" | "bottom-start";
+export type ComboboxDesktopPlacement = "top-start" | "bottom-start" | "bottom-end";
 
 export interface ComboboxProps {
   options: ComboboxOption[];
@@ -88,6 +91,13 @@ export interface ComboboxProps {
   }) => ReactElement;
   onSearchQueryChange?: (query: string) => void;
   searchable?: boolean;
+  /** The caller answers the search query itself, so the options are shown as given. */
+  remoteSearch?: boolean;
+  /**
+   * With `remoteSearch`, the options still answer an earlier query. No option is picked until
+   * the user moves to one, so Enter cannot confirm a row the new query may not match.
+   */
+  remoteSearchPending?: boolean;
   placeholder?: string;
   searchPlaceholder?: string;
   emptyText?: string;
@@ -128,11 +138,15 @@ export interface ComboboxProps {
   desktopFixedHeight?: number;
   /** Content rendered above the scroll area on desktop (sticky header). */
   stickyHeader?: ReactNode;
+  /** Controls rendered between the search field and the options, such as list tabs. */
+  toolbar?: ReactNode;
   /** Content rendered below the scroll area. */
   footer?: ReactNode;
   /** When true, selecting an option does not close the picker (multi-select mode). */
   keepOpenOnSelect?: boolean;
   anchorRef: React.RefObject<View | null>;
+  /** Where focus goes when the picker closes. Defaults to whatever had focus when it opened. */
+  restoreFocusRef?: React.RefObject<unknown>;
   children?: ReactNode;
 }
 
@@ -206,7 +220,7 @@ export function SearchInput({
 
   return (
     <View style={styles.searchInputContainer}>
-      <Search size={16} color={theme.colors.foregroundMuted} />
+      <DensityIcon icon={Search} size="md" color="foregroundMuted" />
       <AdaptiveTextInput
         ref={inputRef}
         // @ts-expect-error - outlineStyle is web-only
@@ -225,10 +239,17 @@ export function SearchInput({
 
 export interface ComboboxItemProps {
   label: string;
+  /** Muted text before the label, such as a pull request number. */
+  labelPrefix?: string;
   description?: string;
   kind?: "directory" | "file";
   leadingSlot?: ReactNode;
   trailingSlot?: ReactNode;
+  /**
+   * A button shown outside the row's own pressable. The button owns its spacing
+   * and hit area.
+   */
+  trailingAction?: ReactNode;
   selected?: boolean;
   active?: boolean;
   disabled?: boolean;
@@ -241,10 +262,12 @@ export interface ComboboxItemProps {
 
 export function ComboboxItem({
   label,
+  labelPrefix,
   description,
   kind,
   leadingSlot,
   trailingSlot,
+  trailingAction,
   selected,
   active,
   disabled,
@@ -253,21 +276,19 @@ export function ComboboxItem({
   onPress,
   testID,
 }: ComboboxItemProps): ReactElement {
-  const { theme } = useUnistyles();
-
   let leadingContent: ReactElement | null = null;
   if (leadingSlot) {
     leadingContent = <View style={styles.comboboxItemLeadingSlot}>{leadingSlot}</View>;
   } else if (kind === "directory") {
     leadingContent = (
       <View style={styles.comboboxItemLeadingSlot}>
-        <Folder size={16} color={theme.colors.foregroundMuted} />
+        <DensityIcon icon={Folder} size="md" color="foregroundMuted" />
       </View>
     );
   } else if (kind === "file") {
     leadingContent = (
       <View style={styles.comboboxItemLeadingSlot}>
-        <File size={16} color={theme.colors.foregroundMuted} />
+        <DensityIcon icon={File} size="md" color="foregroundMuted" />
       </View>
     );
   }
@@ -284,22 +305,48 @@ export function ComboboxItem({
   );
 
   const itemContentStyle = useMemo(
-    () => [styles.comboboxItemContent, description && styles.comboboxItemContentInline],
-    [description],
+    () => [
+      styles.comboboxItemContent,
+      (description || labelPrefix) && styles.comboboxItemContentInline,
+    ],
+    [description, labelPrefix],
+  );
+  const labelStyle = useMemo(
+    () => [styles.comboboxItemLabel, labelPrefix && styles.comboboxItemLabelAfterPrefix],
+    [labelPrefix],
   );
 
-  return (
-    <Pressable
-      testID={testID}
-      disabled={disabled}
-      onPress={onPress}
-      style={itemPressableStyle}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-    >
+  const [hovered, setHovered] = useState(false);
+  const handleHoverIn = useCallback(() => setHovered(true), []);
+  const handleHoverOut = useCallback(() => setHovered(false), []);
+  const splitPressableStyle = useCallback(
+    ({ pressed }: PressableStateCallbackType) => [
+      styles.comboboxItemSplitPressable,
+      pressed && (elevated ? styles.comboboxItemPressedElevated : styles.comboboxItemPressed),
+    ],
+    [elevated],
+  );
+  const splitRowStyle = useMemo(
+    () => [
+      styles.comboboxItem,
+      styles.comboboxItemSplitRow,
+      hovered && (elevated ? styles.comboboxItemHoveredElevated : styles.comboboxItemHovered),
+      active && styles.comboboxItemActive,
+      disabled && styles.comboboxItemDisabled,
+    ],
+    [active, disabled, elevated, hovered],
+  );
+
+  const content = (
+    <>
       {leadingContent}
       <View style={itemContentStyle}>
-        <Text numberOfLines={1} style={styles.comboboxItemLabel}>
+        {labelPrefix ? (
+          <Text numberOfLines={1} style={styles.comboboxItemLabelPrefix}>
+            {labelPrefix}
+          </Text>
+        ) : null}
+        <Text numberOfLines={1} style={labelStyle}>
           {label}
         </Text>
         {description ? (
@@ -311,12 +358,45 @@ export function ComboboxItem({
       {selected || trailingSlot ? (
         <View style={styles.comboboxItemTrailingContainer}>
           <View style={styles.comboboxItemTrailingSlot}>
-            {selected ? <Check size={16} color={theme.colors.foregroundMuted} /> : null}
+            {selected ? <DensityIcon icon={Check} size="md" color="foregroundMuted" /> : null}
           </View>
           {trailingSlot}
         </View>
       ) : null}
-    </Pressable>
+    </>
+  );
+
+  if (!trailingAction) {
+    return (
+      <Pressable
+        testID={testID}
+        disabled={disabled}
+        onPress={onPress}
+        style={itemPressableStyle}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={splitRowStyle} onPointerEnter={handleHoverIn} onPointerLeave={handleHoverOut}>
+      <Pressable
+        testID={testID}
+        disabled={disabled}
+        onPress={onPress}
+        style={splitPressableStyle}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+      >
+        {content}
+      </Pressable>
+      <View style={styles.comboboxItemActionSlot} dataSet={TRAILING_ACTION_DATASET}>
+        {trailingAction}
+      </View>
+    </View>
   );
 }
 
@@ -331,6 +411,7 @@ export function ComboboxEmpty({ children }: { children: ReactNode }): ReactEleme
 type RenderOptionFn = NonNullable<ComboboxProps["renderOption"]>;
 
 interface OptionRowProps {
+  index: number;
   option: ComboboxOption;
   selected: boolean;
   active: boolean;
@@ -338,20 +419,27 @@ interface OptionRowProps {
   renderOption: RenderOptionFn | undefined;
 }
 
-function OptionRow({ option, selected, active, onSelect, renderOption }: OptionRowProps) {
+function OptionRow({ index, option, selected, active, onSelect, renderOption }: OptionRowProps) {
   const handlePress = useCallback(() => onSelect(option.id), [onSelect, option.id]);
+  const optionDataset = useMemo(() => ({ comboboxOptionIndex: String(index) }), [index]);
   if (renderOption) {
-    return <View>{renderOption({ option, selected, active, onPress: handlePress })}</View>;
+    return (
+      <View dataSet={optionDataset}>
+        {renderOption({ option, selected, active, onPress: handlePress })}
+      </View>
+    );
   }
   return (
-    <ComboboxItem
-      label={option.label}
-      description={option.description}
-      kind={option.kind}
-      selected={selected}
-      active={active}
-      onPress={handlePress}
-    />
+    <View dataSet={optionDataset}>
+      <ComboboxItem
+        label={option.label}
+        description={option.description}
+        kind={option.kind}
+        selected={selected}
+        active={active}
+        onPress={handlePress}
+      />
+    </View>
   );
 }
 
@@ -380,6 +468,7 @@ function OptionsList({
       {options.map((opt, index) => (
         <OptionRow
           key={opt.id}
+          index={index}
           option={opt}
           selected={opt.id === value}
           active={index === activeIndex}
@@ -525,9 +614,9 @@ type DesktopKey = "ArrowDown" | "ArrowUp" | "Enter" | "Escape";
 
 interface DesktopKeyHandlerInput {
   isOpen: boolean;
-  isMobile: boolean;
   orderedVisibleOptions: ComboboxOption[];
   activeIndex: number;
+  remoteSearchPending: boolean;
   setActiveIndex: React.Dispatch<React.SetStateAction<number>>;
   handleSelect: (id: string) => void;
   handleClose: () => void;
@@ -540,7 +629,9 @@ function handleDesktopArrowKey(input: DesktopKeyHandlerInput, key: "ArrowDown" |
 function handleDesktopEnterKey(input: DesktopKeyHandlerInput) {
   if (input.orderedVisibleOptions.length === 0) return;
   const { activeIndex, orderedVisibleOptions } = input;
-  const index = activeIndex >= 0 && activeIndex < orderedVisibleOptions.length ? activeIndex : 0;
+  const picked = activeIndex >= 0 && activeIndex < orderedVisibleOptions.length;
+  if (!picked && input.remoteSearchPending) return;
+  const index = picked ? activeIndex : 0;
   input.handleSelect(orderedVisibleOptions[index].id);
 }
 
@@ -596,18 +687,21 @@ function useActiveIndexSync(
   effectiveOptionsPosition: "below-search" | "above-search",
   normalizedSearch: string,
   value: string,
+  remoteSearchPending: boolean,
   setActiveIndex: React.Dispatch<React.SetStateAction<number>>,
 ) {
   useEffect(() => {
     if (!isOpen) return;
     if (!IS_WEB && isMobile) return;
     setActiveIndex(
-      resolveInitialActiveIndex(
-        orderedVisibleOptions,
-        effectiveOptionsPosition,
-        normalizedSearch,
-        value,
-      ),
+      remoteSearchPending
+        ? -1
+        : resolveInitialActiveIndex(
+            orderedVisibleOptions,
+            effectiveOptionsPosition,
+            normalizedSearch,
+            value,
+          ),
     );
   }, [
     effectiveOptionsPosition,
@@ -616,6 +710,7 @@ function useActiveIndexSync(
     normalizedSearch,
     value,
     orderedVisibleOptions,
+    remoteSearchPending,
     setActiveIndex,
   ]);
 }
@@ -870,17 +965,23 @@ function isDesktopKey(key: string): key is DesktopKey {
 function dispatchDesktopKey(
   input: DesktopKeyHandlerInput,
   key: DesktopKey,
-  event?: KeyboardEvent,
+  event?: KeyboardInputEvent,
 ): boolean {
   if (!input.isOpen) return false;
-  if (!IS_WEB && input.isMobile) return false;
-
+  // A native mobile bail used to live here because native had no key source, so
+  // nothing could call this. It has one now, and the sheet highlights an active
+  // row like the popover does, so a hardware keyboard drives both.
   if (key === "ArrowDown" || key === "ArrowUp") {
     event?.preventDefault();
     handleDesktopArrowKey(input, key);
     return true;
   }
   if (key === "Enter") {
+    // Consume the shortcut but keep the browser's default button activation when the user moved
+    // keyboard focus onto a trailing action or footer button inside the combobox.
+    if (isWeb && document.activeElement?.matches(FOCUSED_COMBOBOX_ACTION_SELECTOR)) {
+      return true;
+    }
     if (input.orderedVisibleOptions.length === 0) return false;
     event?.preventDefault();
     handleDesktopEnterKey(input);
@@ -910,19 +1011,17 @@ function resolveInitialActiveIndex(
   return selectedIndex >= 0 ? selectedIndex : fallbackIndex;
 }
 
-type BottomSheetVisibility = ReturnType<typeof useIsolatedBottomSheetVisibility>;
-
 interface MobileBodyProps {
-  bottomSheetRef: BottomSheetVisibility["sheetRef"];
+  overlayLayer: number;
+  isOpen: boolean;
   snapPoints: string[];
-  handleSheetChange: BottomSheetVisibility["handleSheetChange"];
-  handleSheetDismiss: BottomSheetVisibility["handleSheetDismiss"];
   handleIndicatorStyle: { backgroundColor: string };
   titleColor: string;
   title: string;
   header: SheetHeader | undefined;
   onClose: () => void;
   stickyHeader: ReactNode;
+  toolbar: ReactNode;
   footer: ReactNode;
   searchable: boolean;
   hasChildren: boolean;
@@ -941,29 +1040,28 @@ interface MobileBodyProps {
   handleSelect: (id: string) => void;
   renderOption: RenderOptionFn | undefined;
   children: ReactNode;
-  safeAreaBottom: number;
 }
 
-function MobileComboboxBody(props: MobileBodyProps): ReactElement {
+function MobileComboboxBody(props: MobileBodyProps): ReactElement | null {
+  const active = useRetainedPanelActive();
+  if (!active) return null;
+  // The visibility tracker must leave the tree with its sheet.
+  return <MobileComboboxSheet {...props} />;
+}
+
+function MobileComboboxSheet(props: MobileBodyProps): ReactElement {
+  const {
+    sheetRef: bottomSheetRef,
+    handleSheetChange,
+    handleSheetDismiss,
+  } = useIsolatedBottomSheetVisibility({
+    visible: props.isOpen,
+    onClose: props.onClose,
+  });
   const comboboxTitleStyle = useMemo(
     () => [styles.comboboxTitle, { color: props.titleColor }],
     [props.titleColor],
   );
-  const { footer, safeAreaBottom } = props;
-  const frameStyle = useMemo(
-    () => [styles.mobileSheetFrame, { paddingBottom: footer ? 0 : safeAreaBottom }],
-    [footer, safeAreaBottom],
-  );
-  const footerStyle = useMemo(
-    () => [styles.footer, { paddingBottom: safeAreaBottom }],
-    [safeAreaBottom],
-  );
-
-  const footerView = useMemo(
-    () => (footer ? <View style={footerStyle}>{footer}</View> : undefined),
-    [footer, footerStyle],
-  );
-
   const body = props.hasChildren ? (
     props.children
   ) : (
@@ -979,13 +1077,13 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
 
   return (
     <IsolatedBottomSheetModal
-      ref={props.bottomSheetRef}
+      ref={bottomSheetRef}
       contextBridge={null}
       snapPoints={props.snapPoints}
       index={0}
       enableDynamicSizing={false}
-      onChange={props.handleSheetChange}
-      onDismiss={props.handleSheetDismiss}
+      onChange={handleSheetChange}
+      onDismiss={handleSheetDismiss}
       backdropOpacity={0.45}
       enablePanDownToClose
       backgroundComponent={ComboboxSheetBackground}
@@ -994,8 +1092,8 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
       keyboardBlurBehavior="none"
       presentation={props.presentation}
     >
-      <SheetVisibleFrame footer={footerView}>
-        <View style={frameStyle}>
+      <OverlayLayerProvider layer={props.overlayLayer}>
+        <ComboboxSheetFrame footer={props.footer}>
           {props.header ? (
             <SheetHeaderView header={props.header} onClose={props.onClose} />
           ) : (
@@ -1016,6 +1114,7 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
                   resetKey={props.searchResetKey}
                 />
               ) : null}
+              {props.toolbar ? <View style={styles.toolbar}>{props.toolbar}</View> : null}
             </>
           )}
           {props.hasChildren && !props.mobileChildrenScrollEnabled ? (
@@ -1033,9 +1132,30 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
               {body}
             </BottomSheetScrollView>
           )}
-        </View>
-      </SheetVisibleFrame>
+        </ComboboxSheetFrame>
+      </OverlayLayerProvider>
     </IsolatedBottomSheetModal>
+  );
+}
+
+/**
+ * Rendered on the far side of the sheet's portal so `SheetVisibleFrame` clears the screen's
+ * bottom inset in lockstep with the keyboard, not the inset left where the combobox was opened.
+ */
+function ComboboxSheetFrame({ footer, children }: { footer?: ReactNode; children: ReactNode }) {
+  const footerView = useMemo(
+    () =>
+      footer ? (
+        <View style={styles.footer} dataSet={FOOTER_DATASET}>
+          {footer}
+        </View>
+      ) : undefined,
+    [footer],
+  );
+  return (
+    <SheetVisibleFrame footer={footerView} safeAreaInset="frame">
+      <View style={styles.mobileSheetFrame}>{children}</View>
+    </SheetVisibleFrame>
   );
 }
 
@@ -1043,13 +1163,15 @@ interface DesktopBodyProps {
   overlayLayer: number;
   isOpen: boolean;
   handleClose: () => void;
-  handleDesktopKey: (key: DesktopKey, event?: KeyboardEvent) => boolean;
+  setOverlayScope: (node: unknown) => void;
+  handleDesktopKey: (key: DesktopKey, event?: KeyboardInputEvent) => boolean;
   refs: ReturnType<typeof useFloating>["refs"];
   shouldUseDesktopFade: boolean;
   desktopFrameStyle: StyleProp<ViewStyle>;
   handleDesktopContentLayout: (event: LayoutChangeEvent) => void;
   header: SheetHeader | undefined;
   stickyHeader: ReactNode;
+  toolbar: ReactNode;
   footer: ReactNode;
   searchable: boolean;
   searchPlaceholder: string;
@@ -1104,6 +1226,7 @@ function DesktopComboboxChildrenBody(props: {
 function DesktopComboboxOptionsBody(props: {
   header: SheetHeader | undefined;
   stickyHeader: ReactNode;
+  toolbar: ReactNode;
   searchable: boolean;
   searchPlaceholder: string;
   searchQuery: string;
@@ -1143,6 +1266,7 @@ function DesktopComboboxOptionsBody(props: {
           useBottomSheetInput={false}
         />
       )}
+      {props.toolbar ? <View style={styles.toolbar}>{props.toolbar}</View> : null}
       {props.effectiveOptionsPosition === "above-search" ? (
         <ScrollView
           ref={props.desktopOptionsScrollRef}
@@ -1168,27 +1292,19 @@ function DesktopComboboxOptionsBody(props: {
   );
 }
 
-function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
-  const handleDesktopKey = props.handleDesktopKey;
-  const handleWebOverlayKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (!isDesktopKey(event.key)) return false;
-      return handleDesktopKey(event.key, event);
-    },
-    [handleDesktopKey],
-  );
-  const setWebOverlayScope = useWebOverlayRegistration({
-    active: isWeb && props.isOpen,
-    layer: props.overlayLayer,
-    onKeyDown: handleWebOverlayKeyDown,
-  });
+function DesktopComboboxBody(props: DesktopBodyProps): ReactElement | null {
+  const active = useRetainedPanelActive();
+  const setOverlayScope = props.setOverlayScope;
   const setFloatingRef = useCallback(
     (node: View | null) => {
       props.refs.setFloating(node);
-      setWebOverlayScope(node);
+      setOverlayScope(node);
     },
-    [props.refs, setWebOverlayScope],
+    [props.refs, setOverlayScope],
   );
+
+  // Remove the portal before a retained chat can freeze its closing update.
+  if (!active) return null;
 
   const overlay = (
     <OverlayLayerProvider layer={props.overlayLayer}>
@@ -1227,6 +1343,7 @@ function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
             <DesktopComboboxOptionsBody
               header={props.header}
               stickyHeader={props.stickyHeader}
+              toolbar={props.toolbar}
               searchable={props.searchable}
               searchPlaceholder={props.searchPlaceholder}
               searchQuery={props.searchQuery}
@@ -1246,7 +1363,11 @@ function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
               renderOption={props.renderOption}
             />
           )}
-          {props.footer ? <View style={styles.footer}>{props.footer}</View> : null}
+          {props.footer ? (
+            <View style={styles.footer} dataSet={FOOTER_DATASET}>
+              {props.footer}
+            </View>
+          ) : null}
         </FloatingSurface>
       </View>
     </OverlayLayerProvider>
@@ -1269,6 +1390,10 @@ function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
   );
 }
 
+function filtersLocally(input: { searchable: boolean; remoteSearch?: boolean }): boolean {
+  return input.searchable && !input.remoteSearch;
+}
+
 export function Combobox({
   options,
   value,
@@ -1276,6 +1401,8 @@ export function Combobox({
   renderOption,
   onSearchQueryChange,
   searchable = true,
+  remoteSearch,
+  remoteSearchPending,
   placeholder,
   searchPlaceholder,
   emptyText,
@@ -1298,9 +1425,11 @@ export function Combobox({
   desktopLockWidth,
   desktopFixedHeight,
   stickyHeader,
+  toolbar,
   footer,
   keepOpenOnSelect = false,
   anchorRef,
+  restoreFocusRef,
   children,
 }: ComboboxProps): ReactElement | null {
   const { t } = useTranslation();
@@ -1309,8 +1438,8 @@ export function Combobox({
   const resolvedEmptyText = emptyText ?? t("common.empty.noOptionsMatchSearch");
   const resolvedTitle = title ?? t("common.actions.select");
   const isMobile = useIsCompactFormFactor();
+  const active = useRetainedPanelActive();
   const floatingLayer = useOverlayLayer("floating");
-  const safeAreaInsets = useSafeAreaInsets();
   const titleColor = theme.colors.foreground;
   const effectiveOptionsPosition = resolveEffectiveOptionsPosition(isMobile, optionsPosition);
   const isDesktopAboveSearch = resolveIsDesktopAboveSearch(isMobile, effectiveOptionsPosition);
@@ -1347,6 +1476,11 @@ export function Combobox({
     setSearchQueryWithCallback("");
     bumpSearchResetKey();
   }, [setOpen, setSearchQueryWithCallback]);
+
+  useEffect(() => {
+    if (!active && isOpen) handleClose();
+  }, [active, isOpen, handleClose]);
+  useDismissibleOverlay(isOpen, handleClose);
 
   useResetSearchOnOpen(isOpen, setSearchQueryWithCallback, bumpSearchResetKey);
 
@@ -1413,16 +1547,6 @@ export function Combobox({
     referenceWidth,
   });
 
-  const {
-    sheetRef: bottomSheetRef,
-    handleSheetChange,
-    handleSheetDismiss,
-  } = useIsolatedBottomSheetVisibility({
-    visible: isOpen,
-    isEnabled: isMobile,
-    onClose: handleClose,
-  });
-
   const normalizedSearch = searchable ? searchQuery.trim().toLowerCase() : "";
   const sanitizedSearchValue = searchQuery.trim();
   const showCustomOption = useMemo(
@@ -1441,7 +1565,7 @@ export function Combobox({
       buildVisibleComboboxOptions({
         options,
         searchQuery,
-        searchable,
+        searchable: filtersLocally({ searchable, remoteSearch }),
         allowCustomValue,
         customValuePrefix,
         customValueDescription,
@@ -1453,6 +1577,7 @@ export function Combobox({
       customValueKind,
       customValuePrefix,
       options,
+      remoteSearch,
       searchQuery,
       searchable,
     ],
@@ -1497,8 +1622,33 @@ export function Combobox({
     effectiveOptionsPosition,
     normalizedSearch,
     value,
+    remoteSearchPending === true,
     setActiveIndex,
   );
+
+  // Keep activeIndex aligned when a keyboard user Tabs onto a specific option button on web.
+  useEffect(() => {
+    if (!IS_WEB || !isOpen || isMobile) return;
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const optionEl = target.closest("[data-combobox-option-index]");
+      if (!optionEl) return;
+      const nextIndex = Number.parseInt(
+        optionEl.getAttribute("data-combobox-option-index") ?? "",
+        10,
+      );
+      if (
+        Number.isInteger(nextIndex) &&
+        nextIndex >= 0 &&
+        nextIndex < orderedVisibleOptions.length
+      ) {
+        setActiveIndex(nextIndex);
+      }
+    };
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, [isMobile, isOpen, orderedVisibleOptions.length]);
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -1514,13 +1664,13 @@ export function Combobox({
   );
 
   const handleDesktopKey = useCallback(
-    (key: DesktopKey, event?: KeyboardEvent) => {
+    (key: DesktopKey, event?: KeyboardInputEvent) => {
       return dispatchDesktopKey(
         {
           isOpen,
-          isMobile,
           orderedVisibleOptions,
           activeIndex,
+          remoteSearchPending: remoteSearchPending === true,
           setActiveIndex,
           handleSelect,
           handleClose,
@@ -1529,7 +1679,7 @@ export function Combobox({
         event,
       );
     },
-    [activeIndex, handleClose, handleSelect, isMobile, isOpen, orderedVisibleOptions],
+    [activeIndex, handleClose, handleSelect, isOpen, orderedVisibleOptions, remoteSearchPending],
   );
 
   useDismissKeyboardOnOpen(isOpen, isMobile);
@@ -1566,22 +1716,30 @@ export function Combobox({
     [],
   );
 
+  const setOverlayScope = useOverlayRegistration({
+    active: isOpen,
+    layer: floatingLayer,
+    keys: ["Escape", "Enter", "ArrowUp", "ArrowDown"],
+    onKeyDown: (event) => (isDesktopKey(event.key) ? handleDesktopKey(event.key, event) : false),
+    restoreFocusRef,
+  });
+
   const effectiveSearchPlaceholder = searchPlaceholder ?? resolvedPlaceholder;
   const hasChildren = Boolean(children);
 
   if (isMobile) {
     return (
       <MobileComboboxBody
-        bottomSheetRef={bottomSheetRef}
+        overlayLayer={floatingLayer}
+        isOpen={isOpen}
         snapPoints={snapPoints}
-        handleSheetChange={handleSheetChange}
-        handleSheetDismiss={handleSheetDismiss}
         handleIndicatorStyle={handleIndicatorStyle}
         titleColor={titleColor}
         title={resolvedTitle}
         header={header}
         onClose={handleClose}
         stickyHeader={stickyHeader}
+        toolbar={toolbar}
         footer={footer}
         searchable={searchable}
         hasChildren={hasChildren}
@@ -1599,7 +1757,6 @@ export function Combobox({
         emptyText={resolvedEmptyText}
         handleSelect={handleSelect}
         renderOption={renderOption}
-        safeAreaBottom={safeAreaInsets.bottom}
       >
         {children}
       </MobileComboboxBody>
@@ -1614,12 +1771,14 @@ export function Combobox({
       isOpen={isOpen}
       handleClose={handleClose}
       handleDesktopKey={handleDesktopKey}
+      setOverlayScope={setOverlayScope}
       refs={refs}
       shouldUseDesktopFade={shouldUseDesktopFade}
       desktopFrameStyle={desktopFrameStyle}
       handleDesktopContentLayout={handleDesktopContentLayout}
       header={header}
       stickyHeader={stickyHeader}
+      toolbar={toolbar}
       footer={footer}
       searchable={searchable}
       searchPlaceholder={effectiveSearchPlaceholder}
@@ -1663,6 +1822,18 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomColor: theme.colors.border,
     ...(IS_WEB ? {} : { marginHorizontal: theme.spacing[1] }),
   },
+  toolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    // The search field's inset, so a filled control starts on the rows' leading rail.
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    ...(IS_WEB ? {} : { marginHorizontal: theme.spacing[1] }),
+  },
   searchInput: {
     flex: 1,
     paddingVertical: theme.spacing[3],
@@ -1672,7 +1843,7 @@ const styles = StyleSheet.create((theme) => ({
   comboboxItem: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 36,
+    minHeight: density.rowHeight,
     gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
@@ -1683,6 +1854,26 @@ const styles = StyleSheet.create((theme) => ({
           marginHorizontal: theme.spacing[1],
           marginBottom: theme.spacing[1],
         }),
+  },
+  // Share the highlight while each control owns its padding and hit area.
+  comboboxItemSplitRow: {
+    gap: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  comboboxItemSplitPressable: {
+    flex: 1,
+    alignSelf: "stretch",
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingLeft: theme.spacing[3],
+    paddingRight: theme.spacing[1],
+    paddingVertical: theme.spacing[2],
+  },
+  comboboxItemActionSlot: {
+    alignSelf: "stretch",
   },
   comboboxItemHovered: {
     backgroundColor: theme.colors.surface1,
@@ -1703,7 +1894,7 @@ const styles = StyleSheet.create((theme) => ({
     opacity: 0.55,
   },
   comboboxItemTrailingSlot: {
-    width: 16,
+    width: densityIconBox("md"),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1723,7 +1914,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   comboboxItemLeadingSlot: {
-    width: 16,
+    width: densityIconBox("md"),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1731,6 +1922,16 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     color: theme.colors.foreground,
     flexShrink: 0,
+  },
+  comboboxItemLabelPrefix: {
+    fontSize: theme.fontSize.base,
+    color: theme.colors.foregroundMuted,
+    fontVariant: ["tabular-nums"],
+    flexShrink: 0,
+  },
+  // The prefix holds its width; the label gives way.
+  comboboxItemLabelAfterPrefix: {
+    flexShrink: 1,
   },
   comboboxItemDescription: {
     fontSize: theme.fontSize.sm,
@@ -1765,7 +1966,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
   },
   desktopOverlayWeb: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     pointerEvents: "auto" as const,
   },
   desktopBackdrop: {

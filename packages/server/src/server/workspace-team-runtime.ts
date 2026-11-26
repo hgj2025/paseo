@@ -6,7 +6,10 @@ import { disposeRemoteAgentPool } from "./agent/remote-agent-connection.js";
 import type { AgentManager } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import { archiveAgentCommand } from "./agent/lifecycle-command.js";
-import { sendPromptToAgent, waitForAgentRunStartWithTimeout } from "./agent/agent-prompt.js";
+import {
+  sendPreparedPromptToAgent,
+  waitForAgentRunStartWithTimeout,
+} from "./agent/agent-prompt.js";
 import { RemoteAgents } from "./agent/remote-agents.js";
 import { getOrCreateServerId } from "./server-id.js";
 import { memberPathInstructions, resultPathInstructions } from "./workspace-team-path-context.js";
@@ -142,16 +145,16 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
         });
         return receipt.state === "acknowledged" ? "acknowledged" : "uncertain";
       }
-      const sent = await sendPromptToAgent({
+      const sent = await sendPreparedPromptToAgent({
         agentManager,
         agentStorage,
         agentId: member.agentId,
         prompt,
-        messageId: task.id,
+        runOptions: { clientMessageId: task.id },
         logger,
       });
       if (sent.disposition === "turn_started")
-        await waitForAgentRunStartWithTimeout(agentManager, member.agentId);
+        await waitForAgentRunStartWithTimeout(agentManager, member.agentId, sent.started);
       return "acknowledged";
     },
     async observe(member, task) {
@@ -266,12 +269,12 @@ export function getWorkspaceTeamService(deps: Dependencies): WorkspaceTeamServic
         messageId,
         request: { prompt },
         send: async () => {
-          await sendPromptToAgent({
+          await sendPreparedPromptToAgent({
             agentManager,
             agentStorage,
             agentId: captain.agentId,
             prompt,
-            messageId,
+            runOptions: { clientMessageId: messageId },
             activeTurnBehavior: "steer",
             unarchive: false,
             logger,

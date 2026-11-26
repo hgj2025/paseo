@@ -1,14 +1,10 @@
 import { OpenCodeV2Session } from "./session.js";
 import { V2_CAPABILITIES } from "./capabilities.js";
-import {
-  features,
-  permissionRules,
-  applyResumeOverrides,
-  requiresDedicatedV2Server,
-} from "./configuration.js";
+import { controls, permissionRules, applyResumeOverrides } from "./configuration.js";
+import { SessionMcp } from "./session-mcp.js";
 import { commands } from "./commands.js";
 
-import { waitForLocationReady, awaitPaseoPlugin } from "./readiness.js";
+import { waitForLocationReady } from "./readiness.js";
 
 import type { SessionInfo } from "@opencode/client";
 
@@ -17,7 +13,8 @@ import type {
   AgentCapabilityFlags,
   AgentClient,
   AgentCreateSessionOptions,
-  AgentFeature,
+  AgentResumeSessionOptions,
+  AgentDraftControls,
   AgentLaunchContext,
   AgentPersistenceHandle,
   AgentSession,
@@ -39,8 +36,29 @@ import { importSessionFromPersistence } from "../../../provider-session-import.j
 
 import type { OpenCodeBridge } from "../bridge.js";
 import { resolveOpenCodeHomeDir } from "../paths.js";
-import { V2Runtime, type V2Connection } from "./runtime.js";
+import { V2Runtime, type V2Connection, type V2DedicatedLaunch } from "./runtime.js";
+import type { OpenCodeServiceSelection } from "./service-selection.js";
 import { modelRef, modesFromV2, modelsFromV2 } from "./mapping.js";
+
+/**
+ * A wrapped launch gets a server of its own, started behind the wrap with the launch's environment,
+ * so it never shares a server that runs outside its wrap.
+ */
+function dedicatedLaunch(launch: AgentLaunchContext | undefined): V2DedicatedLaunch | undefined {
+  return launch?.wrap ? { wrap: launch.wrap, env: launch.env } : undefined;
+}
+interface ResumeTarget {
+  handle: AgentPersistenceHandle;
+  overrides: Partial<AgentSessionConfig> | undefined;
+  launch: AgentLaunchContext | undefined;
+  historyOnly: boolean;
+}
+interface PreparedLaunch {
+  launch: AgentLaunchContext | undefined;
+  /** The complete shell environment, when the launch sets one. */
+  environment: Record<string, string> | undefined;
+  mcp?: SessionMcp;
+}
 
 interface V2AgentOptions {
   logger: Logger;
@@ -48,6 +66,7 @@ interface V2AgentOptions {
   managedProcesses?: ManagedProcessRegistry;
   bridge?: OpenCodeBridge;
   runtime?: Pick<V2Runtime, "acquire" | "shutdown">;
+  selection?: OpenCodeServiceSelection;
 }
 
 export class OpenCodeV2AgentClient implements AgentClient {
@@ -56,12 +75,12 @@ export class OpenCodeV2AgentClient implements AgentClient {
   private readonly runtime: Pick<V2Runtime, "acquire" | "shutdown">;
   private readonly connections = new Map<string, V2Connection>();
   constructor(private readonly options: V2AgentOptions) {
-    this.capabilities = { ...V2_CAPABILITIES, supportsNativePaseoTools: Boolean(options.bridge) };
+    const bridge = options.bridge;
+    this.capabilities = { ...V2_CAPABILITIES, supportsNativePaseoTools: Boolean(bridge) };
     this.runtime =
       options.runtime ??
       new V2Runtime({
         ...options,
-        decorateEnv: options.bridge ? (env) => options.bridge!.decorateV2ServerEnv(env) : undefined,
       });
   }
   async isAvailable() {
@@ -85,6 +104,10 @@ export class OpenCodeV2AgentClient implements AgentClient {
       await activity("plugin.list", () =>
         waitForLocationReady({ client: connection.client, location, signal: request.signal }),
       );
+      if (options.force)
+        await activity("paseo.bridge.refresh", () =>
+          connection.refreshLocation(location.directory, request.signal),
+        );
       const [models, agents, providers] = await Promise.all([
         activity("model.list", () => connection.client.model.list({ location }, request)),
         activity("agent.list", () => connection.client.agent.list({ location }, request)),
@@ -104,20 +127,30 @@ export class OpenCodeV2AgentClient implements AgentClient {
     launch?: AgentLaunchContext,
     options?: AgentCreateSessionOptions,
   ): Promise<AgentSession> {
-    const connection = await this.runtime.acquire(
-      requiresDedicatedV2Server(config, launch) ? { env: launch?.env, dedicated: true } : {},
-    );
+    const prepared = await this.prepareLaunch(config, launch, false);
     try {
-      const info = await connection.client.session.create({
-        location: { directory: config.cwd },
-        title: config.title,
-        agent: config.modeId ?? "build",
-        model: config.model ? modelRef(config.model, config.thinkingOptionId) : undefined,
-        permissions: permissionRules(config),
-      });
-      return await this.attach(connection, info, config, launch, options?.persistSession !== false);
+      const connection = await this.runtime.acquire({ dedicated: dedicatedLaunch(launch) });
+      try {
+        const info = await connection.client.session.create({
+          location: { directory: config.cwd },
+          title: config.title,
+          agent: config.modeId ?? "build",
+          model: config.model ? modelRef(config.model, config.thinkingOptionId) : undefined,
+          permissions: permissionRules(config),
+        });
+        return await this.attach(
+          connection,
+          info,
+          config,
+          prepared,
+          options?.persistSession !== false,
+        );
+      } catch (error) {
+        await connection.release();
+        throw error;
+      }
     } catch (error) {
-      await connection.release();
+      await prepared.mcp?.close();
       throw error;
     }
   }
@@ -125,6 +158,22 @@ export class OpenCodeV2AgentClient implements AgentClient {
     handle: AgentPersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
     launch?: AgentLaunchContext,
+    options?: AgentResumeSessionOptions,
+  ): Promise<AgentSession> {
+    return this.resumeOn(
+      async () => {
+        // A live connection may run outside this launch's wrap, so a wrapped resume starts its own.
+        const live = launch?.wrap
+          ? undefined
+          : this.connections.get(handle.nativeHandle ?? handle.sessionId)?.retain();
+        return live ?? (await this.runtime.acquire({ dedicated: dedicatedLaunch(launch) }));
+      },
+      { handle, overrides, launch, historyOnly: options?.purpose === "history" },
+    );
+  }
+  private async resumeOn(
+    connect: () => Promise<V2Connection>,
+    { handle, overrides, launch, historyOnly }: ResumeTarget,
   ): Promise<AgentSession> {
     const cwd = overrides?.cwd ?? handle.metadata?.cwd;
     if (typeof cwd !== "string")
@@ -135,50 +184,82 @@ export class OpenCodeV2AgentClient implements AgentClient {
       provider: "opencode",
       cwd,
     };
-    const connection =
-      this.connections.get(handle.nativeHandle ?? handle.sessionId)?.retain() ??
-      (await this.runtime.acquire(
-        requiresDedicatedV2Server(config, launch) ? { env: launch?.env, dedicated: true } : {},
-      ));
+    const prepared = await this.prepareLaunch(config, launch, historyOnly);
     try {
-      const info = await connection.client.session.get({
-        sessionID: handle.nativeHandle ?? handle.sessionId,
-      });
-      await applyResumeOverrides(connection.client, info, overrides);
-      return await this.attach(connection, info, config, launch, true);
+      const connection = await connect();
+      try {
+        const info = await connection.client.session.get({
+          sessionID: handle.nativeHandle ?? handle.sessionId,
+        });
+        await applyResumeOverrides(connection.client, info, overrides);
+        return await this.attach(connection, info, config, prepared, true, historyOnly);
+      } catch (error) {
+        await connection.release();
+        throw error;
+      }
     } catch (error) {
-      await connection.release();
+      await prepared.mcp?.close();
       throw error;
     }
+  }
+  /**
+   * Resolves what the session receives from its launch. OpenCode's own MCP servers are shared by
+   * a location, so Paseo hosts each session's servers itself, before OpenCode sees the session.
+   */
+  private async prepareLaunch(
+    config: AgentSessionConfig,
+    launch: AgentLaunchContext | undefined,
+    historyOnly: boolean,
+  ): Promise<PreparedLaunch> {
+    const environment = launch?.env
+      ? createProviderEnv({ runtimeSettings: this.options.settings, overlays: [launch.env] })
+      : undefined;
+    const servers = config.mcpServers ?? {};
+    if (historyOnly || Object.keys(servers).length === 0) return { launch, environment };
+    if (!this.options.bridge)
+      throw new Error("OpenCode MCP servers require the Paseo tool bridge, which is not running");
+    const mcp = await SessionMcp.connect({
+      servers,
+      cwd: config.cwd,
+      env: environment ?? createProviderEnv({ runtimeSettings: this.options.settings }),
+      wrap: launch?.wrap,
+    });
+    return { launch, environment, mcp };
   }
   private async attach(
     connection: V2Connection,
     info: SessionInfo,
     config: AgentSessionConfig,
-    launch: AgentLaunchContext | undefined,
+    { launch, environment, mcp }: PreparedLaunch,
     persist: boolean,
+    historyOnly = false,
   ) {
-    const acquire = () =>
-      this.runtime.acquire(
-        requiresDedicatedV2Server(config, launch) ? { env: launch?.env, dedicated: true } : {},
-      );
     let ownedConnection = connection;
-    const unbind = this.options.bridge?.bindSession({
-      sessionId: info.id,
-      env: launch?.env ?? {},
-      tools: launch?.paseoTools,
-    });
+    const bridge = this.options.bridge;
     const bound = new Map<string, () => void>();
     const bindChild = (childId: string) => {
       this.connections.set(childId, ownedConnection);
       if (bound.has(childId)) return;
-      const childUnbind = this.options.bridge?.bindSession({
+      const childUnbind = bridge?.bindSession({
         sessionId: childId,
         env: launch?.env ?? {},
         tools: launch?.paseoTools,
       });
       if (childUnbind) bound.set(childId, childUnbind);
     };
+    // The bridge serves descendants before the session exists, so it reads the session late.
+    let session: OpenCodeV2Session | undefined;
+    let unbind: (() => void) | undefined;
+    unbind = bridge?.bindSession({
+      sessionId: info.id,
+      env: launch?.env ?? {},
+      tools: launch?.paseoTools,
+      mcp,
+      adoptDescendant: async (childId) => {
+        bindChild(childId);
+        await session?.adoptDescendant(childId);
+      },
+    });
     this.connections.set(info.id, connection);
     const releaseBindings = () => {
       unbind?.();
@@ -191,36 +272,31 @@ export class OpenCodeV2AgentClient implements AgentClient {
         if (owner === ownedConnection) this.connections.set(id, next);
       ownedConnection = next;
     };
-    const session = new OpenCodeV2Session(
+    session = new OpenCodeV2Session({
       connection,
       info,
       config,
-      this.options.logger,
+      logger: this.options.logger,
       persist,
-      Boolean(this.options.bridge),
-      releaseBindings,
+      requiresPaseoPlugin: Boolean(bridge),
+      environment,
+      mcp,
+      unbind: releaseBindings,
       bindChild,
-      acquire,
+      acquire: () => this.runtime.acquire({ dedicated: dedicatedLaunch(launch) }),
       moved,
-    );
+      historyOnly,
+    });
     try {
-      if (this.options.bridge) {
-        const location = { directory: config.cwd };
-        await awaitPaseoPlugin({ client: connection.client, location });
-      }
-      await session.initialize(
-        launch?.env
-          ? createProviderEnv({ runtimeSettings: this.options.settings, overlays: [launch.env] })
-          : undefined,
-      );
+      await session.initialize();
       return session;
     } catch (error) {
       await session.close();
       throw error;
     }
   }
-  async listFeatures(config: AgentSessionConfig): Promise<AgentFeature[]> {
-    return features(config);
+  async listControls(config: AgentSessionConfig): Promise<AgentDraftControls> {
+    return { controls, options: config.providerOptions ?? {} };
   }
   async listCommands(config: AgentSessionConfig) {
     const connection = await this.runtime.acquire();
@@ -262,14 +338,24 @@ export class OpenCodeV2AgentClient implements AgentClient {
     }
   }
   async importSession(input: ImportProviderSessionInput, context: ImportProviderSessionContext) {
-    const connection = await this.runtime.acquire();
+    // The lookup and the resume share one connection, so a wrapped import never starts a server
+    // outside its wrap.
+    const connection = await this.runtime.acquire({
+      dedicated: dedicatedLaunch(context.launchContext),
+    });
     try {
       const info = await connection.client.session.get({ sessionID: input.providerHandleId });
       return await importSessionFromPersistence({
         provider: "opencode",
         request: input,
         context,
-        resumeSession: this.resumeSession.bind(this),
+        resumeSession: (handle, overrides, launch) =>
+          this.resumeOn(async () => connection.retain(), {
+            handle,
+            overrides,
+            launch,
+            historyOnly: false,
+          }),
         config: {
           title: info.title,
           modeId: info.agent,

@@ -236,7 +236,7 @@ function ActiveSessionRow({
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="ghost"
                   leftIcon={X}
                   accessibilityLabel={t("homeOverview.removeToday", {

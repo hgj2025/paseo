@@ -1,3 +1,4 @@
+import type { WorkspaceSort } from "@/projects/workspace-structure";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { persist, type StateStorage } from "zustand/middleware";
@@ -59,6 +60,7 @@ function toggleFilterEntry(list: readonly string[], key: string): string[] {
 
 interface SidebarViewStoreState {
   groupMode: SidebarGroupMode;
+  workspaceSort: WorkspaceSort;
   showBackground: boolean;
   // Empty means all hosts; @current follows the conversation owner; other IDs pin hosts.
   hostFilters: string[];
@@ -76,9 +78,11 @@ interface SidebarViewStoreState {
   labelFilter: SidebarLabelFilter;
   toggleBackground: () => void;
   setGroupMode: (mode: SidebarGroupMode) => void;
+  setWorkspaceSort: (sort: WorkspaceSort) => void;
   toggleHostFilter: (serverId: string) => void;
   clearHostFilters: () => void;
   selectHostFilter: (serverId: string | null) => void;
+  focusHost: (serverId: string) => void;
   toggleProjectFilter: (viewKey: string) => void;
   clearProjectFilters: () => void;
   toggleLabelFilter: (name: string) => void;
@@ -89,6 +93,7 @@ interface SidebarViewStoreState {
 
 interface SidebarViewPersistedState {
   groupMode: SidebarGroupMode;
+  workspaceSort: WorkspaceSort;
   showBackground: boolean;
   hostFilters: string[];
   projectFilters: string[];
@@ -100,6 +105,7 @@ const SidebarLabelFilterSchema = z.object({
   labels: z.array(z.string()),
 });
 const SidebarViewPersistedStateSchema = z.strictObject({
+  workspaceSort: z.enum(["manual", "created", "lastPrompt"]).optional(),
   showBackground: z.boolean().optional(),
   groupMode: PersistedSidebarGroupModeSchema.optional(),
   hostFilters: z.array(z.string()).optional(),
@@ -141,6 +147,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
     return {
       showBackground: false,
       groupMode: "project",
+      workspaceSort: "created",
       hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
@@ -153,6 +160,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
     return {
       showBackground: false,
       groupMode: legacyGroupMode,
+      workspaceSort: "created",
       hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
@@ -162,6 +170,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
   return {
     showBackground: state.showBackground ?? false,
     groupMode: state.groupMode === "status" ? "status" : "project",
+    workspaceSort: state.workspaceSort ?? "created",
     hostFilters: readHostFilters(state).length ? readHostFilters(state) : [SIDEBAR_CURRENT_HOST],
     projectFilters: state.projectFilters ?? [],
     labelFilter: state.labelFilter
@@ -200,11 +209,13 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
     (set) => ({
       showBackground: false,
       groupMode: "project",
+      workspaceSort: "created",
       hostFilters: [SIDEBAR_CURRENT_HOST],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
       toggleBackground: () => set((state) => ({ showBackground: !state.showBackground })),
       setGroupMode: (mode) => set({ groupMode: mode }),
+      setWorkspaceSort: (workspaceSort) => set({ workspaceSort }),
       toggleHostFilter: (serverId) =>
         set((state) => ({
           hostFilters: toggleFilterEntry(
@@ -214,6 +225,9 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
         })),
       clearHostFilters: () => set({ hostFilters: [] }),
       selectHostFilter: (serverId) => set({ hostFilters: serverId === null ? [] : [serverId] }),
+      // An explicit navigation target must not be hidden by another host's facets.
+      focusHost: (serverId) =>
+        set({ hostFilters: [serverId], projectFilters: [], labelFilter: emptyLabelFilter() }),
       toggleProjectFilter: (viewKey) =>
         set((state) => ({ projectFilters: toggleFilterEntry(state.projectFilters, viewKey) })),
       clearProjectFilters: () => set({ projectFilters: [] }),
@@ -258,6 +272,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       partialize: (state) => ({
         showBackground: state.showBackground ?? false,
         groupMode: state.groupMode,
+        workspaceSort: state.workspaceSort,
         hostFilters: state.hostFilters,
         projectFilters: state.projectFilters,
         labelFilter: state.labelFilter,

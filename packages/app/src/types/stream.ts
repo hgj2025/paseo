@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
 import type {
+  AgentMetric,
   AgentProvider,
   AgentTimelineItem,
   JsonValue,
@@ -8,6 +9,8 @@ import type {
 import { timelineItemIdentity } from "@getpaseo/protocol/timeline-identity";
 import type { AgentAttachment, AgentStreamEventPayload } from "@getpaseo/protocol/messages";
 import type { AttachmentMetadata } from "@/attachments/types";
+import type { OverviewSummary } from "@/tool-calls/detail-level/overview/model";
+import { stampCompletedTurnMetrics } from "@/timeline/turn-metrics";
 import { extractTaskEntriesFromToolCall } from "../utils/tool-call-parsers";
 
 /**
@@ -86,11 +89,14 @@ export type StreamItem =
   | TodoListItem
   | NotificationItem
   | CompactionItem
-  | PluginTimelineStreamItem;
+  | PluginTimelineStreamItem
+  | TurnSummaryItem;
 
 export type UserMessageImageAttachment = AttachmentMetadata;
 
 export interface UserMessageItem {
+  /** Attribution added by presentation for received agent messages. */
+  sender?: AgentMessage["sender"];
   kind: "user_message";
   id: string;
   clientMessageId?: string;
@@ -711,9 +717,9 @@ export interface AssistantMessageItem {
   timelineCursor?: TimelinePosition;
   text: string;
   timestamp: Date;
+  /** Set when this message carries its turn's footer. */
+  turnMetrics?: AgentMetric[];
   /** Display-only fields, assigned after source-item plugin transforms. */
-  blockGroupId?: string;
-  blockIndex?: number;
 }
 
 export interface TimelinePosition {
@@ -767,14 +773,31 @@ export interface ToolCallItem {
   turnId?: string;
   timestamp: Date;
   payload: ToolCallPayload;
+  /** Set when this call carries its turn's footer. */
+  turnMetrics?: AgentMetric[];
 }
 
 export type AgentToolCallItem = ToolCallItem & {
   payload: { source: "agent"; data: AgentToolCallData };
 };
 
+/** Find and scrolling address a plugin row by the source it replaces. */
+export function getStreamItemMessageId(item: StreamItem): string {
+  if (item.kind === "plugin") return item.source?.id ?? item.id;
+  return item.id;
+}
+
 export function isAgentToolCallItem(item: StreamItem): item is AgentToolCallItem {
   return item.kind === "tool_call" && item.payload.source === "agent";
+}
+
+/** The assistant reply a row shows: the row itself, or the reply a timeline plugin replaced. */
+export function getAssistantReply(
+  item: StreamItem | null | undefined,
+): AssistantMessageItem | null {
+  if (item?.kind === "assistant_message") return item;
+  if (item?.kind === "plugin" && item.source?.kind === "assistant_message") return item.source;
+  return null;
 }
 
 type NotificationLevel = "info" | "warning" | "error";
@@ -804,8 +827,12 @@ export interface CompactionItem {
 export interface PluginTimelineStreamItem {
   kind: "plugin";
   id: string;
-  /** The id of the stream item a timeline transformer replaced; set only by projection. */
-  sourceId?: string;
+  /**
+   * The row a timeline transformer replaced; set only by projection. Turn folding, timing, and the
+   * turn footer read the replaced row through it, so a transformed reply keeps its copy, fork,
+   * duration, and stats.
+   */
+  source?: StreamItem;
   timelineCursor?: TimelinePosition;
   turnId?: string;
   timestamp: Date;
@@ -814,6 +841,25 @@ export interface PluginTimelineStreamItem {
   itemKind: string;
   version: number;
   data: JsonValue;
+}
+
+/**
+ * The row a folded turn leaves between its host and its reply, standing in for the work it
+ * hides. Turn collapse produces it from the loaded rows; it is never stored.
+ */
+export interface TurnSummaryItem {
+  kind: "turn_summary";
+  id: string;
+  timelineCursor?: TimelinePosition;
+  turnId?: string;
+  timestamp: Date;
+  /**
+   * The prompt the turn folds under, or its first loaded tool call when the prompt is above the
+   * loaded history. Keys the reader's expanded turns.
+   */
+  hostId: string;
+  expanded: boolean;
+  tools: OverviewSummary;
 }
 
 export interface TodoEntry {
@@ -982,6 +1028,7 @@ function appendThought(
   text: string,
   timestamp: Date,
   timelineCursor?: TimelinePosition,
+  turnId?: string,
 ): StreamItem[] {
   const { chunk, hasContent } = normalizeChunk(text);
   if (!chunk) {
@@ -989,7 +1036,7 @@ function appendThought(
   }
 
   const last = state[state.length - 1];
-  if (last && last.kind === "thought") {
+  if (last && last.kind === "thought" && last.turnId === turnId) {
     const updated: ThoughtItem = {
       ...last,
       ...(timelineCursor ? { timelineCursor } : {}),
@@ -1507,36 +1554,30 @@ function reduceTimelineEvent(
   const item = event.item;
   switch (item.type) {
     case "user_message":
-      return finalizeActiveThoughts(
-        appendUserMessage(
-          state,
-          item.text,
-          timestamp,
-          source,
-          item.messageId,
-          item.clientMessageId,
-          timelineCursor,
-          event.turnId,
-        ),
+      return appendUserMessage(
+        state,
+        item.text,
+        timestamp,
+        source,
+        item.messageId,
+        item.clientMessageId,
+        timelineCursor,
+        event.turnId,
       );
     case "assistant_message":
-      return finalizeActiveThoughts(
-        appendAssistantMessage(
-          state,
-          item.text,
-          timestamp,
-          source,
-          item.messageId,
-          reservedItemIds,
-          timelineCursor,
-        ),
+      return appendAssistantMessage(
+        state,
+        item.text,
+        timestamp,
+        source,
+        item.messageId,
+        reservedItemIds,
+        timelineCursor,
       );
     case "reasoning":
-      return appendThought(state, item.text, timestamp, timelineCursor);
+      return appendThought(state, item.text, timestamp, timelineCursor, event.turnId);
     case "tool_call":
-      return finalizeActiveThoughts(
-        reduceTimelineToolCall(state, event, item, timestamp, timelineCursor),
-      );
+      return reduceTimelineToolCall(state, event, item, timestamp, timelineCursor);
     case "todo": {
       const items: TodoEntry[] = (item.items ?? []).map((todo) => ({
         text: todo.text,
@@ -1545,9 +1586,7 @@ function reduceTimelineEvent(
         status: todo.status,
         activeForm: todo.activeForm,
       }));
-      return finalizeActiveThoughts(
-        appendTodoList(state, event.provider, items, timestamp, timelineCursor),
-      );
+      return appendTodoList(state, event.provider, items, timestamp, timelineCursor);
     }
     case "error": {
       const notification: NotificationItem = {
@@ -1559,7 +1598,7 @@ function reduceTimelineEvent(
         level: "error",
         message: item.message ?? "Unknown error",
       };
-      return finalizeActiveThoughts(appendNotification(state, notification));
+      return appendNotification(state, notification);
     }
     case "notification": {
       const notification: NotificationItem = {
@@ -1571,16 +1610,12 @@ function reduceTimelineEvent(
         level: item.level,
         message: item.message,
       };
-      return finalizeActiveThoughts(appendNotification(state, notification));
+      return appendNotification(state, notification);
     }
     case "compaction":
-      return finalizeActiveThoughts(
-        reduceTimelineCompaction(state, item, timestamp, timelineCursor),
-      );
+      return reduceTimelineCompaction(state, item, timestamp, timelineCursor);
     case "plugin":
-      return finalizeActiveThoughts(
-        appendPluginTimelineItem(state, item, timestamp, timelineCursor),
-      );
+      return appendPluginTimelineItem(state, item, timestamp, timelineCursor);
     default:
       return state;
   }
@@ -1597,8 +1632,9 @@ export function reduceStreamUpdate(
 ): StreamItem[] {
   const source = options?.source ?? "live";
   switch (event.type) {
-    case "timeline":
-      return applyTimelineTurnId(
+    case "timeline": {
+      const updated = applyTimelineTurnId(
+        state,
         reduceTimelineEvent(
           state,
           event,
@@ -1609,9 +1645,12 @@ export function reduceStreamUpdate(
         ),
         event,
       );
+      return event.item.type === "reasoning" ? updated : finalizeActiveThoughts(updated);
+    }
+    case "turn_completed":
+      return stampCompletedTurnMetrics(finalizeActiveThoughts(state), event.metrics, event.turnId);
     case "thread_started":
     case "turn_started":
-    case "turn_completed":
     case "turn_failed":
     case "turn_canceled":
     case "permission_requested":
@@ -1624,6 +1663,7 @@ export function reduceStreamUpdate(
 }
 
 function applyTimelineTurnId(
+  previous: StreamItem[],
   items: StreamItem[],
   event: Extract<AgentStreamEventPayload, { type: "timeline" }>,
 ): StreamItem[] {
@@ -1633,15 +1673,14 @@ function applyTimelineTurnId(
     return reconcileCanonicalUserTurnMembership(items, clientMessageId, event.turnId);
   }
 
-  if (!event.turnId || items.length === 0) return items;
-  const index = items.length - 1;
-  const last = items[index];
-  if (!last || last.turnId === event.turnId) return items;
-  return [
-    ...items.slice(0, index),
-    { ...last, turnId: event.turnId } as StreamItem,
-    ...items.slice(index + 1),
-  ];
+  if (!event.turnId || items === previous) return items;
+  // Assign membership only to rows written by this event, before finalizing
+  // unrelated reasoning rows. Late lifecycle updates can replace an earlier row.
+  return items.map((item, index) =>
+    item === previous[index] || item.turnId === event.turnId
+      ? item
+      : ({ ...item, turnId: event.turnId } as StreamItem),
+  );
 }
 
 function reconcileCanonicalUserTurnMembership(

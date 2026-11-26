@@ -63,6 +63,13 @@ interface WalkStart {
   resolvedPath: string;
 }
 
+interface WalkChildrenOptions {
+  parent: WalkStart;
+  depth: number;
+  input: SearchInput;
+  visited: Set<string>;
+}
+
 interface TraversedEntry extends ChildEntry {
   visiblePath: string;
   depth: number;
@@ -226,7 +233,30 @@ async function resolveTypedParent(input: SearchInput): Promise<WalkStart | null>
   const resolvedPath = await realpath(visiblePath).catch(() => null);
   if (!resolvedPath || !isPathInsideRoot(input.root, resolvedPath)) return null;
   const info = await stat(resolvedPath).catch(() => null);
-  return info?.isDirectory() ? { visiblePath, resolvedPath } : null;
+  if (!info?.isDirectory()) return null;
+  return {
+    visiblePath: await withResolvedSpelling(visiblePath, resolvedPath),
+    resolvedPath,
+  };
+}
+
+async function withResolvedSpelling(visiblePath: string, resolvedPath: string): Promise<string> {
+  if (visiblePath.toLowerCase() !== resolvedPath.toLowerCase()) return visiblePath;
+
+  // Check the entire changed suffix. A symlink can keep its basename while redirecting
+  // into a parent directory that differs only in case.
+  let visible = visiblePath;
+  let resolved = resolvedPath;
+  while (visible !== resolved && visible !== path.parse(visible).root) {
+    const entryPath = visible;
+    const entry = await sharedFilesystemCall(`lstat:${entryPath}`, () => fs.lstat(entryPath)).catch(
+      () => null,
+    );
+    if (!entry || entry.isSymbolicLink()) return visiblePath;
+    visible = path.dirname(visible);
+    resolved = path.dirname(resolved);
+  }
+  return resolvedPath;
 }
 
 async function resolveExistingPaths(paths: readonly string[]): Promise<Set<string>> {
@@ -289,7 +319,8 @@ async function findExactEntry(input: SearchInput): Promise<DirectorySuggestionEn
     (kind === "file" && !input.includeFiles)
   )
     return null;
-  return formatEntry({ path: visiblePath, kind }, input.root, input.pathFormat);
+  const entryPath = await withResolvedSpelling(visiblePath, resolvedPath);
+  return formatEntry({ path: entryPath, kind }, input.root, input.pathFormat);
 }
 
 interface SearchInput {
@@ -310,25 +341,27 @@ interface SearchInput {
 }
 
 async function searchChildren(input: SearchInput): Promise<RankedEntry[]> {
-  const visibleParent = path.resolve(input.root, input.plan.parentPart || ".");
-  const parent = await realpath(visibleParent).catch(() => null);
+  const typedParent = path.resolve(input.root, input.plan.parentPart || ".");
+  const parent = await realpath(typedParent).catch(() => null);
   if (!parent || !isPathInsideRoot(input.root, parent)) return [];
   if (isGitIgnoredPath(parent, input)) return [];
+  const visibleParent = await withResolvedSpelling(typedParent, parent);
   // Browsing inside an excluded path is explicit: the caller typed it, so list what is there.
   const discoveryInput = isInsideExcludedPath(parent, input)
     ? { ...input, excludedDiscoveryPaths: new Set<string>() }
     : input;
-  const entries = await readChildren(parent);
-  return entries.flatMap((entry) => {
+  const ranked: RankedEntry[] = [];
+  for await (const entry of readChildren(parent)) {
     if (!isPathInsideRoot(input.root, entry.resolvedPath) || !shouldDiscover(entry, discoveryInput))
-      return [];
+      continue;
     const candidate: TraversedEntry = {
       ...entry,
       visiblePath: path.join(visibleParent, entry.name),
       depth: 1,
     };
-    return shouldSuggest(candidate, input) ? [rank(candidate, input)] : [];
-  });
+    if (shouldSuggest(candidate, input)) ranked.push(rank(candidate, input));
+  }
+  return ranked;
 }
 
 async function searchTree(
@@ -336,21 +369,8 @@ async function searchTree(
   start: WalkStart = { visiblePath: input.root, resolvedPath: input.root },
 ): Promise<RankedEntry[]> {
   if (!(input.maxEntriesScanned > 0)) return [];
-  const roots = (await readChildren(start.resolvedPath)).filter((entry) =>
-    staysInsideRoot(entry, input.root),
-  );
   const visited = new Set<string>([start.resolvedPath]);
-  const branches = roots.flatMap((entry) =>
-    shouldDiscover(entry, input)
-      ? [
-          walkBranch(
-            { ...entry, visiblePath: path.join(start.visiblePath, entry.name), depth: 1 },
-            input,
-            visited,
-          ),
-        ]
-      : [],
-  );
+  const branches = walkChildren({ parent: start, depth: 1, input, visited });
   const ranked: RankedEntry[] = [];
   let scanned = 0;
   const threshold = input.confidentResultScanThreshold;
@@ -381,38 +401,39 @@ async function* walkBranch(
   )
     return;
   visited.add(entry.resolvedPath);
-  const children = (await readChildren(entry.resolvedPath)).filter((child) =>
-    staysInsideRoot(child, input.root),
-  );
-  const branches = children.flatMap((child) =>
-    shouldDiscover(child, input)
-      ? [
-          walkBranch(
-            {
-              ...child,
-              visiblePath: path.join(entry.visiblePath, child.name),
-              depth: entry.depth + 1,
-            },
-            input,
-            visited,
-          ),
-        ]
-      : [],
-  );
-  yield* roundRobin(branches);
+  yield* roundRobin(walkChildren({ parent: entry, depth: entry.depth + 1, input, visited }));
 }
 
-async function* roundRobin<T>(branches: Array<AsyncGenerator<T>>): AsyncGenerator<T> {
-  let active = branches;
-  while (active.length) {
+// Create a child's path and iterator only when its branch gets a turn. Eagerly constructing every
+// sibling's subtree retained hundreds of thousands of unvisited children beyond the scan budget.
+async function* walkChildren({
+  parent,
+  depth,
+  input,
+  visited,
+}: WalkChildrenOptions): AsyncGenerator<AsyncGenerator<TraversedEntry>> {
+  for await (const child of readChildren(parent.resolvedPath)) {
+    if (!staysInsideRoot(child, input.root) || !shouldDiscover(child, input)) continue;
+    yield walkBranch(
+      { ...child, visiblePath: path.join(parent.visiblePath, child.name), depth },
+      input,
+      visited,
+    );
+  }
+}
+
+async function* roundRobin<T>(branches: AsyncIterable<AsyncGenerator<T>>): AsyncGenerator<T> {
+  let active: AsyncIterable<AsyncGenerator<T>> | Array<AsyncGenerator<T>> = branches;
+  while (true) {
     const nextRound: Array<AsyncGenerator<T>> = [];
-    for (const branch of active) {
+    for await (const branch of active) {
       const next = await branch.next();
       if (!next.done) {
         nextRound.push(branch);
         yield next.value;
       }
     }
+    if (!nextRound.length) return;
     active = nextRound;
   }
 }
@@ -742,9 +763,9 @@ async function resolveDirectory(inputPath: string): Promise<string | null> {
   return info?.isDirectory() ? resolved : null;
 }
 
-async function readChildren(directory: string): Promise<ChildEntry[]> {
+async function* readChildren(directory: string): AsyncGenerator<ChildEntry> {
   const directoryInfo = await stat(directory).catch(() => null);
-  if (!directoryInfo?.isDirectory()) return [];
+  if (!directoryInfo?.isDirectory()) return;
 
   const cached = CAN_VALIDATE_DIRECTORY_CACHE_FROM_METADATA
     ? directoryListCache.get(directory)
@@ -774,9 +795,10 @@ async function readChildren(directory: string): Promise<ChildEntry[]> {
     }
   }
 
-  return (await Promise.all(rawEntries.map((entry) => resolveChild(directory, entry))))
-    .filter((entry): entry is ChildEntry => entry !== null)
-    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const rawEntry of rawEntries) {
+    const entry = await resolveChild(directory, rawEntry);
+    if (entry) yield entry;
+  }
 }
 
 async function loadGitIgnoredPaths(root: string): Promise<Set<string>> {

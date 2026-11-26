@@ -66,6 +66,7 @@ per-agent examples and provider-specific keys.
 
 - [Extending a built-in provider](#extending-a-built-in-provider)
 - [Claude with an Anthropic API key](#claude-with-an-anthropic-api-key)
+- [OpenCode with an existing v2 server](#opencode-with-an-existing-v2-server)
 - [Z.AI (Zhipu) coding plan](#zai-zhipu-coding-plan)
 - [Alibaba Cloud (Qwen) coding plan](#alibaba-cloud-qwen-coding-plan)
 - [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai-compatible-endpoint)
@@ -114,6 +115,37 @@ For a separate official-API profile alongside subscription login, use the
 [Claude API credit example](../examples/claude-api-credit/README.md). It includes a
 portable launcher, hidden key setup, and a custom provider entry. Install it on
 the daemon host where Claude runs; keep credentials outside the repository.
+
+---
+
+## OpenCode with an existing v2 server
+
+Paseo first uses an explicitly configured server, then a healthy locally registered OpenCode v2 service, then starts its own helper. It never stops a reused service. To select a server explicitly, set its URL in the provider environment:
+
+```json
+{
+  "agents": {
+    "providers": {
+      "opencode": {
+        "env": {
+          "PASEO_OPENCODE_SERVER_URL": "http://127.0.0.1:4096",
+          "PASEO_OPENCODE_SERVER_PASSWORD": "<server password>"
+        }
+      }
+    }
+  }
+}
+```
+
+`PASEO_OPENCODE_SERVER_URL` must be an absolute `http` or `https` URL. Omit `PASEO_OPENCODE_SERVER_PASSWORD` when the server has no authentication; when set, Paseo authenticates with HTTP Basic auth as `opencode`.
+
+A configured URL takes precedence even when unreachable; Paseo reports the connection error. The local service registration supplies its own authentication. For a discovered local service, Paseo installs its bridge package in OpenCode's watched global plugin directory without changing the existing configuration. Refresh reads the existing service's catalogs without starting another server.
+
+An explicitly configured server needs the bridge installed separately. Connect once and start a session: the setup error gives the local package directory. Copy that directory to the server's OpenCode global `plugins` directory, then retry. For a server on another machine, set `PASEO_OPENCODE_BRIDGE_PORT` in the Paseo OpenCode provider environment before starting Paseo, and set `PASEO_OPENCODE_BRIDGE_URL` to the URL the OpenCode server can use to reach that port. For example, an SSH reverse tunnel can expose the Paseo loopback port on the OpenCode host. The bridge token is exchanged through the OpenCode connection and is not written into the plugin package.
+
+Agent MCP servers and per-agent environment work on a reused server with OpenCode 2.0.29 or newer. Paseo connects each agent's MCP servers itself and shows their tools only to that agent and its subagents. Other agents in the same directory and your own OpenCode sessions do not see them. The agent's environment applies to its shell commands, its subagents, and its stdio MCP servers.
+
+The provider `env` configures the OpenCode process. When it sets variables other than the connection variables above and `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, or `OPENCODE_CONFIG_DIR`, Paseo ignores a registered service and starts its own helper. With an explicit URL, Paseo reports those variables as an error.
 
 ---
 
@@ -242,7 +274,7 @@ For pay-as-you-go, use `ANTHROPIC_API_KEY` with a standard Model Studio key (`sk
 
 Codex talks to OpenAI's Responses API by default. Custom providers that extend `"codex"` can point Codex at any OpenAI-compatible endpoint (OpenRouter, LiteLLM, vLLM, llama.cpp server, an internal gateway, etc.) by setting `OPENAI_BASE_URL` and `OPENAI_API_KEY` in the provider `env`.
 
-Paseo passes those variables through to the Codex app-server process **and** maps them into Codex's thread config under `model_provider` / `model_providers`, because Codex reads provider routing from config rather than from `OPENAI_BASE_URL` alone.
+Paseo passes those variables through to the Codex app-server process **and** maps them into Codex's thread config under `model_provider` / `model_providers`, because Codex reads provider routing from config rather than from `OPENAI_BASE_URL` alone. The generated Codex provider key is `paseo:<provider-id>`, so a Paseo provider such as `ollama` does not override a Codex built-in. Existing custom sessions created with a non-built-in provider key remain available in Import session. Native Codex conversations using a built-in key stay separate from a custom provider of the same name.
 
 ### Setup
 
@@ -270,9 +302,9 @@ Paseo passes those variables through to the Codex app-server process **and** map
 Under the hood, for each custom Codex provider Paseo injects this into Codex's config:
 
 ```toml
-model_provider = "my-codex"
+model_provider = "paseo:my-codex"
 
-[model_providers.my-codex]
+[model_providers."paseo:my-codex"]
 name = "My Codex"
 base_url = "https://custom-relay.example.com/v1"
 wire_api = "responses"
@@ -494,7 +526,7 @@ The [Agent Client Protocol (ACP)](https://agentclientprotocol.com) is an open st
 
 ACP agents communicate over JSON-RPC 2.0 on stdio. Paseo spawns the agent process and talks to it through stdin/stdout.
 
-Paseo also ships an in-app ACP provider catalog for common agents, including CodeWhale, Cursor, DeepAgents, DimCode, Gemini CLI, Hermes, Qwen Code, and Kimi Code. Catalog entries create the same `extends: "acp"` provider config shown below.
+Paseo also ships an in-app ACP provider catalog for common agents, including CodeWhale, Cursor, DeepAgents, DimCode, Gemini CLI, Hermes, Qwen Code, and Kimi Code. Most catalog entries create the same `extends: "acp"` provider config shown below. Goose, Hermes, and Hoplite activate their [bundled providers](plugins.md#built-in-plugins) instead. An existing `extends: "acp"` entry for goose or Hermes migrates to the bundled provider on load and keeps a custom command. Hermes agents saved with the old adapter resume with their mode translated (`plugins/hermes-provider/server/legacy-modes.ts`).
 
 ### Adding a generic ACP provider
 
@@ -606,32 +638,6 @@ ACP probes use short timeouts and browser-suppression environment variables so a
 ```
 
 Ref: [Gemini CLI ACP mode docs](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/acp-mode.md)
-
-### Example: Hermes (Nous Research)
-
-[Hermes](https://github.com/NousResearch/hermes-agent) is an open-source coding agent by Nous Research with persistent memory and multi-provider LLM support. It supports ACP via the `acp` subcommand.
-
-1. Install: `curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash`
-2. Install ACP support: `pip install -e '.[acp]'`
-3. Configure Hermes credentials in `~/.hermes/`
-4. Add to config.json:
-
-```json
-{
-  "agents": {
-    "providers": {
-      "hermes": {
-        "extends": "acp",
-        "label": "Hermes",
-        "description": "Nous Research self-improving AI agent",
-        "command": ["hermes", "acp"]
-      }
-    }
-  }
-}
-```
-
-Ref: [Hermes ACP docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp)
 
 ### How ACP providers work in Paseo
 
@@ -763,6 +769,8 @@ bundled/settings catalog; models not advertised by the CLI still need an explici
 
 This lets users who already configured Claude Code for Bedrock, OpenRouter, ollama, Z.AI, or another Anthropic-compatible gateway select the exact model ID in Paseo. Explicit model IDs are passed unchanged to Claude Code, even when the same string is a compatibility alias for a built-in model. When `agents.providers.claude.models` is set it **replaces** the runtime-discovered Claude models, bundled fallback list, and settings.json entries; use `agents.providers.claude.additionalModels` to keep the first-party list and append curated entries on top.
 
+Paseo's effort selector does not inherit `effortLevel` from Claude's settings.json. Select an effort in Paseo to choose a specific value.
+
 ### Gotcha: `extends: "claude"` with third-party endpoints
 
 When a custom provider extends `"claude"` but points `ANTHROPIC_BASE_URL` at a non-Anthropic API (Z.AI, Alibaba/Qwen, proxies), the Claude Agent SDK may try to use Anthropic-only server-side tools like `WebSearch`. Third-party APIs don't support these tools, causing errors.
@@ -837,12 +845,6 @@ A config.json with multiple custom providers:
         "extends": "acp",
         "label": "Google Gemini",
         "command": ["gemini", "--acp"]
-      },
-
-      "hermes": {
-        "extends": "acp",
-        "label": "Hermes",
-        "command": ["hermes", "acp"]
       }
     }
   }
