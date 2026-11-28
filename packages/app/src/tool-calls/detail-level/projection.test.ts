@@ -573,6 +573,31 @@ describe("tool call detail-level projection", () => {
     expect(result.historyGroupUpdatesByHostId.get(cmd.id)).toBe(group);
   });
 
+  it("does not split an overview group on whitespace-only assistant placeholders", () => {
+    const t1 = thought("t1", "first thought");
+    const cmd1 = toolCall("1", { type: "shell", command: "git status" });
+    const blank: AssistantMessageItem = {
+      kind: "assistant_message",
+      id: "blank",
+      text: "  \n\t ",
+      timestamp: new Date("2026-01-01T00:00:35.000Z"),
+    };
+    const t2 = thought("t2", "second thought");
+    const cmd2 = toolCall("2", { type: "shell", command: "git diff" });
+    const reply = assistant("final answer");
+
+    const result = project({
+      level: "overview",
+      tail: [t1, cmd1, blank, t2, cmd2, reply],
+    });
+
+    expect(result.tail).toEqual([
+      expect.objectContaining({ id: cmd1.id, timestamp: cmd2.timestamp }),
+      reply,
+    ]);
+    expect(result.groupsByHostId.get(cmd1.id)?.run.entries).toEqual([t1, cmd1, t2, cmd2]);
+  });
+
   it("keeps thoughts outside overview groups when foldThoughts is disabled", () => {
     const cmd = toolCall("1", { type: "shell", command: "git status" });
     const midThought = thought("t1", "auto expanded reasoning");

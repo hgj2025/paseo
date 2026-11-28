@@ -85,6 +85,10 @@ function isFoldableThought(item: StreamItem, foldThoughts: boolean): item is Tho
   return foldThoughts && item.kind === "thought";
 }
 
+function isBlankAssistantMessage(item: StreamItem): boolean {
+  return item.kind === "assistant_message" && item.text.trim().length === 0;
+}
+
 function createRun(entries: readonly ToolCallRunEntry[], isSealed: boolean): ToolCallRun {
   const calls = entries.filter((entry): entry is ToolCallItem => entry.kind === "tool_call");
   const first = calls[0];
@@ -151,6 +155,9 @@ export function prepareGroupedHistory<TGroup>(input: {
     }
     if (isFoldableThought(item, foldThoughts)) {
       pending.push(item);
+      continue;
+    }
+    if (pending.length > 0 && isBlankAssistantMessage(item)) {
       continue;
     }
     flushHistoryPending({
@@ -221,6 +228,8 @@ export function groupLiveToolCalls<TGroup>(input: {
     pendingIncludesHead = false;
   };
 
+  let skippedBlankHeadItem = false;
+
   for (const item of input.head) {
     if (isGroupableToolCall(item)) {
       if (pending.length === 0) {
@@ -239,6 +248,10 @@ export function groupLiveToolCalls<TGroup>(input: {
       pendingIncludesHead = true;
       continue;
     }
+    if (pending.length > 0 && isBlankAssistantMessage(item)) {
+      skippedBlankHeadItem = true;
+      continue;
+    }
     flush(true);
     head.push(item);
   }
@@ -253,7 +266,7 @@ export function groupLiveToolCalls<TGroup>(input: {
   if (liveGroups.size === 0) {
     return {
       tail: input.history.tail,
-      head: input.head,
+      head: skippedBlankHeadItem ? head : input.head,
       groupsByHostId: input.history.groupsByHostId,
       historyGroupUpdatesByHostId: EMPTY_GROUPS,
     };
