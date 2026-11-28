@@ -921,6 +921,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             expanded={expanded}
             isLastInSequence={layoutItem.isLastInToolSequence}
             onExpandedChange={setToolCallGroupExpanded}
+            cwd={context.cwd}
+            onOpenFilePath={handleToolCallOpenFile}
           >
             {expanded
               ? group.run.calls.map((call, index) => (
@@ -951,7 +953,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         );
       },
       [
+        context.cwd,
         expandedToolCallGroups,
+        handleToolCallOpenFile,
         renderThoughtItem,
         setInlineDetailsExpanded,
         getToolCallGroup,

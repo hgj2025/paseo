@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useRef, type ReactNode } from "react";
+import React, { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { ScrollView } from "react-native";
 import { Wrench } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -8,6 +8,7 @@ import { ExpandableBadge } from "@/components/message";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useOverviewSummaryLabel } from "./label";
 import type { OverviewToolCallGroup } from "./model";
+import { buildOverviewPreview } from "./preview";
 import { OverviewToolCallGroupSheet } from "./sheet";
 
 interface OverviewGroupProps {
@@ -15,6 +16,8 @@ interface OverviewGroupProps {
   expanded: boolean;
   isLastInSequence: boolean;
   onExpandedChange: (groupId: string, expanded: boolean) => void;
+  cwd?: string;
+  onOpenFilePath?: (filePath: string) => void;
   children: ReactNode;
 }
 
@@ -25,10 +28,20 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
   expanded,
   isLastInSequence,
   onExpandedChange,
+  cwd,
+  onOpenFilePath,
   children,
 }: OverviewGroupProps) {
   const isCompact = useIsCompactFormFactor();
   const aggregateSummary = useOverviewSummaryLabel(group.summary);
+  const preview = useMemo(() => buildOverviewPreview(group.run, cwd), [group.run, cwd]);
+  const handleOpenFile = useMemo(() => {
+    const filePath = preview.openFilePath;
+    if (!filePath || !onOpenFilePath) {
+      return undefined;
+    }
+    return () => onOpenFilePath(filePath);
+  }, [onOpenFilePath, preview.openFilePath]);
   const hold = useDisclosureHold();
   const toggle = useCallback(() => {
     const apply = () => onExpandedChange(group.run.id, !expanded);
@@ -50,11 +63,13 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
         <ExpandableBadge
           testID="tool-call-group"
           label={aggregateSummary}
+          secondaryLabel={preview.secondaryLabel}
           icon={Wrench}
           isLoading={group.isLoading}
           isExpanded={false}
           isLastInSequence={isLastInSequence}
           onToggle={toggle}
+          onOpenFile={handleOpenFile}
         />
         <OverviewToolCallGroupSheet visible={expanded} summary={aggregateSummary} onClose={close}>
           {children}
@@ -67,11 +82,13 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
     <ExpandableBadge
       testID="tool-call-group"
       label={aggregateSummary}
+      secondaryLabel={preview.secondaryLabel}
       icon={Wrench}
       isLoading={group.isLoading}
       isExpanded={expanded}
       isLastInSequence={isLastInSequence}
       onToggle={toggle}
+      onOpenFile={handleOpenFile}
       renderDetails={renderDetails}
       borderlessWhenExpanded
     />

@@ -85,6 +85,10 @@ export function isGroupableToolCall(
   );
 }
 
+function isBlankAssistantMessage(item: StreamItem): boolean {
+  return item.kind === "assistant_message" && item.text.trim().length === 0;
+}
+
 function createRun(calls: readonly GroupableItem[], isSealed: boolean): ToolCallRun {
   const first = calls[0];
   const latest = calls.at(-1);
@@ -138,6 +142,9 @@ export function prepareGroupedHistory<TGroup>(input: {
       !isTurnBoundary(pending.at(-1) ?? null, item)
     ) {
       pending.push(item);
+      continue;
+    }
+    if (pending.length > 0 && isBlankAssistantMessage(item)) {
       continue;
     }
     appendRun({
@@ -197,7 +204,13 @@ export function groupLiveToolCalls<TGroup>(input: {
     pendingIncludesHead = false;
   };
 
+  let skippedBlankHeadItem = false;
+
   for (const item of input.head) {
+    if (pending.length > 0 && isBlankAssistantMessage(item)) {
+      skippedBlankHeadItem = true;
+      continue;
+    }
     if (isTurnBoundary(pending.at(-1) ?? null, item)) flush(true);
     if (isGroupableToolCall(item, input.autoExpandReasoning)) {
       if (pending.length === 0) {
@@ -221,7 +234,7 @@ export function groupLiveToolCalls<TGroup>(input: {
   if (liveGroups.size === 0) {
     return {
       tail: input.history.tail,
-      head: input.head,
+      head: skippedBlankHeadItem ? head : input.head,
       groupsByHostId: input.history.groupsByHostId,
       historyGroupUpdatesByHostId: EMPTY_GROUPS,
     };

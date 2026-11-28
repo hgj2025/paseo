@@ -2594,30 +2594,30 @@ export const zhCN: TranslationResources = {
   toolCallGroup: {
     thought: "已思考",
     editedFiles: {
-      one: "编辑了 {{count}} 个文件",
-      other: "编辑了 {{count}} 个文件",
+      one: "{{count}} 编辑",
+      other: "{{count}} 编辑",
     },
     commands: {
-      one: "运行了 {{count}} 个命令",
-      other: "运行了 {{count}} 个命令",
+      one: "{{count}} 命令",
+      other: "{{count}} 命令",
     },
     readFiles: {
-      one: "读取了 {{count}} 个文件",
-      other: "读取了 {{count}} 个文件",
+      one: "{{count}} 读取",
+      other: "{{count}} 读取",
     },
     searches: {
-      one: "搜索了 {{count}} 次",
-      other: "搜索了 {{count}} 次",
+      one: "{{count}} 搜索",
+      other: "{{count}} 搜索",
     },
     otherTools: {
-      one: "使用了 {{count}} 个其他工具",
-      other: "使用了 {{count}} 个其他工具",
+      one: "{{count}} 工具",
+      other: "{{count}} 工具",
     },
     paseoCalls: {
-      one: "调用了 Paseo {{count}} 次",
-      other: "调用了 Paseo {{count}} 次",
+      one: "{{count}} Paseo",
+      other: "{{count}} Paseo",
     },
-    and: "并",
+    and: "·",
   },
   renameModal: {
     rename: "重命名",
