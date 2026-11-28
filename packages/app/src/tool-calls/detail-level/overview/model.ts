@@ -31,7 +31,9 @@ function isSearchCall(name: string): boolean {
 export function buildOverviewGroup(run: ToolCallRun): OverviewToolCallGroup {
   const editedFiles = new Set<string>();
   const readFiles = new Set<string>();
-  let isLoading = false;
+  let isLoading = run.entries.some(
+    (entry) => entry.kind === "thought" && entry.status === "loading",
+  );
   let commandCount = 0;
   let searchCount = 0;
   let otherToolCount = 0;

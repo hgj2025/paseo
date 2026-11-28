@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Folder, GitBranch, Copy, Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { density } from "@/styles/density";
 import { DensityIcon } from "@/components/ui/density-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { shortenPath } from "@/utils/shorten-path";
 
 export interface ExecutionRepository {
   root: string;
@@ -14,6 +15,100 @@ export interface ExecutionRepository {
   edited: boolean;
   previousBranch?: string;
 }
+
+const COPIED_FEEDBACK_MS = 1500;
+
+function normalizePath(path: string): string {
+  const normalized = path.replaceAll("\\", "/");
+  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
+}
+
+function isPathWithin(target: string, root: string): boolean {
+  const normalizedTarget = normalizePath(target);
+  const normalizedRoot = normalizePath(root);
+  if (normalizedTarget === normalizedRoot) {
+    return true;
+  }
+  const prefix = normalizedRoot === "/" ? "/" : `${normalizedRoot}/`;
+  return normalizedTarget.startsWith(prefix);
+}
+
+function basename(path: string): string {
+  const normalized = normalizePath(path);
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || path;
+}
+
+function findCwdRepository(
+  repositories: readonly ExecutionRepository[],
+  cwd: string,
+): ExecutionRepository | undefined {
+  let best: ExecutionRepository | undefined;
+  let bestLength = -1;
+  for (const repo of repositories) {
+    if (!isPathWithin(cwd, repo.root)) {
+      continue;
+    }
+    const length = normalizePath(repo.root).length;
+    if (length > bestLength) {
+      best = repo;
+      bestLength = length;
+    }
+  }
+  return best;
+}
+
+function selectPrimaryAndExtraRepositories(
+  repositories: readonly ExecutionRepository[],
+  cwd: string,
+): {
+  primary: ExecutionRepository | undefined;
+  primaryMatchesCwd: boolean;
+  extraRepositories: readonly ExecutionRepository[];
+} {
+  const cwdRepo = findCwdRepository(repositories, cwd);
+  if (cwdRepo) {
+    return {
+      primary: cwdRepo,
+      primaryMatchesCwd: true,
+      extraRepositories: repositories.filter((repo) => repo.root !== cwdRepo.root),
+    };
+  }
+  const fallbackPrimary =
+    repositories.find((repo) => repo.previousBranch !== undefined) ??
+    repositories.find((repo) => repo.edited) ??
+    repositories[0];
+  if (!fallbackPrimary) {
+    return { primary: undefined, primaryMatchesCwd: false, extraRepositories: [] };
+  }
+  return {
+    primary: fallbackPrimary,
+    primaryMatchesCwd: false,
+    extraRepositories: repositories.filter((repo) => repo.root !== fallbackPrimary.root),
+  };
+}
+
+function resolveInlineState(input: {
+  hasPrimary: boolean;
+  connected: boolean;
+  loading: boolean;
+  failed: boolean;
+  t: (key: string) => string;
+}): string | undefined {
+  if (!input.connected) {
+    return input.t("executionContext.offlineShort");
+  }
+  if (input.hasPrimary) {
+    return undefined;
+  }
+  if (input.loading) {
+    return input.t("executionContext.loading");
+  }
+  if (input.failed) {
+    return input.t("executionContext.failed");
+  }
+  return input.t("executionContext.noRepository");
+}
+
 export function ExecutionContextView({
   cwd,
   repositories,
@@ -37,26 +132,34 @@ export function ExecutionContextView({
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   const barStyle = useMemo(() => [styles.bar, compact && styles.compactBar], [compact]);
-  let state = t("executionContext.noRepository");
-  if (loading) state = t("executionContext.loading");
-  if (failed) state = t("executionContext.failed");
-  if (!connected) state = t("executionContext.offline");
-  const primary = primaryRepository(repositories);
-  let summary = repositorySummary(cwd, primary, t("executionContext.detached"));
-  if (repositories.length === 0 && (loading || failed)) summary = state;
+  const { primary, primaryMatchesCwd, extraRepositories } = useMemo(
+    () => selectPrimaryAndExtraRepositories(repositories, cwd),
+    [cwd, repositories],
+  );
+  const canExpand = extraRepositories.length > 0;
+  const isExpanded = canExpand && expanded;
+  const inlineState = resolveInlineState({
+    hasPrimary: Boolean(primary),
+    connected,
+    loading,
+    failed,
+    t,
+  });
+
   return (
     <View style={barStyle} testID="composer-execution-context">
       <ExecutionSummary
+        cwd={cwd}
         primary={primary}
-        summary={summary}
-        count={repositories.length}
-        connected={connected}
-        expanded={expanded}
+        primaryMatchesCwd={primaryMatchesCwd}
+        extraRepositories={extraRepositories}
+        inlineState={inlineState}
+        expanded={isExpanded}
         toggle={toggle}
         onCopy={onCopy}
         trailing={trailing}
       />
-      {expanded && (
+      {isExpanded && (
         <ScrollView
           style={styles.detailsViewport}
           contentContainerStyle={styles.details}
@@ -64,36 +167,31 @@ export function ExecutionContextView({
           nestedScrollEnabled
           testID="execution-context-details"
         >
-          <View style={styles.directory}>
-            <DensityIcon icon={Folder} size="sm" color="foregroundMuted" />
-            <Text style={styles.label}>{t("executionContext.directory")}</Text>
-            <CopyPath path={cwd} onCopy={onCopy} />
-          </View>
-          {repositories.map((repo) => (
-            <RepositoryRow key={repo.root} repo={repo} connected={connected} onCopy={onCopy} />
+          {extraRepositories.map((repo) => (
+            <RepositoryRow key={repo.root} repo={repo} onCopy={onCopy} />
           ))}
-          {(repositories.length === 0 || failed || !connected) && (
-            <Text style={styles.secondary}>{state}</Text>
-          )}
         </ScrollView>
       )}
     </View>
   );
 }
+
 function ExecutionSummary({
+  cwd,
   primary,
-  summary,
-  count,
-  connected,
+  primaryMatchesCwd,
+  extraRepositories,
+  inlineState,
   expanded,
   toggle,
   onCopy,
   trailing,
 }: {
+  cwd: string;
   primary: ExecutionRepository | undefined;
-  summary: string;
-  count: number;
-  connected: boolean;
+  primaryMatchesCwd: boolean;
+  extraRepositories: readonly ExecutionRepository[];
+  inlineState: string | undefined;
   expanded: boolean;
   toggle: () => void;
   onCopy: (path: string) => Promise<void>;
@@ -101,88 +199,92 @@ function ExecutionSummary({
 }) {
   const { t } = useTranslation();
   const disclosure = useMemo(() => ({ expanded }), [expanded]);
+  const hasExtraBranchChange = extraRepositories.some((repo) => repo.previousBranch !== undefined);
+
   return (
     <View style={styles.summaryRow}>
-      <Pressable
-        onPress={toggle}
-        accessibilityRole="button"
-        accessibilityState={disclosure}
-        aria-expanded={expanded}
-        accessibilityLabel={t(expanded ? "executionContext.collapse" : "executionContext.expand")}
-        style={styles.summary}
-        testID="execution-context-toggle"
-      >
-        <DensityIcon
-          icon={GitBranch}
-          size="sm"
-          color={primary?.previousBranch !== undefined ? "statusWarning" : "foregroundMuted"}
-        />
-        <Text numberOfLines={1} ellipsizeMode="middle" style={styles.summaryText}>
-          {primary?.branch ? basename(primary.root) : summary}
-        </Text>
-      </Pressable>
-      {primary?.branch && (
-        <View style={styles.summaryBranch}>
-          <CopyPath key={primary.branch} path={primary.branch} onCopy={onCopy} />
-          {primary.dirty && <Text style={styles.secondary}>*</Text>}
-        </View>
-      )}
-      <Pressable
-        onPress={toggle}
-        accessibilityRole="button"
-        accessibilityLabel={t(expanded ? "executionContext.collapse" : "executionContext.expand")}
-        style={styles.summaryActions}
-      >
-        {count > 1 && <Text style={styles.secondary}>+{count - 1}</Text>}
-        {primary?.previousBranch !== undefined && (
-          <Text style={styles.change}>{t("executionContext.branchChanged")}</Text>
-        )}
-        {!connected && <Text style={styles.secondary}>{t("executionContext.offlineShort")}</Text>}
-        <DensityIcon
-          icon={expanded ? ChevronDown : ChevronRight}
-          size="xs"
-          color="foregroundMuted"
-        />
-      </Pressable>
-      {trailing}
+      <View style={styles.summaryMain}>
+        <CopyableDirectory path={cwd} onCopy={onCopy} />
+        {primary ? (
+          <BranchBadge
+            repo={primary}
+            repoPrefix={primaryMatchesCwd ? undefined : basename(primary.root)}
+            onCopy={onCopy}
+          />
+        ) : null}
+        {inlineState ? (
+          <Text numberOfLines={1} style={styles.secondary}>
+            {inlineState}
+          </Text>
+        ) : null}
+        {extraRepositories.length > 0 ? (
+          <Pressable
+            onPress={toggle}
+            accessibilityRole="button"
+            accessibilityState={disclosure}
+            aria-expanded={expanded}
+            accessibilityLabel={t(
+              expanded ? "executionContext.collapse" : "executionContext.expand",
+            )}
+            style={styles.expandToggle}
+            testID="execution-context-toggle"
+          >
+            <Text style={styles.secondary}>+{extraRepositories.length}</Text>
+            {hasExtraBranchChange ? (
+              <Text style={styles.change}>{t("executionContext.branchChanged")}</Text>
+            ) : null}
+            <DensityIcon
+              icon={expanded ? ChevronDown : ChevronRight}
+              size="xs"
+              color="foregroundMuted"
+            />
+          </Pressable>
+        ) : null}
+      </View>
+      {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
     </View>
   );
 }
-function primaryRepository(repositories: readonly ExecutionRepository[]) {
-  return (
-    repositories.find((repo) => repo.previousBranch !== undefined) ??
-    repositories.find((repo) => repo.edited) ??
-    repositories[0]
-  );
-}
-function repositorySummary(
-  cwd: string,
-  primary: ExecutionRepository | undefined,
-  detached: string,
-) {
-  if (!primary) return basename(cwd);
-  return `${basename(primary.root)} · ${primary.branch ?? detached}${primary.dirty ? " *" : ""}`;
-}
-function basename(path: string) {
-  const normalized = path.replaceAll("\\", "/").replace(/\/$/, "");
-  return normalized.slice(normalized.lastIndexOf("/") + 1) || path;
+
+function useCopyAction(value: string, onCopy: (path: string) => Promise<void>) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setCopied(false);
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [value]);
+
+  const copy = useCallback(async () => {
+    await onCopy(value);
+    setCopied(true);
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+    }
+    timerRef.current = setTimeout(() => {
+      setCopied(false);
+      timerRef.current = null;
+    }, COPIED_FEEDBACK_MS);
+  }, [onCopy, value]);
+
+  return { copied, copy };
 }
 
-function CopyPath({
+function CopyableDirectory({
   path,
   onCopy,
-  branch = false,
 }: {
   path: string;
   onCopy: (path: string) => Promise<void>;
-  branch?: boolean;
 }) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const copy = useCallback(async () => {
-    await onCopy(path);
-    setCopied(true);
-  }, [path, onCopy]);
+  const { copied, copy } = useCopyAction(path, onCopy);
+  const displayPath = useMemo(() => shortenPath(path), [path]);
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -190,15 +292,11 @@ function CopyPath({
           onPress={copy}
           accessibilityRole="button"
           accessibilityLabel={t("executionContext.copy", { path })}
-          style={[styles.pathButton, branch && styles.branchButton]}
+          style={styles.directoryButton}
         >
-          {branch && <DensityIcon icon={GitBranch} size="xs" color="foregroundMuted" />}
-          <Text
-            numberOfLines={1}
-            ellipsizeMode="middle"
-            style={branch ? styles.branch : styles.path}
-          >
-            {path}
+          <DensityIcon icon={Folder} size="xs" color="foregroundMuted" />
+          <Text numberOfLines={1} ellipsizeMode="middle" style={styles.path}>
+            {displayPath}
           </Text>
           <DensityIcon icon={copied ? Check : Copy} size="xs" color="foregroundMuted" />
         </Pressable>
@@ -209,38 +307,117 @@ function CopyPath({
     </Tooltip>
   );
 }
-function RepositoryRow({
+
+function buildBranchTooltip(input: {
+  branch: string;
+  dirty: boolean;
+  previousBranch?: string;
+  copied: boolean;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}): string {
+  if (input.copied) {
+    return input.t("executionContext.copied");
+  }
+  const parts = [input.branch];
+  if (input.dirty) {
+    parts.push(input.t("executionContext.dirty"));
+  }
+  if (input.previousBranch !== undefined) {
+    parts.push(input.t("executionContext.changed", { branch: input.previousBranch }));
+  }
+  return parts.join(" · ");
+}
+
+function BranchBadge({
   repo,
-  connected,
+  repoPrefix,
   onCopy,
 }: {
   repo: ExecutionRepository;
-  connected: boolean;
+  repoPrefix?: string;
   onCopy: (path: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
-  return (
-    <View style={styles.repository}>
-      <View style={styles.repositoryHeading}>
-        <Text style={styles.repoName} numberOfLines={1}>
-          {basename(repo.root)}
+  const branchText = repo.branch ?? "";
+  const { copied, copy } = useCopyAction(branchText, onCopy);
+
+  if (!repo.branch) {
+    return (
+      <View style={styles.detachedBadge}>
+        <DensityIcon
+          icon={GitBranch}
+          size="xs"
+          color={repo.previousBranch !== undefined ? "statusWarning" : "foregroundMuted"}
+        />
+        <Text numberOfLines={1} style={styles.secondary}>
+          {repoPrefix
+            ? `${repoPrefix} · ${t("executionContext.detached")}`
+            : t("executionContext.detached")}
         </Text>
-        <Text style={[styles.repositoryStatus, repo.dirty && styles.change]}>
-          {t(repo.dirty ? "executionContext.dirty" : "executionContext.clean")}
-        </Text>
+        {repo.dirty ? <Text style={styles.change}>*</Text> : null}
       </View>
-      {repo.branch ? (
-        <CopyPath key={repo.branch} path={repo.branch} onCopy={onCopy} branch />
-      ) : (
-        <Text style={styles.secondary}>{t("executionContext.detached")}</Text>
-      )}
-      {!connected && <Text style={styles.secondary}>{t("executionContext.offlineShort")}</Text>}
-      <CopyPath path={repo.root} onCopy={onCopy} />
-      {repo.previousBranch !== undefined && (
+    );
+  }
+
+  const tooltipText = buildBranchTooltip({
+    branch: repo.branch,
+    dirty: repo.dirty,
+    previousBranch: repo.previousBranch,
+    copied,
+    t,
+  });
+
+  return (
+    <View style={styles.branchGroup}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Pressable
+            onPress={copy}
+            accessibilityRole="button"
+            accessibilityLabel={t("executionContext.copy", { path: repo.branch })}
+            style={styles.branchButton}
+          >
+            <DensityIcon
+              icon={GitBranch}
+              size="xs"
+              color={repo.previousBranch !== undefined ? "statusWarning" : "foregroundMuted"}
+            />
+            {repoPrefix ? (
+              <Text numberOfLines={1} style={styles.secondary}>
+                {repoPrefix}
+              </Text>
+            ) : null}
+            <Text numberOfLines={1} ellipsizeMode="middle" style={styles.branch}>
+              {repo.branch}
+            </Text>
+            {repo.dirty ? <Text style={styles.change}>*</Text> : null}
+            <DensityIcon icon={copied ? Check : Copy} size="xs" color="foregroundMuted" />
+          </Pressable>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <Text>{tooltipText}</Text>
+        </TooltipContent>
+      </Tooltip>
+      {repo.previousBranch !== undefined ? (
         <Text style={styles.change} accessibilityLiveRegion="polite" numberOfLines={1}>
           {t("executionContext.changed", { branch: repo.previousBranch })}
         </Text>
-      )}
+      ) : null}
+    </View>
+  );
+}
+
+function RepositoryRow({
+  repo,
+  onCopy,
+}: {
+  repo: ExecutionRepository;
+  onCopy: (path: string) => Promise<void>;
+}) {
+  return (
+    <View style={styles.repositoryRow}>
+      <CopyableDirectory path={repo.root} onCopy={onCopy} />
+      <BranchBadge repo={repo} onCopy={onCopy} />
     </View>
   );
 }
@@ -250,92 +427,117 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 10,
     minHeight: 0,
     paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[1],
+    paddingVertical: 2,
   },
-  compactBar: { maxHeight: 148, minHeight: 44 },
-  detailsViewport: { flexShrink: 1, minHeight: 0, maxHeight: 240 },
+  compactBar: {
+    maxHeight: 148,
+    minHeight: density.tightRowHeight,
+  },
+  detailsViewport: {
+    flexShrink: 1,
+    minHeight: 0,
+    maxHeight: 180,
+    marginTop: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.colors.border,
+  },
+  details: {
+    paddingVertical: 2,
+    gap: 2,
+  },
   summaryRow: {
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    minHeight: density.tightRowHeight,
   },
-  summary: {
+  summaryMain: {
     flex: 1,
     minWidth: 0,
-    minHeight: density.rowHeight,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
   },
-  summaryBranch: {
-    flex: 2,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-  },
-  summaryActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    minHeight: density.rowHeight,
-  },
-  summaryText: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foreground,
-  },
-  details: { gap: theme.spacing[2], paddingBottom: theme.spacing[2] },
-  directory: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1], minWidth: 0 },
-  repository: {
-    gap: theme.spacing[1],
-    paddingVertical: theme.spacing[2],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: theme.colors.border,
-  },
-  repositoryHeading: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    minWidth: 0,
-  },
-  repoName: {
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
-    flex: 1,
-    minWidth: 0,
-  },
-  repositoryStatus: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
+  trailing: {
     flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
   },
-  branchButton: {
-    alignSelf: "flex-start",
-    backgroundColor: theme.colors.surface2,
-    paddingHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.sm,
+  directoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 2,
+    minWidth: 0,
+    maxWidth: "100%",
+    minHeight: density.tightRowHeight,
   },
-  label: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted, flexShrink: 0 },
-  pathButton: {
+  branchGroup: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
     flexShrink: 1,
     minWidth: 0,
-    maxWidth: "100%",
-    minHeight: density.rowHeight,
+    maxWidth: "55%",
   },
-  path: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted, flexShrink: 1 },
+  branchButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 1,
+    minWidth: 0,
+    backgroundColor: theme.colors.surface2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.sm,
+  },
+  detachedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    backgroundColor: theme.colors.surface2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.sm,
+  },
+  expandToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    minHeight: density.tightRowHeight,
+    paddingHorizontal: 4,
+  },
+  repositoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minHeight: density.tightRowHeight,
+  },
+  path: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 1,
+    minWidth: 0,
+  },
   branch: {
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
     color: theme.colors.foreground,
     flexShrink: 1,
+    minWidth: 0,
   },
-  secondary: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted, flexShrink: 0 },
-  change: { fontSize: theme.fontSize.sm, color: theme.colors.statusWarning, flexShrink: 0 },
+  secondary: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 0,
+  },
+  change: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.statusWarning,
+    flexShrink: 0,
+  },
 }));

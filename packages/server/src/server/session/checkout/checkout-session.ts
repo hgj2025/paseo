@@ -238,7 +238,13 @@ export class CheckoutSession {
     const resolvedCwd = expandTilde(cwd);
 
     try {
-      const snapshot = await this.workspaceGitService.getSnapshot(resolvedCwd);
+      // Status can be requested for a repository outside all subscribed workspaces.
+      // Read it freshly: an unobserved target may otherwise retain its first branch forever.
+      const snapshot = await this.workspaceGitService.getSnapshot(resolvedCwd, {
+        force: true,
+        includeForge: false,
+        reason: "manual-refresh",
+      });
       this.host.emit({
         type: "checkout_status_response",
         payload: buildCheckoutStatusPayloadFromSnapshot({

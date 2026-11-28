@@ -13,6 +13,7 @@ import {
   type ProviderLaunch,
   requireProviderCapabilities,
   type ProviderCapability,
+  type ProviderCommand,
   type ProviderConfigChanges,
   type ProviderConfigState,
   type ProviderConnection,
@@ -585,7 +586,7 @@ class ProviderRuntimeSession {
   private readonly activeTurnIds = new Set<string>();
   private terminal = false;
   config: ProviderConfigState = { models: [], modes: [], thinkingOptions: [], settings: [] };
-  commands: Array<{ name: string; description: string; argumentHint?: string }> = [];
+  commands: ProviderCommand[] = [];
   persistence: ProviderPersistence | null = null;
 
   constructor(
@@ -1266,7 +1267,7 @@ class PluginAgentSession implements AgentSession {
     return this.bridge.commands.map((command) => ({
       ...command,
       argumentHint: command.argumentHint ?? "",
-      kind: "command",
+      kind: command.kind ?? "command",
     }));
   }
 
@@ -1601,14 +1602,21 @@ function mapModel(
   catalogThinkingOptions: Extract<ProviderEvent, { type: "catalog" }>["catalog"]["thinkingOptions"],
   catalogDefaultThinkingOption: string | undefined,
 ): AgentModelDefinition {
-  const thinkingOptions = model.thinkingOptions ?? catalogThinkingOptions;
+  // A default belongs to the options it was chosen from, so a model with its own options never
+  // takes the catalog's default.
+  const thinking = model.thinkingOptions
+    ? { options: model.thinkingOptions, defaultId: model.defaultThinkingOptionId }
+    : {
+        options: catalogThinkingOptions,
+        defaultId: model.defaultThinkingOptionId ?? catalogDefaultThinkingOption,
+      };
   return {
     ...model,
     provider,
     isDefault: model.isDefault ?? model.id === defaultModel,
     metadata: model.metadata ? { ...model.metadata } : undefined,
-    thinkingOptions: thinkingOptions?.map((option) => Object.assign({}, option)),
-    defaultThinkingOptionId: model.defaultThinkingOptionId ?? catalogDefaultThinkingOption,
+    thinkingOptions: thinking.options?.map((option) => Object.assign({}, option)),
+    defaultThinkingOptionId: thinking.defaultId,
   };
 }
 

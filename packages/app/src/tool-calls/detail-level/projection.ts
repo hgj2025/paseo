@@ -41,6 +41,7 @@ function visibleToolCallItems(items: StreamItem[]): StreamItem[] {
 export function prepareToolCallHistory(
   level: ToolCallDetailLevel,
   tail: StreamItem[],
+  options?: { foldThoughts?: boolean },
 ): PreparedToolCallHistory | null {
   if (level === "detailed") {
     return null;
@@ -50,6 +51,7 @@ export function prepareToolCallHistory(
     grouped: prepareGroupedHistory({
       tail: visibleToolCallItems(tail),
       buildGroup: buildOverviewGroup,
+      foldThoughts: options?.foldThoughts,
     }),
   };
 }
@@ -60,6 +62,7 @@ export function projectToolCallDetailLevel(input: {
   head: StreamItem[];
   preparedHistory: PreparedToolCallHistory | null;
   isTurnActive: boolean;
+  foldThoughts?: boolean;
 }): ToolCallDetailProjection {
   if (input.level === "detailed") {
     return {
@@ -77,5 +80,6 @@ export function projectToolCallDetailLevel(input: {
     head: visibleToolCallItems(input.head),
     isTurnActive: input.isTurnActive,
     buildGroup: buildOverviewGroup,
+    foldThoughts: input.foldThoughts,
   });
 }

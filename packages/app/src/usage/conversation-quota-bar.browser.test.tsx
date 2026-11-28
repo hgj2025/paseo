@@ -14,6 +14,27 @@ vi.mock("./queries", () => ({
   },
 }));
 vi.mock("./agent-usage", () => ({ AgentUsage: () => <div>Account usage details</div> }));
+vi.mock("react-native-unistyles", async (importOriginal) => {
+  const original = await importOriginal<typeof import("react-native-unistyles")>();
+  return {
+    ...original,
+    withUnistyles: (Component: React.ComponentType<Record<string, unknown>>) =>
+      function Styled({ uniProps, ...props }: Record<string, unknown>) {
+        const mapped =
+          typeof uniProps === "function" ? uniProps(original.useUnistyles().theme) : {};
+        return React.createElement(Component, { ...props, ...mapped });
+      },
+  };
+});
+// The shared test stub hides SVGs; render real browser SVG primitives for the visual check.
+vi.mock("react-native-svg", () => ({
+  default: ({
+    accessibilityElementsHidden: _hidden,
+    importantForAccessibility: _importance,
+    ...props
+  }: Record<string, unknown>) => React.createElement("svg", props),
+  Circle: (props: Record<string, unknown>) => React.createElement("circle", props),
+}));
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(async () => {
@@ -54,17 +75,25 @@ it("shows a compact unnamed meter and sends the actual host and agent to the sco
     ],
   };
   act(() => root.render(<ConversationQuotaBar serverId="devbox" agentId="captain" />));
-  expect(container.textContent).toContain("5h 72%");
-  expect(container.textContent).toContain("分钟后恢复");
+  expect(container.textContent).toBe("5");
+  expect(container.querySelectorAll("circle")).toHaveLength(2);
+  expect(within(container).getByRole("button").getAttribute("aria-label")).toContain("72%");
+  expect(within(container).getByRole("button").getAttribute("aria-label")).toContain("分钟后恢复");
   expect(container.textContent).not.toContain("Claude");
   expect(state.usage).toHaveBeenCalledWith("devbox", "captain", { active: true, poll: true });
-  await page.screenshot({ path: "/private/tmp/paseo-conversation-quota.png" });
-  act(() => within(container).getByRole("button", { name: "额度详情" }).click());
+  await page.screenshot({ path: "/private/tmp/paseo-conversation-quota-ring.png" });
+  act(() =>
+    within(container)
+      .getByRole("button", { name: /5h.*72%/ })
+      .click(),
+  );
   expect(document.body.textContent).toContain("Account usage details");
 });
 it("shows an unavailable state rather than a misleading zero", () => {
   state.view = { kind: "error", message: "offline" };
   act(() => root.render(<ConversationQuotaBar serverId="home" agentId="other" />));
-  expect(container.textContent).toContain("额度暂不可用");
+  expect(within(container).getByRole("button").getAttribute("aria-label")).toContain(
+    "额度暂不可用",
+  );
   expect(container.textContent).not.toContain("0%");
 });

@@ -5187,6 +5187,21 @@ describe("schedule dispatch routing", () => {
   });
 });
 
+test("viewed history observation follows the timeline subscription lifetime", async () => {
+  const release = vi.fn(async () => undefined);
+  const observePersistedHistory = vi.fn(() => ({ ready: Promise.resolve(), release }));
+  const session = createSessionForTest({ agentManager: { observePersistedHistory } });
+  session.updateClientCapabilities({ selective_agent_timeline: true });
+  await session.handleMessage({
+    type: "agent.timeline.set_subscription.request",
+    agentIds: ["agent-a", "agent-a"],
+    requestId: "view-history",
+  });
+  expect(observePersistedHistory).toHaveBeenCalledExactlyOnceWith("agent-a");
+  await session.cleanup();
+  expect(release).toHaveBeenCalledTimes(1);
+});
+
 test("replaces a capable session's complete viewed timeline set", async () => {
   const messages: SessionOutboundMessage[] = [];
   const session = createSessionForTest({ messages });

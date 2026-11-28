@@ -1,5 +1,6 @@
 import { memberTabLabel } from "./member-tab-label";
 import { usePaneHeaderMember } from "./pane-member-header";
+import { activeConversation, conversationTarget } from "@/stores/conversation-layout";
 import { useWorkspaceLayoutStore, findPaneContainingTab } from "@/stores/workspace-layout-store";
 import { useProviderIcon } from "@/components/provider-icons";
 import { useSessionStore } from "@/stores/session-store";
@@ -36,6 +37,7 @@ export interface WorkspaceTabPresentation {
   titleState: "ready" | "loading";
   icon: React.ComponentType<PanelIconProps>;
   statusBucket: SidebarStateBucket | null;
+  historyTarget?: { serverId: string; agentId: string };
 }
 
 const DEFAULT_STATUS_DOT_OFFSET = -2;
@@ -101,6 +103,14 @@ function WorkspaceTabPresentationResolverInner({
   });
   const attributes = usePanelInstanceAttributes({ ...layoutOwner, tabId: tab.tabId });
   const ownerKey = `${layoutOwner.serverId}:${layoutOwner.workspaceId}`;
+  const isEndedNonRootConversationTab = useWorkspaceLayoutStore((state) => {
+    const conversation = activeConversation(state, ownerKey);
+    return Boolean(
+      conversation?.endedAt &&
+      conversationTarget(tab.target) &&
+      tab.tabId !== conversation.rootTabId,
+    );
+  });
   const paneId = useWorkspaceLayoutStore((state) => {
     const layout = state.layoutByWorkspace[ownerKey];
     return tab.target.kind === "agent" && layout
@@ -127,7 +137,7 @@ function WorkspaceTabPresentationResolverInner({
       : undefined,
   );
   const executionIcon = useProviderIcon(
-    execution?.provider ?? "codex",
+    execution?.provider ?? tabMember?.provider ?? "codex",
     execution?.serverId ?? serverId,
   );
   const executionStatus = executionAgent
@@ -145,18 +155,28 @@ function WorkspaceTabPresentationResolverInner({
 
   const presentation = useMemo(
     () => ({
+      historyTarget:
+        tab.target.kind === "agent"
+          ? {
+              serverId: execution?.serverId ?? serverId,
+              agentId: execution?.agentId ?? tab.target.agentId,
+            }
+          : undefined,
       key: tab.key,
       kind: tab.kind,
       label: memberLabel ?? descriptor.label,
       subtitle: descriptor.subtitle,
       tooltip: memberLabel ?? descriptor.tooltip,
       modified: attributes.modified,
-      showCloseButton: scopeBound || registration.showCloseButton,
+      showCloseButton:
+        !isEndedNonRootConversationTab && (scopeBound || registration.showCloseButton),
       titleState: tabMember ? ("ready" as const) : descriptor.titleState,
       icon: execution ? executionIcon : descriptor.icon,
       statusBucket: execution ? executionStatus : descriptor.statusBucket,
     }),
     [
+      serverId,
+      tab.target,
       tabMember,
       memberLabel,
       execution,
@@ -171,6 +191,7 @@ function WorkspaceTabPresentationResolverInner({
       tab.key,
       tab.kind,
       attributes.modified,
+      isEndedNonRootConversationTab,
       registration.showCloseButton,
       scopeBound,
     ],

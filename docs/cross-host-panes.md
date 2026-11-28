@@ -11,7 +11,8 @@ Each conversation has its own team ID, Captain, child conversations, pane layout
 collaboration history. The sidebar conversation list switches the entire team; @ recipients never
 come from another conversation in the same workspace.
 
-- **New conversation** creates a Captain using the selected host's saved model or a model from
+- **New conversation** on the project row first asks for a host registered for that project.
+  It opens the chosen host's project directory workspace and creates Captain there, using its saved model or a model from
   an existing session in that workspace. If no usable model exists, the draft asks for one.
   Once a model is selected, the idle agent is created automatically, without sending a prompt.
 - **Add member** chooses a paired host and workspace, then creates a separate child conversation
@@ -28,8 +29,8 @@ come from another conversation in the same workspace.
   in the transcript. The toolbar keeps showing the committed model while the panel previews
   a candidate host and its catalog.
   No prior runner is archived by switching. Explicit member removal or conversation ending
-  archives owned runners. Captain can change providers/models on the owner host; moving Captain
-  to another host is blocked because its team tools and result delivery still live on the owner.
+  archives owned runners. Captain can change execution host/provider/model while the conversation owner and member ID stay stable.
+  Team tools and result delivery resolve the selected executor.
 - An agent tab stays in its member's pane. Another agent opened through navigation selects its
   own top-level conversation. File, diff and terminal tabs are supporting views within member
   panes; the Explorer remains a workspace tool, not a team member.
@@ -52,6 +53,10 @@ team records in `$PASEO_HOME/conversation-teams` are keyed by workspace **and** 
 restore a team's member panes from the daemon. Old workspace-wide records and layout snapshots
 are preserved; they are never copied into every new conversation or merged by matching cwd.
 Root-agent archive events also end their team, even when initiated outside the pane UI.
+
+Automatically named members follow their selected execution model in the mention picker. Legacy
+provider-default names are upgraded on read; Captain and explicitly customized names stay unchanged.
+Mention aliases use supported characters and unique suffixes so routing retains stable member IDs.
 
 Accept an `@member` suggestion to insert its alias in the input. Each accepted roster alias
 delimits that member’s instructions until the next mention; email addresses and file paths
@@ -98,12 +103,47 @@ this identity was introduced keep their uncertain state for manual inspection. A
 inside provider acceptance can still leave an outcome unknown; it is never a reason to submit
 a new task ID automatically. Do not treat `idle` alone as evidence that a task succeeded.
 
+## Mac collaboration coordinator
+
+A desktop Mac registers its currently connected, paired hosts with each owner daemon that
+advertises `collaborationBridge`. Conversation operations use those existing authenticated
+connections: the owner need not reach the executor directly or have a matching SSH entry.
+Switching models/hosts still validates the agent, workspace and source history before committing.
+No passwords, pairing secrets, connection URLs or shell commands are forwarded to the owner.
+
+The registration belongs to the authenticated transport subscription. Disconnect, unpairing or
+permission revocation removes its routes; pending operations become unconfirmed rather than
+being silently retried. Task IDs and the existing durable owner/target receipts prevent duplicate
+delivery. Target timeline events notify the owner to reconcile results; polling is a fallback.
+
+The desktop connection runtime outlives a closed Mac window: closing the last window hides it,
+and Dock activation shows it again. Explicit Quit, Mac sleep or network loss can interrupt
+coordination. This is a background desktop runtime, not a separate headless daemon; restarting
+Paseo restores registrations from paired connections. Remote agents can keep running meanwhile.
+Update the Mac desktop/client and conversation owner daemon for automatic routing. Executors use
+existing RPCs. Existing direct administrator bridges remain supported for unattended setups.
+
+## Connection diagnostics
+
+On Mac, **Settings → Diagnostics → Connections** separates the App-to-daemon hop from
+that daemon's collaboration routes. A green App connection never implies a healthy remote
+worker. The topology shows the Mac App and paired daemon nodes, with separate external
+SSH targets. A dotted directed return path represents owner → Mac → target collaboration,
+never an owner-to-target direct connection. Select a node for its detailed hop results.
+Checks ping the target daemon through the actual selected route, including the Mac
+coordinator when registered. They do not execute agent prompts or check model availability.
+Checks run while the page is visible, every 30 seconds; **Check all** refreshes immediately.
+Old daemons display an upgrade notice. Non-persistent CLI routes and routes beyond the bounded
+probe budget remain untested. Results include a check time and duration; transport replacement
+or disconnection invalidates the current result. No connection credentials or command argv
+are returned by the health RPC.
+
 ## Cross-host agent tools
 
 Same-host agents use the existing `send_agent_prompt` tool. Cross-host dispatch uses three
 additional native Paseo MCP tools:
 
-- `list_remote_agents`: with no arguments, lists configured host IDs; with `hostId`, lists that
+- `list_remote_agents`: with no arguments, lists connected coordinator and configured host IDs; with `hostId`, lists that
   host's agents. Executable paths and connection credentials are not included in the response.
 - `send_remote_agent_prompt`: requires `hostId`, a full `agentId` UUID, `requestId` UUID and prompt.
   It returns a dispatch receipt, not task completion. Reusing a request ID cannot resend a task.
@@ -112,9 +152,9 @@ additional native Paseo MCP tools:
   in the target pane. These lower-level tools require the caller to wait explicitly. Team tasks
   add durable tracking and automatic completion reports on top of the same bridge.
 
-These tools bridge to an administrator-configured Paseo CLI. Pairing a host in the app alone
-does not give the lead daemon a connection to it. Configure that connection on the lead machine
-in `$PASEO_HOME/collaboration-hosts.json`, for example:
+These tools prefer the Mac coordinator route when one is registered. For unattended operation
+without a desktop coordinator, configure a direct connection on the owner machine in
+`$PASEO_HOME/collaboration-hosts.json`, for example:
 
 ```json
 {

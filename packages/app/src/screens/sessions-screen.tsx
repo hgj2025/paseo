@@ -1,3 +1,5 @@
+import { useHistoryManagement } from "@/session-management/use-history-management";
+import { HistoryManagementToolbar, HistoryManagementActions } from "@/session-management/toolbar";
 import { useMemo, useState, useCallback, useEffect, type ReactElement } from "react";
 import { View, Text } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
@@ -95,6 +97,19 @@ function SessionsScreenContent() {
     search,
   });
   const isSearching = isSearchSupported && search.length > 0;
+  const management = useHistoryManagement(agents, `${selectedHost}:${search}`, refreshAll);
+  const managementHeader = useMemo(
+    () => (
+      <HistoryManagementActions
+        serverId={historyServerId}
+        hostName={hosts.find((host) => host.serverId === historyServerId)?.label ?? ""}
+        managing={management.managing}
+        busy={management.busy}
+        toggle={management.toggleManaging}
+      />
+    ),
+    [historyServerId, hosts, management.managing, management.busy, management.toggleManaging],
+  );
 
   useEffect(() => {
     if (
@@ -152,7 +167,7 @@ function SessionsScreenContent() {
 
   return (
     <View style={styles.container}>
-      <MenuHeader title={t("sessions.title")} />
+      <MenuHeader title={t("sessions.title")} rightContent={managementHeader} />
       {showFilterRow ? (
         <View style={styles.filterContainer}>
           {isSearchSupported ? (
@@ -176,6 +191,11 @@ function SessionsScreenContent() {
           ) : null}
         </View>
       ) : null}
+      <HistoryManagementToolbar
+        {...management}
+        selected={management.selected.size}
+        hostRequired={!historyServerId}
+      />
       {hostErrors.length > 0 ? <SessionHostErrorsBanner errors={hostErrors} t={t} /> : null}
       {isInitialLoad ? (
         <View style={styles.loadingContainer}>
@@ -209,7 +229,8 @@ function SessionsScreenContent() {
       ) : null}
       {!isInitialLoad && !showLoadError && agents.length > 0 ? (
         <AgentList
-          agents={agents}
+          agents={management.visible}
+          selection={management.listSelection}
           showCheckoutInfo={false}
           isRefreshing={isManualRefresh}
           onRefresh={handleRefresh}

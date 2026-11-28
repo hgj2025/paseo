@@ -61,6 +61,7 @@ export function CompactWorkspaceHeader({
 
   return (
     <CompactHeader
+      appearance="bar"
       navigation="menu"
       title={title}
       titleTestID="workspace-header-title"

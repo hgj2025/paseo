@@ -1,4 +1,54 @@
 export const en = {
+  historyHealth: {
+    title: "Session history",
+    warning: "History load warning · View details",
+    rows: "Loaded history: {{value}} items",
+    load: "Last readiness wait: {{value}}",
+    process: "Observed processing: {{value}}",
+    unassessed: "Not assessed",
+    scope:
+      "Only history already loaded in this App is measured. Loading includes connection and synchronization waits; it does not prove a rendering problem. This is separate from model context usage. Measurements reset when the App closes.",
+    advice:
+      "If switching stays slow, save a handoff document and continue in a new session in the same directory. Keep the old session for reference.",
+  },
+  connectionDiagnostics: {
+    graphHint:
+      "Solid lines: App connections or direct SSH. Dotted return paths: daemon requests through this Mac. Select a host below for details.",
+    graphTitle: "Live connection topology",
+    coordinator: "Connection coordinator",
+    pairedDaemons: "Paired daemons",
+    directTargets: "Direct collaboration targets",
+    requestViaMac: "Request → Mac → target",
+    macApp: "This Mac App",
+    title: "Connections",
+    hint: "Each host shows two independent hops: this Mac App to its daemon, and that daemon to collaboration targets. A connected App does not prove the collaboration route works. Probes are read-only and repeat every 30 seconds while this page is visible.",
+    refresh: "Check all",
+    empty: "No paired hosts.",
+    appHop: "This Mac App → {{host}} daemon",
+    transport: "App transport",
+    checkedAt: "Checked {{time}}",
+    upgrade: "Update this daemon to check its collaboration routes.",
+    reportFailed: "App connection works; collaboration health could not be retrieved.",
+    noRoutes: "No collaboration routes registered on this daemon.",
+    readOnly: "Read-only ping; agent execution and model availability are not tested.",
+    status: {
+      ok: "Verified",
+      error: "Check failed",
+      disconnected: "Disconnected",
+      checking: "Checking…",
+      unchecked: "Not checked",
+    },
+    route: {
+      mac: "Via Mac coordinator · target daemon ping",
+      ssh: "SSH worker · target daemon ping",
+      cli: "CLI route · no persistent health probe",
+    },
+    failure: {
+      timeout: "Probe timed out",
+      disconnected: "Target daemon disconnected",
+      unavailable: "Route unavailable",
+    },
+  },
   conversationQuota: {
     loading: "Loading usage…",
     unavailable: "Usage unavailable",
@@ -9,6 +59,14 @@ export const en = {
     updated: "Updated {{minutes}} min ago",
     stale: "May be outdated",
     full: "Limit reached",
+  },
+  teamPathContext: {
+    choose: "Choose directory on member host",
+    repository: "Repository identity (same across hosts)",
+    root: "Local repository root",
+    hint: "Team messages use repository-relative paths. Absolute paths and temporary files belong only to the named host; files are not synchronized.",
+    invalid: "Enter a repository identity and an absolute local root directory.",
+    updateHost: "Update the team owner daemon to configure repository path context.",
   },
   sessionFiles: {
     session: "Current session",

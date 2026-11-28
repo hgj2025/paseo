@@ -1,4 +1,5 @@
 import { mountTeamDirectory } from "./team-directory";
+import { mountCollaborationBridge } from "./collaboration-bridge";
 import { useSyncExternalStore, useMemo } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import equal from "fast-deep-equal/es6";
@@ -617,9 +618,13 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
       const unmountDirectory = getDesktopHost()
         ? mountTeamDirectory(client, host.serverId, getHostRuntimeStore())
         : () => {};
+      const unmountCollaboration = getDesktopHost()
+        ? mountCollaborationBridge(client, host.serverId, getHostRuntimeStore())
+        : () => {};
       if (!browserAutomationCapabilities) {
         return () => {
           unmountDirectory();
+          unmountCollaboration();
           unmountServerData();
         };
       }
@@ -629,6 +634,7 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
       return () => {
         unmountBrowserAutomation();
         unmountDirectory();
+        unmountCollaboration();
         unmountServerData();
       };
     },

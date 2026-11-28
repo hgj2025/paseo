@@ -6,6 +6,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { ExpandableBadge } from "@/components/message";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { type OverviewSummary, type OverviewToolCallGroup } from "./model";
+import { buildOverviewPreview } from "./preview";
 import { OverviewToolCallGroupSheet } from "./sheet";
 
 interface OverviewGroupProps {
@@ -13,6 +14,8 @@ interface OverviewGroupProps {
   expanded: boolean;
   isLastInSequence: boolean;
   onExpandedChange: (groupId: string, expanded: boolean) => void;
+  cwd?: string;
+  onOpenFilePath?: (filePath: string) => void;
   children: ReactNode;
 }
 
@@ -58,11 +61,21 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
   expanded,
   isLastInSequence,
   onExpandedChange,
+  cwd,
+  onOpenFilePath,
   children,
 }: OverviewGroupProps) {
   const scrollRef = useRef<ScrollView>(null);
   const isCompact = useIsCompactFormFactor();
   const aggregateSummary = useOverviewSummary(group.summary);
+  const preview = useMemo(() => buildOverviewPreview(group.run, cwd), [group.run, cwd]);
+  const handleOpenFile = useMemo(() => {
+    const filePath = preview.openFilePath;
+    if (!filePath || !onOpenFilePath) {
+      return undefined;
+    }
+    return () => onOpenFilePath(filePath);
+  }, [onOpenFilePath, preview.openFilePath]);
   const scrollToLatest = useCallback(() => {
     scrollRef.current?.scrollToEnd({ animated: false });
   }, []);
@@ -94,11 +107,13 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
         <ExpandableBadge
           testID="tool-call-group"
           label={aggregateSummary}
+          secondaryLabel={preview.secondaryLabel}
           icon={Wrench}
           isLoading={group.isLoading}
           isExpanded={false}
           isLastInSequence={isLastInSequence}
           onToggle={toggle}
+          onOpenFile={handleOpenFile}
         />
         <OverviewToolCallGroupSheet visible={expanded} summary={aggregateSummary} onClose={close}>
           {children}
@@ -111,11 +126,13 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
     <ExpandableBadge
       testID="tool-call-group"
       label={aggregateSummary}
+      secondaryLabel={preview.secondaryLabel}
       icon={Wrench}
       isLoading={group.isLoading}
       isExpanded={expanded}
       isLastInSequence={isLastInSequence}
       onToggle={toggle}
+      onOpenFile={handleOpenFile}
       renderDetails={renderDetails}
       borderlessWhenExpanded
     />

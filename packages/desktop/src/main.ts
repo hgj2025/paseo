@@ -1,3 +1,4 @@
+import { retainCoordinatorWindowOnClose } from "./daemon/coordinator-window.js";
 import { protectConsoleStreams } from "./diagnostics/console-streams.js";
 protectConsoleStreams();
 
@@ -718,6 +719,18 @@ async function createWindow(
       agentNavigationInbox.windowLoading(webContentsId);
     }
   });
+  mainWindow.on("close", (event) => {
+    if (
+      retainCoordinatorWindowOnClose(
+        process.platform,
+        collaborationQuitting,
+        BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed()).length,
+      )
+    ) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
   mainWindow.on("closed", () => {
     options.onClosed?.(webContentsId);
     agentNavigationInbox.removeWindow(webContentsId);
@@ -1030,6 +1043,7 @@ function showDaemonShutdownDialog(): void {
   }
 }
 
+let collaborationQuitting = false;
 const quitLifecycle = createQuitLifecycle({
   app,
   closeTransportSessions: closeAllTransportSessions,
@@ -1061,6 +1075,9 @@ const quitLifecycle = createQuitLifecycle({
 electronAutoUpdater.on("before-quit-for-update", () => {
   log.info("[auto-updater] before-quit-for-update", { currentVersion: app.getVersion() });
   quitLifecycle.handleBeforeQuitForUpdate();
+});
+app.on("before-quit", () => {
+  collaborationQuitting = true;
 });
 app.on("before-quit", quitLifecycle.handleBeforeQuit);
 registerExternalQuitSignals({ signals: process, quit: () => app.quit() });

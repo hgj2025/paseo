@@ -217,6 +217,36 @@ export function activeConversation(
 ) {
   return state.conversationsByWorkspace[key]?.[state.activeConversationByWorkspace[key] ?? ""];
 }
+function selectNextActiveConversation(
+  entries: Record<string, ConversationLayout>,
+  excludeId?: string,
+): ConversationLayout | undefined {
+  return Object.values(entries)
+    .filter((entry) => !entry.endedAt && entry.id !== excludeId)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+function ensureNextActiveConversation(
+  key: string,
+  entries: Record<string, ConversationLayout>,
+  excludeId?: string,
+): string {
+  const nextActive = selectNextActiveConversation(entries, excludeId);
+  if (nextActive) return nextActive.id;
+  const replacement = makeConversation(memberDraft(key));
+  entries[replacement.id] = replacement;
+  return replacement.id;
+}
+function resolveRestoredConversationId(
+  key: string,
+  entries: Record<string, ConversationLayout>,
+  activeId: string | undefined,
+  wasActiveEnded: boolean,
+): string | undefined {
+  const currentBecameEnded = Boolean(activeId && !wasActiveEnded && entries[activeId]?.endedAt);
+  if (activeId && entries[activeId] && !currentBecameEnded) return activeId;
+  if (Object.keys(entries).length === 0) return undefined;
+  return ensureNextActiveConversation(key, entries);
+}
 function savedConversations(state: WorkspaceLayoutStore, key: string) {
   const entries = { ...state.conversationsByWorkspace[key] };
   const current = activeConversation(state, key);
@@ -265,6 +295,8 @@ export function conversationActions(
     restoreConversations(key, teams) {
       const state = get(),
         entries = savedConversations(state, key);
+      const activeId = state.activeConversationByWorkspace[key];
+      const wasActiveEnded = Boolean(activeId && entries[activeId]?.endedAt);
       for (const team of teams) {
         if (!team.sessionId || !team.captainId) continue;
         const saved = entries[team.sessionId];
@@ -290,7 +322,7 @@ export function conversationActions(
         };
       }
       removeDuplicateMemberConversations(key, teams, entries);
-      const activeId = state.activeConversationByWorkspace[key];
+      const selected = resolveRestoredConversationId(key, entries, activeId, wasActiveEnded);
       set({
         conversationsByWorkspace: {
           ...state.conversationsByWorkspace,
@@ -305,8 +337,6 @@ export function conversationActions(
             }
           : {}),
       });
-      const current = state.activeConversationByWorkspace[key];
-      const selected = current && entries[current] ? current : Object.keys(entries)[0];
       if (selected) select(key, selected);
     },
     enableConversations(key) {
@@ -374,14 +404,26 @@ export function conversationActions(
       const entries = savedConversations(state, key);
       entries[current.id] = {
         ...entries[current.id]!,
-        endedAt: new Date().toISOString(),
+        endedAt: current.endedAt ?? new Date().toISOString(),
       };
+      const isEndingActive = state.activeConversationByWorkspace[key] === current.id;
+      if (!isEndingActive) {
+        set({
+          conversationsByWorkspace: {
+            ...state.conversationsByWorkspace,
+            [key]: entries,
+          },
+        });
+        return;
+      }
+      const nextId = ensureNextActiveConversation(key, entries, current.id);
       set({
         conversationsByWorkspace: {
           ...state.conversationsByWorkspace,
           [key]: entries,
         },
       });
+      select(key, nextId);
     },
     resetConversationMemberScope(key, team, paneId, scope) {
       const state = get();

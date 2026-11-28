@@ -9,7 +9,7 @@ import type {
 
 export interface AgentReloadResult {
   agentId: string;
-  status: "reloaded";
+  status: "reloaded" | "synchronized";
   timelineSize: number;
 }
 
@@ -25,11 +25,13 @@ export const reloadSchema: OutputSchema<AgentReloadResult> = {
 export function addReloadOptions(cmd: Command): Command {
   return cmd
     .description("Reload an agent (restarts the underlying process)")
-    .argument("<id>", "Agent ID, prefix, or name");
+    .argument("<id>", "Agent ID, prefix, or name")
+    .option("--history-only", "Align native transcript without restarting the agent");
 }
 
 export interface AgentReloadOptions extends CommandOptions {
   host?: string;
+  historyOnly?: boolean;
 }
 
 export type AgentReloadCommandResult = SingleResult<AgentReloadResult>;
@@ -63,7 +65,9 @@ export async function runReloadCommand(
       throw error;
     }
 
-    const result = await client.refreshAgent(agentId);
+    const result = options.historyOnly
+      ? await client.synchronizeAgentHistory(agentId)
+      : await client.refreshAgent(agentId);
 
     await client.close();
 
@@ -71,7 +75,7 @@ export async function runReloadCommand(
       type: "single",
       data: {
         agentId: result.agentId,
-        status: "reloaded",
+        status: options.historyOnly ? "synchronized" : "reloaded",
         timelineSize: result.timelineSize ?? 0,
       },
       schema: reloadSchema,

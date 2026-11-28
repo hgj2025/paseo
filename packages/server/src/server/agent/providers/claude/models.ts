@@ -1,3 +1,4 @@
+import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Logger } from "pino";
@@ -189,4 +190,37 @@ export function resolveObservedClaudeModelId(value: string | null | undefined): 
     return null;
   }
   return normalizeClaudeManifestRuntimeModelId(trimmed) ?? trimmed;
+}
+
+/** Keep CLI-advertised identities, including models newer than Paseo's bundled manifest. */
+export function mergeClaudeDiscoveredModels(
+  fallback: AgentModelDefinition[],
+  advertised: readonly ModelInfo[],
+): AgentModelDefinition[] {
+  const models = new Map(fallback.map((model) => [model.id, model]));
+  for (const row of advertised) {
+    const raw = (row.resolvedModel ?? row.value).trim();
+    if (!raw || raw === "<synthetic>" || (raw === "default" && !row.resolvedModel)) continue;
+    const id = normalizeClaudeManifestModelId(raw) ?? raw;
+    const existing = models.get(id);
+    const model: AgentModelDefinition = existing
+      ? { ...existing }
+      : {
+          provider: "claude",
+          id,
+          label: row.displayName.trim() || id,
+          description: row.description,
+        };
+    // Unknown capabilities stay unknown; never infer a context limit from the model name.
+    if (row.supportsEffort === false || row.supportedEffortLevels !== undefined) {
+      const levels = row.supportsEffort === false ? [] : (row.supportedEffortLevels ?? []);
+      model.thinkingOptions = [...new Set(levels)].map((level) => ({
+        id: level,
+        label: level === "xhigh" ? "Extra High" : level.charAt(0).toUpperCase() + level.slice(1),
+      }));
+      model.defaultThinkingOptionId = levels.includes("high") ? "high" : levels[0];
+    }
+    models.set(id, model);
+  }
+  return [...models.values()];
 }

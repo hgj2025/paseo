@@ -1,0 +1,7 @@
+{
+  "command": "node",
+  "args": ["-e", "console.log(JSON.stringify({success:true,items:[]}))"],
+  "assertions": [{ "pointer": "/success", "equals": true }],
+  "checks": [{ "pointer": "/items", "type": "array" }],
+  "select": ["/items"]
+}

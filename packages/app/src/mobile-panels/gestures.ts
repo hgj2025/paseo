@@ -130,7 +130,7 @@ export function useOpenAgentListGesture(enabled: boolean) {
   );
 }
 
-export function useCloseAgentListGesture() {
+export function useCloseAgentListGesture(enabled = true) {
   const {
     beginGesture,
     finishGesture,
@@ -148,6 +148,7 @@ export function useCloseAgentListGesture() {
     () =>
       Gesture.Pan()
         .withRef(leftCloseGestureRef)
+        .enabled(enabled)
         .manualActivation(true)
         .onTouchesDown((event) => {
           const touch = event.changedTouches[0];
@@ -175,6 +176,7 @@ export function useCloseAgentListGesture() {
             openGesturesBlocked: false,
           });
           if (
+            touchStartX.value > MOBILE_WEB_EDGE_SWIPE_WIDTH ||
             !canBeginMobilePanelGesture(motionState.value, "agent-list", position.value) ||
             panIntent === "fail"
           ) {
@@ -205,6 +207,7 @@ export function useCloseAgentListGesture() {
           }
         }),
     [
+      enabled,
       beginGesture,
       commit,
       finishGesture,

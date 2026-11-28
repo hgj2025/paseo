@@ -300,7 +300,51 @@ describe("composer execution context", () => {
       { path: "/projects/paseo", edited: false },
     ]);
   });
-  it("shows full directory, real repository roots, branch changes and offline status at desktop and narrow widths", async () => {
+  it("renders single-repository working directory and branch in one compact row without redundant disclosure", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const container = mount(
+      <ExecutionContextView
+        onCopy={copyExecutionPath}
+        cwd="/Users/bytedance/vmcode/claude_rea"
+        connected
+        loading={false}
+        failed={false}
+        repositories={[
+          {
+            root: "/Users/bytedance/vmcode/claude_rea",
+            branch: "main",
+            dirty: true,
+            edited: true,
+          },
+        ]}
+      />,
+    );
+    await page.viewport(1100, 320);
+    container.style.cssText = "width: 1000px; background: #272727; padding: 16px";
+    expect(container.textContent).toContain("~/vmcode/claude_rea");
+    expect(container.textContent).toContain("main");
+    expect(container.textContent).toContain("*");
+    expect(container.textContent).not.toContain("工作目录");
+    expect(container.textContent).not.toContain("有未提交修改");
+    expect(container.querySelector('[data-testid="execution-context-toggle"]')).toBeNull();
+    expect(container.querySelector('[data-testid="execution-context-details"]')).toBeNull();
+    expect(container.textContent?.split("claude_rea")).toHaveLength(2);
+    expect(container.textContent?.split("main")).toHaveLength(2);
+
+    const buttons = Array.from(container.querySelectorAll('[role="button"]'));
+    const dirCopy = buttons.find((node) => node.textContent?.includes("~/vmcode/claude_rea"))!;
+    const branchCopy = buttons.find((node) => node.textContent?.includes("main"))!;
+    await act(async () => {
+      (dirCopy as HTMLElement).click();
+    });
+    expect(copyExecutionPath).toHaveBeenLastCalledWith("/Users/bytedance/vmcode/claude_rea");
+    await act(async () => {
+      (branchCopy as HTMLElement).click();
+    });
+    expect(copyExecutionPath).toHaveBeenLastCalledWith("main");
+  });
+
+  it("shows shortened cwd, primary branch, and compact extra repositories at desktop and narrow widths", async () => {
     await i18n.changeLanguage("zh-CN");
     const container = mount(
       <ExecutionContextView
@@ -329,25 +373,30 @@ describe("composer execution context", () => {
     );
     await page.viewport(1100, 320);
     container.style.cssText = "width: 1000px; background: #272727; padding: 16px";
-    expect(container.textContent).toContain("codex/execution-context");
+    expect(container.textContent).toContain("~/Documents/ChatGPT/ccproxy 2");
+    expect(container.textContent).toContain("main");
+    expect(container.textContent).toContain("+2");
     expect(container.textContent).toContain("已切换");
-    expect(container.textContent).not.toContain("/Users/bytedance/code/github/paseo");
-    expect(container.textContent).not.toContain("/home/research/projects/backend");
+    expect(container.textContent).not.toContain("~/code/github/paseo");
+    expect(container.textContent).not.toContain("~/projects/backend");
     const collapsedHeight = container.getBoundingClientRect().height;
     const toggle = container.querySelector('[data-testid="execution-context-toggle"]')!;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     const summaryCopy = Array.from(container.querySelectorAll('[role="button"]')).find(
-      (node) => node.textContent === "codex/execution-context",
+      (node) => node.textContent === "main",
     )!;
     await act(async () => {
       (summaryCopy as HTMLElement).click();
     });
-    expect(copyExecutionPath).toHaveBeenLastCalledWith("codex/execution-context");
+    expect(copyExecutionPath).toHaveBeenLastCalledWith("main");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const branchCopy = Array.from(container.querySelectorAll('[role="button"]')).find(
-      (node) => node.textContent === "codex/execution-context",
+    expect(container.textContent?.split("~/Documents/ChatGPT/ccproxy 2")).toHaveLength(2);
+    expect(container.textContent).toContain("~/code/github/paseo");
+    expect(container.textContent).toContain("codex/execution-context");
+    const branchCopy = Array.from(container.querySelectorAll('[role="button"]')).find((node) =>
+      node.textContent?.includes("codex/execution-context"),
     );
     expect(branchCopy).toBeDefined();
     await act(async () => {
@@ -356,7 +405,6 @@ describe("composer execution context", () => {
     expect(copyExecutionPath).toHaveBeenLastCalledWith("codex/execution-context");
     expect(container.textContent).toContain("游离 HEAD");
     expect(container.textContent).toContain("已从 main 切换");
-    expect(container.textContent).toContain("/Users/bytedance/code/github/paseo");
     expect(container.getBoundingClientRect().height).toBeGreaterThan(collapsedHeight);
     await page.screenshot({ path: "/private/tmp/paseo-execution-context-desktop.png" });
     await page.viewport(400, 450);
@@ -364,7 +412,7 @@ describe("composer execution context", () => {
     await page.screenshot({ path: "/private/tmp/paseo-execution-context-narrow.png" });
     expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth);
     click(toggle);
-    expect(container.textContent).not.toContain("/home/research/projects/backend");
+    expect(container.textContent).not.toContain("~/projects/backend");
     expect(container.getBoundingClientRect().height).toBeLessThan(80);
     await page.screenshot({ path: "/private/tmp/paseo-execution-context-collapsed.png" });
     const entry = mounted[mounted.length - 1]!;

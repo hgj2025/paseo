@@ -1,3 +1,4 @@
+import { useIsCompactFormFactor } from "@/constants/layout";
 import React from "react";
 import { Redirect, usePathname } from "expo-router";
 import { StartupSplashScreen } from "@/screens/startup-splash-screen";
@@ -17,6 +18,7 @@ import { shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
 const isDesktop = shouldUseDesktopDaemon();
 
 export default function Index() {
+  const compact = useIsCompactFormFactor();
   const pathname = usePathname();
   const bootstrapState = useHostRuntimeBootstrapState();
   const anyOnlineHostServerId = useEarliestOnlineHostServerId();
@@ -34,6 +36,7 @@ export default function Index() {
 
   const startupRoute = resolveStartupRoute({
     route: { kind: "index", pathname },
+    mobileHome: compact,
     startupBlocker: bootstrapState.startupBlocker,
     hostRegistryStatus,
     hosts,

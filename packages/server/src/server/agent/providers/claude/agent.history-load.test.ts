@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import pino from "pino";
@@ -59,6 +59,141 @@ describe("ClaudeAgentSession persisted history load", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test.each([false, true])(
+    "diagnostic snapshots cannot reopen a settled tool (isError=%s)",
+    async (isError) => {
+      mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+      const tool = {
+        type: "tool_use",
+        id: "settled-call",
+        name: "Bash",
+        input: { command: "echo done" },
+      };
+      const result = {
+        type: "tool_result",
+        tool_use_id: "settled-call",
+        content: "actual result",
+        is_error: isError,
+      };
+      const transcriptRecords = [
+        {
+          type: "user",
+          uuid: "prompt",
+          timestamp: "2026-11-22T01:00:00.000Z",
+          message: { role: "user", content: "run it" },
+        },
+        {
+          type: "assistant",
+          uuid: "call",
+          timestamp: "2026-11-22T01:00:01.000Z",
+          message: { role: "assistant", content: [tool] },
+        },
+        {
+          type: "api-request-blob",
+          message: { role: "user", content: [{ ...result, content: "diagnostic copy" }] },
+        },
+        {
+          type: "user",
+          uuid: "result",
+          timestamp: "2026-11-22T01:00:02.000Z",
+          message: { role: "user", content: [result] },
+        },
+        { type: "api-request-blob", message: { role: "assistant", content: [tool] } },
+        {
+          type: "assistant",
+          uuid: "reply",
+          timestamp: "2026-11-22T01:00:03.000Z",
+          message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+        },
+      ];
+      writeFileSync(
+        transcriptPath(),
+        transcriptRecords.map((record) => JSON.stringify(record)).join("\n"),
+      );
+      const queryFactory = vi.fn(() => {
+        throw new Error("history replay must not execute tools");
+      });
+      const client = new ClaudeAgentClient({
+        logger: pino({ level: "silent" }),
+        queryFactory,
+        resolveVersion: async () => "2.1.220",
+      });
+      const session = await client.resumeSession(
+        { provider: "claude", sessionId: SESSION_ID },
+        { cwd },
+      );
+      try {
+        const events = [];
+        for await (const event of session.streamHistory()) events.push(event);
+        const tools = events.filter(
+          (event) => event.type === "timeline" && event.item.type === "tool_call",
+        );
+        expect(
+          tools.map((event) =>
+            event.type === "timeline" && event.item.type === "tool_call" ? event.item.status : null,
+          ),
+        ).toEqual(["running", isError ? "failed" : "completed"]);
+        expect(tools.map((event) => (event.type === "timeline" ? event.timestamp : null))).toEqual([
+          "2026-11-22T01:00:01.000Z",
+          "2026-11-22T01:00:02.000Z",
+        ]);
+        expect(JSON.stringify(events)).not.toContain("diagnostic copy");
+        expect(queryFactory).not.toHaveBeenCalled();
+      } finally {
+        await session.close();
+      }
+    },
+  );
+
+  test("re-reads completed external history without starting a query or duplicating rows", async () => {
+    mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    const message = (id: string, text: string) =>
+      JSON.stringify({
+        type: "assistant",
+        uuid: id,
+        timestamp: "2026-11-22T11:30:00.000Z",
+        message: { role: "assistant", content: [{ type: "text", text }] },
+      });
+    writeFileSync(transcriptPath(), message("first", "before"));
+    const queryFactory = vi.fn(() => {
+      throw new Error("must not start a query");
+    });
+    const client = new ClaudeAgentClient({
+      logger: pino({ level: "silent" }),
+      queryFactory,
+      resolveVersion: async () => "2.1.220",
+    });
+    const session = await client.resumeSession(
+      { provider: "claude", sessionId: SESSION_ID },
+      { cwd },
+    );
+    try {
+      for await (const _ of session.streamHistory()) {
+        /* consume the original import */
+      }
+      writeFileSync(
+        transcriptPath(),
+        message("first", "before") + "\n" + message("last", "completed externally"),
+      );
+      const read = async () => {
+        const events = [];
+        for await (const event of session.readPersistedHistory!()) events.push(event);
+        return events;
+      };
+      const events = await read();
+      expect(JSON.stringify(events)).toContain("completed externally");
+      expect(await read()).toEqual(events);
+      expect(session.id).toBe(SESSION_ID);
+      expect(queryFactory).not.toHaveBeenCalled();
+      writeFileSync(transcriptPath(), "");
+      await expect(read()).rejects.toThrow("no replayable history");
+      rmSync(transcriptPath());
+      await expect(read()).rejects.toThrow();
+    } finally {
+      await session.close();
+    }
   });
 
   test("logs the resolved transcript path when the transcript does not exist", async () => {

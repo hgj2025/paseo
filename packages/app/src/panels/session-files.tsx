@@ -11,7 +11,7 @@ import {
   useHostRuntimeConnectionStatuses,
   useHosts,
 } from "@/runtime/host-runtime";
-import { fetchCheckoutStatus } from "@/git/checkout-status-cache";
+import { useExecutionCheckouts } from "@/git/use-execution-checkouts";
 import { useWorkspaceTeamState } from "@/screens/workspace/use-workspace-team";
 import { usePaneContext, usePaneFocus } from "./pane-context";
 import {
@@ -93,23 +93,21 @@ export function SessionFiles({
       }),
     ).values(),
   );
-  const checkouts = useFetchQueries(
+  const checkoutRevision = JSON.stringify(
+    histories.map((history) =>
+      (history.data ?? []).map((item) =>
+        item.type === "tool_call" ? [item.callId, item.status] : null,
+      ),
+    ),
+  );
+  const checkouts = useExecutionCheckouts(
     directories.map((directory) => ({
-      queryKey: ["sessionFilesCheckout", directory.scope.serverId, directory.path],
-      queryFn: () => {
-        const client = getHostRuntimeStore().getClient(directory.scope.serverId);
-        if (!client) throw new Error("Host unavailable");
-        return fetchCheckoutStatus({
-          client,
-          serverId: directory.scope.serverId,
-          cwd: directory.path,
-        });
-      },
+      serverId: directory.scope.serverId,
+      cwd: directory.path,
+      client: getHostRuntimeStore().getClient(directory.scope.serverId),
       enabled: focus.isWorkspaceFocused && statuses.get(directory.scope.serverId) === "online",
-      refetchInterval: 10_000,
-      staleTimeMs: 5_000,
-      dataShape: "value" as const,
     })),
+    checkoutRevision,
   );
   useEffect(() => {
     const discovered: Record<string, string> = {};

@@ -12,6 +12,7 @@ import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useWorkspaceScopeOptions } from "@/stores/session-store-hooks";
 import { useModelHostContext } from "./model-host-context";
 import { prepareConversationExecutor } from "./conversation-execution";
+import { runExecutionHostOperation } from "./execution-host-operation";
 function supportsExecution(context: ReturnType<typeof useModelHostContext>) {
   return Boolean(context?.member && context.teamContext?.supportsExecution);
 }
@@ -109,27 +110,42 @@ export function useExecutionModelSelection(input: {
             operationId,
             clientFor: (id) => getHostRuntimeStore().getClient(id),
             commit: async (execution, sourceCursor) => {
-              const page = await getHostRuntimeStore().fetchAgentTimeline(
+              const page = await runExecutionHostOperation(
                 execution.serverId,
-                execution.agentId,
-                { direction: "tail", limit: 500, projection: "projected" },
+                "Verify destination executor",
+                () => getHostRuntimeStore().getClient(execution.serverId),
+                (client) =>
+                  client.fetchAgentTimeline(execution.agentId, {
+                    direction: "tail",
+                    limit: 500,
+                    projection: "projected",
+                  }),
               );
               if (page.error || !page.agent)
                 throw new Error(
                   "The destination executor could not be prepared; the conversation has not changed.",
                 );
               try {
-                return await context.teamContext!.execute({
-                  kind: "configure_execution",
-                  memberId: context.member!.id,
-                  revision: context.teamContext!.team!.revision,
-                  execution,
-                  sourceCursor,
-                });
+                return await runExecutionHostOperation(
+                  context.teamContext!.ownerServerId,
+                  "Commit execution binding",
+                  () => getHostRuntimeStore().getClient(context.teamContext!.ownerServerId),
+                  () =>
+                    context.teamContext!.execute({
+                      kind: "configure_execution",
+                      memberId: context.member!.id,
+                      revision: context.teamContext!.team!.revision,
+                      execution,
+                      sourceCursor,
+                    }),
+                );
               } catch (error) {
-                const latest = await context
-                  .teamContext!.execute({ kind: "read" })
-                  .catch(() => null);
+                const latest = await runExecutionHostOperation(
+                  context.teamContext!.ownerServerId,
+                  "Check execution binding",
+                  () => getHostRuntimeStore().getClient(context.teamContext!.ownerServerId),
+                  () => context.teamContext!.execute({ kind: "read" }),
+                ).catch(() => null);
                 if (
                   latest?.members.find((m) => m.id === context.member!.id)?.execution
                     ?.operationId === execution.operationId

@@ -2,6 +2,55 @@ import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
+  historyHealth: {
+    title: "会话历史负载",
+    warning: "历史负载提示 · 点击查看",
+    rows: "已加载历史：{{value}} 条",
+    load: "最近就绪等待：{{value}}",
+    process: "已观测处理耗时：{{value}}",
+    unassessed: "未评估",
+    scope:
+      "仅统计本 App 已加载的历史。就绪等待包含连接和同步时间，不能据此断定是渲染问题。与模型上下文用量无关；关闭 App 后统计重置。",
+    advice: "如果切换持续变慢，建议先保存交接文档，再在同一目录新建会话续接。保留旧会话以便查阅。",
+  },
+  connectionDiagnostics: {
+    graphHint:
+      "实线：App 连接或 SSH 直连。点状回线：daemon 经此 Mac 转发请求。下方选择主机查看详情。",
+    graphTitle: "实时连接拓扑",
+    coordinator: "连接协调端",
+    pairedDaemons: "已配对 daemon",
+    directTargets: "直接协作目标",
+    requestViaMac: "请求 → Mac → 目标",
+    macApp: "当前 Mac App",
+    title: "连接状态",
+    hint: "分别检测两段独立链路：此 Mac App 到主机 daemon，以及该 daemon 到协作目标。App 在线不代表协作通道可用。只读检测，在本页可见时每 30 秒刷新。",
+    refresh: "检测全部",
+    empty: "尚未配对主机。",
+    appHop: "此 Mac App → {{host}} daemon",
+    transport: "App 连接方式",
+    checkedAt: "检测于 {{time}}",
+    upgrade: "需升级这台 daemon，才能检测它的协作通道。",
+    reportFailed: "App 连接正常；未能取得协作链路检测结果。",
+    noRoutes: "这台 daemon 当前没有注册的协作路由。",
+    readOnly: "仅执行只读 ping，不检测 Agent 执行和模型可用性。",
+    status: {
+      ok: "已验证",
+      error: "检测失败",
+      disconnected: "已断开",
+      checking: "检测中…",
+      unchecked: "未检测",
+    },
+    route: {
+      mac: "经 Mac 协调 · 检测目标 daemon",
+      ssh: "SSH worker · 检测目标 daemon",
+      cli: "CLI 通道 · 不支持持续连接检测",
+    },
+    failure: {
+      timeout: "检测超时",
+      disconnected: "目标 daemon 已断开",
+      unavailable: "协作通道不可用",
+    },
+  },
   conversationQuota: {
     loading: "正在获取额度…",
     unavailable: "额度暂不可用",
@@ -12,6 +61,14 @@ export const zhCN: TranslationResources = {
     updated: "{{minutes}} 分钟前更新",
     stale: "数据可能已过期",
     full: "额度已满",
+  },
+  teamPathContext: {
+    choose: "选择成员所在 Host 的目录",
+    repository: "仓库标识（各 Host 保持一致）",
+    root: "本机仓库根目录",
+    hint: "团队通信使用仓库相对路径；绝对路径和临时文件仅属于注明的 Host，不会自动同步文件。",
+    invalid: "请填写仓库标识和本机根目录的绝对路径。",
+    updateHost: "请更新团队所属 Host 的 daemon，以配置仓库路径上下文。",
   },
   sessionFiles: {
     session: "当前会话",

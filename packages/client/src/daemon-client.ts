@@ -2376,6 +2376,38 @@ export class DaemonClient {
     if (result.error) throw new Error(result.error);
     return result.snapshot;
   }
+  async getCollaborationHealth() {
+    if (this.lastServerInfoMessage?.features?.connectionDiagnostics !== true)
+      throw new Error("Update this daemon to inspect collaboration connections.");
+    const requestId = this.createRequestId();
+    return this.sendRequest({
+      requestId,
+      message: { type: "collaboration.health.request", requestId },
+      timeout: 20000,
+      options: { skipQueue: true },
+      select: (msg) =>
+        msg.type === "collaboration.health.response" && msg.payload.requestId === requestId
+          ? msg.payload
+          : null,
+    });
+  }
+  updateCollaborationBridgeRoutes(hostIds: string[]) {
+    this.sendSessionMessageStrict({ type: "collaboration.bridge.routes", hostIds });
+  }
+  sendCollaborationBridgeChanged(hostId: string, agentId: string) {
+    this.sendSessionMessageStrict({ type: "collaboration.bridge.changed", hostId, agentId });
+  }
+  registerCollaborationBridge(hostIds: string[]) {
+    return this.observe("collaboration.bridge.register.response", {
+      type: "collaboration.bridge.register.request",
+      hostIds,
+    });
+  }
+  sendCollaborationBridgeResponse(
+    response: Extract<SessionInboundMessage, { type: "collaboration.bridge.execute.response" }>,
+  ) {
+    this.sendSessionMessageStrict(response);
+  }
   registerBrowserHost(
     registration: Omit<
       Extract<SessionInboundMessage, { type: "browser.host.register.request" }>,
@@ -3277,10 +3309,22 @@ export class DaemonClient {
     return status.agent;
   }
 
+  async synchronizeAgentHistory(agentId: string): Promise<AgentRefreshedStatusPayload> {
+    return this.requestAgentRefresh(agentId, undefined, "synchronize_agent_history_request");
+  }
+
   async refreshAgent(agentId: string, requestId?: string): Promise<AgentRefreshedStatusPayload> {
+    return this.requestAgentRefresh(agentId, requestId, "refresh_agent_request");
+  }
+
+  private async requestAgentRefresh(
+    agentId: string,
+    requestId: string | undefined,
+    type: "refresh_agent_request" | "synchronize_agent_history_request",
+  ): Promise<AgentRefreshedStatusPayload> {
     const resolvedRequestId = this.createRequestId(requestId);
     const message = SessionInboundMessageSchema.parse({
-      type: "refresh_agent_request",
+      type,
       agentId,
       requestId: resolvedRequestId,
     });

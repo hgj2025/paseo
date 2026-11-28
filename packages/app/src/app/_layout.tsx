@@ -1,3 +1,5 @@
+import { SessionArchiveCoordinator } from "@/session-management/runtime";
+import { NavigationDiagnosticCollector } from "@/navigation/diagnostics/collector";
 import { DesktopNavigationRail } from "@/home-overview/navigation-rail";
 import { NAVIGATION_RAIL_WIDTH } from "@/home-overview/navigation-rail-view";
 import { ExecutionDiagnosticCollector } from "@/execution-diagnostics/collector";
@@ -461,6 +463,98 @@ interface AppContainerProps {
 
 const WINDOW_SIDEBAR_TOGGLE_HORIZONTAL_PADDING = 12;
 
+function resolveNavigationRailVisible(input: {
+  isCompactLayout: boolean;
+  isWorkspaceFocusModeEnabled: boolean;
+  chromeEnabled: boolean;
+  pathname: string;
+}): boolean {
+  return (
+    getIsElectronMac() &&
+    !input.isCompactLayout &&
+    !input.isWorkspaceFocusModeEnabled &&
+    (input.chromeEnabled || input.pathname.startsWith("/settings"))
+  );
+}
+
+function ThemedSidebarChrome({
+  mounted,
+  visible,
+  keyboardShortcutsEnabled,
+}: {
+  mounted: boolean;
+  visible: boolean;
+  keyboardShortcutsEnabled: boolean;
+}) {
+  const sidebar = (
+    <SidebarChrome
+      mounted={mounted}
+      visible={visible}
+      keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+    />
+  );
+  if (isWeb) {
+    return <AppearanceStyleBoundary>{sidebar}</AppearanceStyleBoundary>;
+  }
+  return sidebar;
+}
+
+function AppWorkspaceChrome({
+  children,
+  navigationRailVisible,
+  isCompactLayout,
+  sidebarCorners,
+  contentCorners,
+  sidebarMounted,
+  sidebarVisible,
+  keyboardShortcutsEnabled,
+  usesCompactExplorerHost,
+  chromeEnabled,
+  explorerSidebarPresentation,
+}: {
+  children: ReactNode;
+  navigationRailVisible: boolean;
+  isCompactLayout: boolean;
+  sidebarCorners: "none" | "top-left" | "top-right" | "both";
+  contentCorners: "none" | "top-left" | "top-right" | "both";
+  sidebarMounted: boolean;
+  sidebarVisible: boolean;
+  keyboardShortcutsEnabled: boolean;
+  usesCompactExplorerHost: boolean;
+  chromeEnabled: boolean;
+  explorerSidebarPresentation: ReturnType<typeof resolveExplorerSidebarPresentation>;
+}) {
+  return (
+    <View style={rowStyle}>
+      <WorkspaceLayoutModePublisher />
+      {navigationRailVisible ? <DesktopNavigationRail /> : null}
+      {!isCompactLayout ? (
+        <WindowChromeRegion corners={sidebarCorners}>
+          <ThemedSidebarChrome
+            mounted={sidebarMounted}
+            visible={sidebarVisible}
+            keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+          />
+        </WindowChromeRegion>
+      ) : null}
+      {usesCompactExplorerHost ? (
+        <CompactExplorerSidebarHost
+          enabled={chromeEnabled}
+          presentation={explorerSidebarPresentation === "dock" ? "dock" : "overlay"}
+        >
+          <WindowChromeRegion corners={chromeEnabled ? "both" : contentCorners}>
+            <View style={flexStyle}>{children}</View>
+          </WindowChromeRegion>
+        </CompactExplorerSidebarHost>
+      ) : (
+        <WindowChromeRegion corners={contentCorners}>
+          <View style={flexStyle}>{children}</View>
+        </WindowChromeRegion>
+      )}
+    </View>
+  );
+}
+
 function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppContainerProps) {
   const keyboardActionDispatcher = useKeyboardActionDispatcher();
   const daemons = useHosts();
@@ -522,11 +616,12 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const appContentMinimumWidth = resolveDesktopAppContentMinimum({
     isSettingsRoute: pathname.includes("/settings"),
   });
-  const navigationRailVisible =
-    getIsElectronMac() &&
-    !isCompactLayout &&
-    !isWorkspaceFocusModeEnabled &&
-    (chromeEnabled || pathname.startsWith("/settings"));
+  const navigationRailVisible = resolveNavigationRailVisible({
+    isCompactLayout,
+    isWorkspaceFocusModeEnabled,
+    chromeEnabled,
+    pathname,
+  });
   const desktopSidebarMounted = hasMountedDesktopSidebar && !isWorkspaceFocusModeEnabled;
   const desktopSidebarVisible = resolveDesktopSidebarVisibility({
     chromeEnabled,
@@ -545,41 +640,23 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     hasTopLeftWindowControls,
     sidebarControlsEnabled: chromeEnabled && !isWorkspaceFocusModeEnabled,
   });
-  const sidebarChrome = (
-    <SidebarChrome
-      mounted={isCompactLayout ? chromeEnabled : desktopSidebarMounted}
-      visible={isCompactLayout ? chromeEnabled : desktopSidebarVisible}
-      keyboardShortcutsEnabled={keyboardShortcutsEnabled}
-    />
-  );
-  let themedSidebarChrome = sidebarChrome;
-  if (isWeb) {
-    themedSidebarChrome = <AppearanceStyleBoundary>{sidebarChrome}</AppearanceStyleBoundary>;
-  }
+  const sidebarMounted = isCompactLayout ? chromeEnabled : desktopSidebarMounted;
+  const sidebarVisible = isCompactLayout ? chromeEnabled : desktopSidebarVisible;
   const workspaceChrome = (
-    <View style={rowStyle}>
-      <WorkspaceLayoutModePublisher />
-      {navigationRailVisible ? <DesktopNavigationRail /> : null}
-      {!isCompactLayout ? (
-        <WindowChromeRegion corners={appChromeLayout.sidebarCorners}>
-          {themedSidebarChrome}
-        </WindowChromeRegion>
-      ) : null}
-      {usesCompactExplorerHost ? (
-        <CompactExplorerSidebarHost
-          enabled={chromeEnabled}
-          presentation={explorerSidebarPresentation === "dock" ? "dock" : "overlay"}
-        >
-          <WindowChromeRegion corners={chromeEnabled ? "both" : appChromeLayout.contentCorners}>
-            <View style={flexStyle}>{children}</View>
-          </WindowChromeRegion>
-        </CompactExplorerSidebarHost>
-      ) : (
-        <WindowChromeRegion corners={appChromeLayout.contentCorners}>
-          <View style={flexStyle}>{children}</View>
-        </WindowChromeRegion>
-      )}
-    </View>
+    <AppWorkspaceChrome
+      navigationRailVisible={navigationRailVisible}
+      isCompactLayout={isCompactLayout}
+      sidebarCorners={appChromeLayout.sidebarCorners}
+      contentCorners={appChromeLayout.contentCorners}
+      sidebarMounted={sidebarMounted}
+      sidebarVisible={sidebarVisible}
+      keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+      usesCompactExplorerHost={usesCompactExplorerHost}
+      chromeEnabled={chromeEnabled}
+      explorerSidebarPresentation={explorerSidebarPresentation}
+    >
+      {children}
+    </AppWorkspaceChrome>
   );
 
   // Native panel gesture hosts outlive appearance keys, like native navigators.
@@ -603,7 +680,13 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <DesktopWindowControls />
         <FloatingPanelPortalHost />
       </AppearanceStyleBoundary>
-      {isCompactLayout ? themedSidebarChrome : null}
+      {isCompactLayout ? (
+        <ThemedSidebarChrome
+          mounted={sidebarMounted}
+          visible={sidebarVisible}
+          keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+        />
+      ) : null}
       <AppearanceStyleBoundary>
         <DownloadToast />
         <RosettaCalloutSource />
@@ -624,6 +707,8 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
         <ExecutionDiagnosticCollector />
+        <NavigationDiagnosticCollector />
+        <SessionArchiveCoordinator />
         <ChangelogHost />
         <QuittingOverlay />
       </AppearanceStyleBoundary>

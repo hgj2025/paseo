@@ -1,3 +1,5 @@
+import { toolCallDisplayOutcome } from "@/tool-calls/outcome";
+import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
 import type { StreamItem } from "@/types/stream";
 
 export type Diagnosis = "tool" | "test" | "environment" | "auth" | "network" | "syntax" | "turn";
@@ -13,6 +15,7 @@ export interface ExecutionRow {
   timing: "reported" | "observed" | "unknown";
   slow: boolean;
   recoveredBy?: string;
+  noMatches?: boolean;
 }
 export interface Observation {
   started: number;
@@ -105,6 +108,110 @@ export function observeExecutions(
   return next;
 }
 
+function extractDetailOutput(detail: ToolCallDetail): string {
+  if (detail.type === "shell") return detail.output ?? "";
+  if (detail.type === "plain_text") return detail.text ?? "";
+  return "";
+}
+
+function extractReportedDuration(detail: ToolCallDetail): number | undefined {
+  if (detail.type !== "search" && detail.type !== "fetch") {
+    return undefined;
+  }
+  if (detail.durationMs !== undefined) {
+    return detail.durationMs;
+  }
+  if (detail.type === "search" && detail.durationSeconds !== undefined) {
+    return detail.durationSeconds * 1000;
+  }
+  return undefined;
+}
+
+function resolveDurationAndTiming(
+  reported: number | undefined,
+  observed: Observation | undefined,
+  now: number,
+): { durationMs?: number; timing: ExecutionRow["timing"] } {
+  if (typeof reported === "number" && Number.isFinite(reported) && reported >= 0) {
+    return { durationMs: reported, timing: "reported" };
+  }
+  if (observed?.valid) {
+    return {
+      durationMs: Math.max(0, (observed.ended ?? now) - observed.started),
+      timing: "observed",
+    };
+  }
+  return { durationMs: undefined, timing: "unknown" };
+}
+
+function formatEvidenceText(error: unknown, output: string): string {
+  const truncatedOutput =
+    output.length > 8000 ? `${output.slice(0, 8000)}\n…\n${output.slice(-8000)}` : output;
+  return `${errorText(error).slice(0, 8000)}\n${truncatedOutput}`.trim();
+}
+
+function recordShellRetry(
+  item: Extract<StreamItem, { kind: "tool_call" }>,
+  row: ExecutionRow,
+  pending: Map<string, ExecutionRow[]>,
+): void {
+  if (item.payload.source !== "agent") return;
+  const { detail } = item.payload.data;
+  if (detail.type !== "shell" || !item.turnId) return;
+  const command = detail.command;
+  if (/[\n;&|<>]/.test(command) || !command.trim()) return;
+  const signature = JSON.stringify([
+    item.timelineCursor?.epoch ?? "legacy",
+    item.turnId,
+    detail.cwd ?? null,
+    command,
+  ]);
+  if (row.status === "failed") {
+    pending.set(signature, [...(pending.get(signature) ?? []), row]);
+    return;
+  }
+  if (row.status === "completed" && detail.exitCode === 0) {
+    for (const failure of pending.get(signature) ?? []) failure.recoveredBy = row.id;
+    pending.delete(signature);
+  }
+}
+
+function buildAgentToolCallRow(
+  item: Extract<StreamItem, { kind: "tool_call" }>,
+  id: string,
+  observed: Observation | undefined,
+  now: number,
+): ExecutionRow | null {
+  if (item.payload.source !== "agent") return null;
+  const data = item.payload.data;
+  const detail = data.detail;
+  const command = detail.type === "shell" ? detail.command : data.name;
+  const output = extractDetailOutput(detail);
+  const exitCode = detail.type === "shell" ? detail.exitCode : undefined;
+  const outcome = toolCallDisplayOutcome({ status: data.status, detail, error: data.error });
+  const status = outcome.status === "executing" ? "running" : outcome.status;
+  const text = formatEvidenceText(data.error, output);
+  const { durationMs, timing } = resolveDurationAndTiming(
+    extractReportedDuration(detail),
+    observed,
+    now,
+  );
+  const exitPrefix = typeof exitCode === "number" ? `exit ${exitCode}\n` : "";
+  return {
+    id,
+    turnId: item.turnId,
+    occurredAt: item.timestamp.getTime(),
+    command: redactEvidence(command).slice(0, 1500),
+    evidence: redactEvidence(`${exitPrefix}${text}`).slice(-3000),
+    status,
+    category: category(text),
+    ...(outcome.noMatches ? { noMatches: true } : {}),
+    durationMs,
+    timing,
+    slow: durationMs !== undefined && durationMs >= 30000,
+  };
+}
+
 export function analyzeExecutions(
   items: readonly StreamItem[],
   observations: ReadonlyMap<string, Observation> = new Map(),
@@ -115,7 +222,7 @@ export function analyzeExecutions(
   for (const item of items) {
     const id = diagnosticIdentity(item);
     if (item.kind === "notification") {
-      if (item.sourceType === "error")
+      if (item.sourceType === "error") {
         rows.push({
           id,
           turnId: item.turnId,
@@ -127,72 +234,16 @@ export function analyzeExecutions(
           timing: "unknown",
           slow: false,
         });
+      }
       continue;
     }
-    if (item.kind !== "tool_call" || item.payload.source !== "agent") continue;
-    const data = item.payload.data;
-    const detail = data.detail;
-    const command = detail.type === "shell" ? detail.command : data.name;
-    const output =
-      detail.type === "shell"
-        ? (detail.output ?? "")
-        : detail.type === "plain_text"
-          ? (detail.text ?? "")
-          : "";
-    const exitCode = detail.type === "shell" ? detail.exitCode : undefined;
-    const status =
-      data.status === "completed" && typeof exitCode === "number" && exitCode !== 0
-        ? "failed"
-        : data.status;
-    const text = `${errorText(data.error).slice(0, 8000)}\n${output.slice(
-      0,
-      8000,
-    )}${output.length > 8000 ? "\n…\n" + output.slice(-8000) : ""}`.trim();
-    const reported =
-      detail.type === "search" || detail.type === "fetch"
-        ? (detail.durationMs ??
-          (detail.type === "search" && detail.durationSeconds !== undefined
-            ? detail.durationSeconds * 1000
-            : undefined))
-        : undefined;
-    const observed = observations.get(id);
-    const durationMs =
-      typeof reported === "number" && Number.isFinite(reported) && reported >= 0
-        ? reported
-        : observed?.valid
-          ? Math.max(0, (observed.ended ?? now) - observed.started)
-          : undefined;
-    const row: ExecutionRow = {
-      id,
-      turnId: item.turnId,
-      occurredAt: item.timestamp.getTime(),
-      command: redactEvidence(command).slice(0, 1500),
-      evidence: redactEvidence(
-        `${typeof exitCode === "number" ? `exit ${exitCode}\n` : ""}${text}`,
-      ).slice(-3000),
-      status,
-      category: category(text),
-      durationMs,
-      timing:
-        durationMs === undefined ? "unknown" : reported !== undefined ? "reported" : "observed",
-      slow: durationMs !== undefined && durationMs >= 30000,
-    };
+    if (item.kind !== "tool_call") continue;
+    const row = buildAgentToolCallRow(item, id, observations.get(id), now);
+    if (!row) continue;
     rows.push(row);
     // Exact single shell commands only. Compound commands, missing turns and changed epochs
     // cannot establish a safe retry relationship. Success is not proof of a code fix.
-    if (detail.type !== "shell" || !item.turnId || /[\n;&|<>]/.test(command) || !command.trim())
-      continue;
-    const signature = JSON.stringify([
-      item.timelineCursor?.epoch ?? "legacy",
-      item.turnId,
-      detail.cwd ?? null,
-      command,
-    ]);
-    if (status === "failed") pending.set(signature, [...(pending.get(signature) ?? []), row]);
-    else if (status === "completed" && exitCode === 0) {
-      for (const failure of pending.get(signature) ?? []) failure.recoveredBy = id;
-      pending.delete(signature);
-    }
+    recordShellRetry(item, row, pending);
   }
   return rows;
 }

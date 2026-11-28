@@ -5691,15 +5691,117 @@ describe("Conversation-owned teams", () => {
     });
     expect(collectAllPanes(store.getState().layoutByWorkspace[key]!.root)).toHaveLength(before);
     store.getState().endConversation(key);
+    const replacementId = store.getState().activeConversationByWorkspace[key]!;
+    expect(replacementId).not.toBe(id);
     const restored = createWorkspaceLayoutStore();
     await restored.persist.rehydrate();
-    expect(restored.getState().activeConversationByWorkspace[key]).toBe(id);
+    expect(restored.getState().activeConversationByWorkspace[key]).toBe(replacementId);
+    expect(
+      restored.getState().conversationsByWorkspace[key]![replacementId]!.endedAt,
+    ).toBeUndefined();
+    expect(
+      collectAllTabs(restored.getState().layoutByWorkspace[key]!.root).some(
+        (t) => t.target.kind === "draft",
+      ),
+    ).toBe(true);
     expect(restored.getState().conversationsByWorkspace[key]![id]!.endedAt).toBeTruthy();
+    expect(
+      collectAllTabs(restored.getState().conversationsByWorkspace[key]![id]!.layout.root).some(
+        (t) => t.target.kind === "file",
+      ),
+    ).toBe(true);
+    restored.getState().selectConversation(key, id);
     expect(
       collectAllTabs(restored.getState().layoutByWorkspace[key]!.root).some(
         (t) => t.target.kind === "file",
       ),
     ).toBe(true);
+  });
+  it("switches to the next active conversation when ending the active conversation and keeps ended history intact", () => {
+    const store = createWorkspaceLayoutStore(),
+      key = "host:workspace";
+    store.getState().newConversation(key, { kind: "agent", agentId: "captain-1" });
+    const firstId = store.getState().activeConversationByWorkspace[key]!;
+    store.getState().newConversation(key, { kind: "agent", agentId: "captain-2" });
+    const secondId = store.getState().activeConversationByWorkspace[key]!;
+    store.getState().addConversationMember(key);
+
+    // Ending a non-active conversation does not change the active selection.
+    store.getState().endConversation(key, firstId);
+    expect(store.getState().activeConversationByWorkspace[key]).toBe(secondId);
+    expect(store.getState().conversationsByWorkspace[key]![firstId]!.endedAt).toBeTruthy();
+
+    // Ending the active conversation switches to another active conversation when one exists.
+    store.getState().newConversation(key, { kind: "agent", agentId: "captain-3" });
+    const thirdId = store.getState().activeConversationByWorkspace[key]!;
+    store.getState().endConversation(key, thirdId);
+    expect(store.getState().activeConversationByWorkspace[key]).toBe(secondId);
+    expect(store.getState().conversationsByWorkspace[key]![thirdId]!.endedAt).toBeTruthy();
+
+    // Ending the last active conversation switches to a fresh draft instead of staying on split panes.
+    store.getState().endConversation(key, secondId);
+    const fallbackId = store.getState().activeConversationByWorkspace[key]!;
+    expect(fallbackId).not.toBe(secondId);
+    expect(store.getState().conversationsByWorkspace[key]![fallbackId]!.endedAt).toBeUndefined();
+    const fallbackTabs = collectAllTabs(store.getState().layoutByWorkspace[key]!.root);
+    expect(fallbackTabs.some((t) => t.target.kind === "draft")).toBe(true);
+    expect(fallbackTabs.some((t) => t.target.kind === "agent")).toBe(false);
+
+    // Dismissing an explicitly opened ended conversation preserves endedAt and returns to active.
+    const originalEndedAt = store.getState().conversationsByWorkspace[key]![secondId]!.endedAt;
+    store.getState().selectConversation(key, secondId);
+    expect(store.getState().activeConversationByWorkspace[key]).toBe(secondId);
+    store.getState().endConversation(key, secondId);
+    expect(store.getState().activeConversationByWorkspace[key]).toBe(fallbackId);
+    expect(store.getState().conversationsByWorkspace[key]![secondId]!.endedAt).toBe(
+      originalEndedAt,
+    );
+  });
+  it("switches away during restoreConversations when the active team ended on the host", () => {
+    const store = createWorkspaceLayoutStore(),
+      key = "host:workspace";
+    store.getState().newConversation(key, { kind: "agent", agentId: "captain" });
+    const activeId = store.getState().activeConversationByWorkspace[key]!;
+    const endedTeam = {
+      version: 1 as const,
+      workspaceId: "workspace",
+      sessionId: activeId,
+      status: "ended" as const,
+      endedAt: "2026-11-26T12:44:50.469Z",
+      revision: 2,
+      captainId: "captain-member",
+      tasks: [],
+      members: [
+        {
+          id: "captain-member",
+          alias: "Captain",
+          serverId: "host",
+          workspaceId: "workspace",
+          agentId: "captain",
+          provider: "codex",
+          role: "",
+          skills: [],
+          paneId: "main",
+        },
+      ],
+    };
+
+    store.getState().restoreConversations(key, [endedTeam]);
+    const nextId = store.getState().activeConversationByWorkspace[key]!;
+    expect(nextId).not.toBe(activeId);
+    expect(store.getState().conversationsByWorkspace[key]![activeId]!.endedAt).toBe(
+      endedTeam.endedAt,
+    );
+    expect(
+      collectAllTabs(store.getState().layoutByWorkspace[key]!.root).some(
+        (t) => t.target.kind === "draft",
+      ),
+    ).toBe(true);
+
+    // Explicitly viewing an already-ended conversation stays on it across subsequent restores.
+    store.getState().selectConversation(key, activeId);
+    store.getState().restoreConversations(key, [endedTeam]);
+    expect(store.getState().activeConversationByWorkspace[key]).toBe(activeId);
   });
   it("keeps an asynchronous creation in its originating conversation after switching", () => {
     const store = createWorkspaceLayoutStore();

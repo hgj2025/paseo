@@ -1,7 +1,8 @@
 import { Pressable, Text, View } from "react-native";
 import { Files } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useCallback, useState } from "react";
+import React, { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useTranslation } from "react-i18next";
 import invariant from "tiny-invariant";
 import { FileExplorerPane } from "@/components/file-explorer-pane";
@@ -23,12 +24,34 @@ const filesPanelPresentation = {
   icon: ThemedFiles,
 } satisfies PanelPresentation;
 
+type FilesMode = "session" | "directory";
+type BrowseLocation = { scope: WorkspaceScope; path: string } | null;
+
 function FilesPanel() {
+  const active = useRetainedPanelActive();
+  const [mode, setMode] = useState<FilesMode>("session");
+  const [browse, setBrowse] = useState<BrowseLocation>(null);
+  // Keep navigation state, but release subscriptions, history polling and tree
+  // rendering when this retained tab or its workspace is hidden.
+  return active ? (
+    <ActiveFilesPanel mode={mode} setMode={setMode} browse={browse} setBrowse={setBrowse} />
+  ) : null;
+}
+
+function ActiveFilesPanel({
+  mode,
+  setMode,
+  browse,
+  setBrowse,
+}: {
+  mode: FilesMode;
+  setMode: Dispatch<SetStateAction<FilesMode>>;
+  browse: BrowseLocation;
+  setBrowse: Dispatch<SetStateAction<BrowseLocation>>;
+}) {
   const { t } = useTranslation();
   const { serverId, workspaceId, layoutOwner, target, openPreferredTarget, openTargetToSide } =
     usePaneContext();
-  const [mode, setMode] = useState<"session" | "directory">("session");
-  const [browse, setBrowse] = useState<{ scope: WorkspaceScope; path: string } | null>(null);
   const workspaceRoot = useWorkspaceDirectory(serverId, workspaceId);
   const { addFile, canAddToChat } = useAddFileToChat({ serverId, workspaceId, layoutOwner });
   invariant(target.kind === "files", "FilesPanel requires files target");
@@ -47,11 +70,14 @@ function FilesPanel() {
       ),
     [openTargetToSide, browse, serverId, workspaceId],
   );
-  const onBrowse = useCallback((scope: WorkspaceScope, path: string) => {
-    setBrowse({ scope, path });
-    setMode("directory");
-  }, []);
-  const resetBrowse = useCallback(() => setBrowse(null), []);
+  const onBrowse = useCallback(
+    (scope: WorkspaceScope, path: string) => {
+      setBrowse({ scope, path });
+      setMode("directory");
+    },
+    [setBrowse, setMode],
+  );
+  const resetBrowse = useCallback(() => setBrowse(null), [setBrowse]);
   return (
     <View style={sessionFilesStyles.fill}>
       <SessionFilesTabs mode={mode} onChange={setMode} />

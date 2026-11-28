@@ -1,0 +1,46 @@
+{
+  "name": "@getpaseo/checked-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Opt-in Paseo integration and agent-side checked CLI runtime",
+  "bin": {
+    "paseo-checked-cli": "dist/cli.mjs"
+  },
+  "files": [
+    "paseo-plugin.json",
+    "index.server.ts",
+    "server",
+    "shared",
+    "dist",
+    "README.md",
+    "!**/*.test.ts",
+    "examples"
+  ],
+  "type": "module",
+  "exports": {
+    "./runtime": {
+      "types": "./dist/types/server/runtime.d.ts",
+      "import": "./dist/runtime.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && esbuild server/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.mjs && esbuild server/runtime.ts --bundle --platform=node --format=esm --outfile=dist/runtime.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts server/runtime.test.ts --bail=1",
+    "lint": "oxlint --disable-nested-config -c .oxlintrc.json index.server.ts server shared",
+    "format": "oxfmt index.server.ts server shared package.json tsconfig.json tsconfig.build.json vitest.config.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "^0.11.2",
+    "@types/node": "^20.9.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

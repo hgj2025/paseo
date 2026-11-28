@@ -1,3 +1,4 @@
+import { navigationWorkspaceCommitted } from "@/navigation/diagnostics/collector";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
 import { StyleSheet, View } from "react-native";
@@ -285,6 +286,9 @@ function WorkspaceDeckEntry({
   recoveryRequested: boolean;
   onUnmountInactive: (selection: ActiveWorkspaceSelection) => void;
 }) {
+  useLayoutEffect(() => {
+    if (active) navigationWorkspaceCommitted(selection.serverId, selection.workspaceId);
+  }, [active, selection.serverId, selection.workspaceId]);
   const hasHydratedWorkspaces = useHasHydratedWorkspaces(selection.serverId);
   const workspaceExists = useWorkspaceExists(selection.serverId, selection.workspaceId);
   const shouldKeepMounted = shouldKeepWorkspaceDeckEntryMounted({

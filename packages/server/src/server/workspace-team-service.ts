@@ -1,9 +1,12 @@
 import { WorkspaceTeamGroups, pendingGroup } from "./workspace-team-groups.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import {
   WorkspaceTeamSchema,
+  resolveTeamMemberAliases,
+  teamModelAlias as modelAlias,
+  uniqueTeamMemberAlias,
   executionMember,
   memberExecutions,
   teamStorageKey,
@@ -17,6 +20,7 @@ import {
 export interface TeamTransport {
   inspect(member: Pick<TeamMember, "serverId" | "agentId" | "workspaceId">): Promise<{
     provider: string;
+    cwd?: string;
     model?: string | null;
     busy: boolean;
     historyEpoch?: string;
@@ -35,26 +39,6 @@ export interface TeamTransport {
   dispose?(): void;
   archive?(member: TeamMember): Promise<void>;
   isArchived?(member: TeamMember): Promise<boolean>;
-}
-
-// Aliases must remain addressable by the existing @mention grammar.
-function modelAlias(provider: string, model?: string | null): string {
-  const name = model?.trim() || provider.charAt(0).toUpperCase() + provider.slice(1);
-  return (
-    name
-      .replace(/[^A-Za-z0-9_\-\u4e00-\u9fff]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 24) || "Agent"
-  );
-}
-function uniqueModelAlias(team: WorkspaceTeam, base: string, memberId?: string): string {
-  let alias = base,
-    suffix = 2;
-  while (
-    team.members.some((m) => m.id !== memberId && m.alias.toLowerCase() === alias.toLowerCase())
-  )
-    alias = `${base}-${suffix++}`;
-  return alias;
 }
 
 const active = (task: TeamTask) =>
@@ -196,9 +180,17 @@ export class WorkspaceTeamService {
       `${createHash("sha256").update(workspaceId).digest("hex")}.json`,
     );
   }
+  private normalizeAliases(team: WorkspaceTeam): WorkspaceTeam {
+    return {
+      ...team,
+      members: resolveTeamMemberAliases(team.members, team.captainId, { legacyOnly: true }),
+    };
+  }
   private async load(workspaceId: string): Promise<WorkspaceTeam> {
     try {
-      return WorkspaceTeamSchema.parse(JSON.parse(await readFile(this.path(workspaceId), "utf8")));
+      return this.normalizeAliases(
+        WorkspaceTeamSchema.parse(JSON.parse(await readFile(this.path(workspaceId), "utf8"))),
+      );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return { version: 1, workspaceId, revision: 0, captainId: null, members: [], tasks: [] };
@@ -250,7 +242,7 @@ export class WorkspaceTeamService {
         );
       }),
     );
-    return records.flat();
+    return records.flat().map((team) => this.normalizeAliases(team));
   }
   resume(): Promise<void> {
     return (this.recovery ??= this.restore());
@@ -463,6 +455,7 @@ export class WorkspaceTeamService {
       member.alias = action.alias;
       member.role = action.role;
       member.skills = action.skills;
+      if (action.pathContext) member.pathContext = action.pathContext;
       if (action.captain) team.captainId = member.id;
     }
   }
@@ -542,14 +535,15 @@ export class WorkspaceTeamService {
         if (team.members.length >= 32) throw new Error("A team can have up to 32 members.");
         const info = joinedInfo!;
         const captain = !team.captainId && action.serverId === this.serverId;
-        const alias = uniqueModelAlias(
-          team,
+        const alias = uniqueTeamMemberAlias(
+          team.members,
           captain ? "Captain" : modelAlias(info.provider, info.model),
         );
         const member: TeamMember = {
           id: randomUUID(),
           alias,
           automaticAlias: !captain,
+          ...(info.cwd ? { pathContext: { repository: basename(info.cwd), root: info.cwd } } : {}),
           serverId: action.serverId,
           workspaceId: action.workspaceId,
           agentId: action.agentId,
@@ -643,9 +637,20 @@ export class WorkspaceTeamService {
       )
         member.executionHistory = [...history, prior];
       member.execution = action.execution;
+      if (
+        prior.serverId !== action.execution.serverId ||
+        prior.agentId !== action.execution.agentId
+      ) {
+        if (target.cwd)
+          member.pathContext = {
+            repository: member.pathContext?.repository ?? basename(target.cwd),
+            root: target.cwd,
+          };
+        else delete member.pathContext;
+      }
       if (member.automaticAlias) {
-        member.alias = uniqueModelAlias(
-          team,
+        member.alias = uniqueTeamMemberAlias(
+          team.members,
           modelAlias(target.provider, target.model ?? action.execution.model),
           member.id,
         );
@@ -717,6 +722,7 @@ export class WorkspaceTeamService {
         memberId: member.id,
         senderId: action.senderId,
         prompt: action.prompt,
+        pathContext: member.pathContext,
         status: "sending",
         result: "",
         createdAt: now,

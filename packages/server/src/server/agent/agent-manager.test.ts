@@ -697,6 +697,105 @@ test("uses an injected timeline store without making it a production requirement
   }
 });
 
+test("viewing a transcript automatically publishes its externally completed reply", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-auto-align-"));
+  const transcript = join(workdir, "session.jsonl");
+  writeFileSync(transcript, "initial");
+  let text = "initial";
+  const session = new (class extends TestAgentSession {
+    getPersistedHistoryPath(): string {
+      return transcript;
+    }
+    async *readPersistedHistory(): AsyncGenerator<AgentStreamEvent> {
+      yield { type: "timeline", provider: "codex", item: { type: "assistant_message", text } };
+    }
+  })({ provider: "codex", cwd: workdir });
+  const close = vi.spyOn(session, "close");
+  const client = new (class extends TestAgentClient {
+    override async createSession(): Promise<AgentSession> {
+      return session;
+    }
+  })();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  let agentId: string | undefined;
+  let observation: ReturnType<AgentManager["observePersistedHistory"]>;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const events: AgentManagerEvent[] = [];
+    manager.subscribe((event) => events.push(event), { agentId: agent.id, replayState: false });
+    observation = manager.observePersistedHistory(agent.id);
+    expect(observation).not.toBeNull();
+    await observation!.ready;
+    text = "external final reply";
+    writeFileSync(transcript, text);
+    await vi.waitFor(
+      async () => {
+        const rows = await manager.getTimelineRows(agent.id);
+        expect(rows.map((row) => row.item)).toEqual([{ type: "assistant_message", text }]);
+      },
+      { timeout: 5000 },
+    );
+    expect(events.filter((event) => event.type === "timeline_replacement")).toHaveLength(2);
+    expect(close).not.toHaveBeenCalled();
+  } finally {
+    await observation?.release();
+    if (agentId) await manager.closeAgent(agentId).catch(() => undefined);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("manual history alignment preserves runtime and old history on read failure", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-align-"));
+  let fail = false;
+  const session = new (class extends TestAgentSession {
+    async *readPersistedHistory(): AsyncGenerator<AgentStreamEvent> {
+      yield {
+        type: "timeline",
+        provider: "codex",
+        item: { type: "assistant_message", text: "aligned" },
+      };
+      if (fail) throw new Error("unreadable transcript");
+    }
+  })({ provider: "codex", cwd: workdir });
+  const close = vi.spyOn(session, "close");
+  const client = new (class extends TestAgentClient {
+    override async createSession(): Promise<AgentSession> {
+      return session;
+    }
+  })();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const events: AgentManagerEvent[] = [];
+    manager.subscribe((event) => events.push(event), { agentId: agent.id, replayState: false });
+    await manager.synchronizePersistedHistory(agent.id);
+    await manager.synchronizePersistedHistory(agent.id);
+    const rows = await manager.getTimelineRows(agent.id);
+    expect(rows.map((row) => row.item)).toEqual([{ type: "assistant_message", text: "aligned" }]);
+    expect(events.filter((event) => event.type === "timeline_replacement")).toHaveLength(2);
+    expect(close).not.toHaveBeenCalled();
+    const busy = vi.spyOn(manager, "hasInFlightRun").mockReturnValue(true);
+    await expect(manager.synchronizePersistedHistory(agent.id)).rejects.toThrow("agent is running");
+    busy.mockRestore();
+    expect(await manager.getTimelineRows(agent.id)).toEqual(rows);
+    fail = true;
+    await expect(manager.synchronizePersistedHistory(agent.id)).rejects.toThrow(
+      "unreadable transcript",
+    );
+    expect(await manager.getTimelineRows(agent.id)).toEqual(rows);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId).catch(() => undefined);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("refreshing an agent replaces the injected timeline store instead of appending a second copy", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-timeline-rehydrate-"));
   const store = new RecordingTimelineStore();

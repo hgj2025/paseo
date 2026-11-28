@@ -1,3 +1,7 @@
+import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
+import { DensityIcon } from "@/components/ui/density-icon";
+import type { ShortcutKey } from "@/utils/format-shortcut";
+const NO_TEAM_SHORTCUT: ShortcutKey[] = [];
 import { useEffect, useState } from "react";
 import { Users } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -21,10 +25,12 @@ export function ConversationActions({
   serverId,
   workspaceId,
   controllerOnly = false,
+  iconOnly = false,
 }: {
   serverId: string;
   workspaceId: string;
   controllerOnly?: boolean;
+  iconOnly?: boolean;
 }) {
   const { t } = useTranslation(),
     key = `${serverId}:${workspaceId}`,
@@ -73,20 +79,32 @@ export function ConversationActions({
   });
 
   if (!supported || !conversation) return null;
+  const teamButton = iconOnly ? (
+    <HeaderToggleButton
+      onPress={openHistory}
+      tooltipLabel={t("workspace.team.dashboard.title")}
+      tooltipKeys={NO_TEAM_SHORTCUT}
+      tooltipSide="bottom"
+      accessibilityLabel={t("workspace.team.dashboard.title")}
+      testID="workspace-team-management"
+    >
+      <DensityIcon icon={Users} size="md" color="foregroundMuted" />
+    </HeaderToggleButton>
+  ) : (
+    <Button
+      size="xs"
+      variant="ghost"
+      leftIcon={Users}
+      onPress={openHistory}
+      accessibilityLabel={t("workspace.team.dashboard.title")}
+      testID="workspace-team-management"
+    >
+      {t("workspace.team.dashboard.title")}
+    </Button>
+  );
   return (
     <>
-      {!controllerOnly && (
-        <Button
-          size="xs"
-          variant="ghost"
-          leftIcon={Users}
-          onPress={openHistory}
-          accessibilityLabel={t("workspace.team.dashboard.title")}
-          testID="workspace-team-management"
-        >
-          {t("workspace.team.dashboard.title")}
-        </Button>
-      )}
+      {!controllerOnly && teamButton}
       {historyOpen && context && (
         <WorkspaceTeamProvider value={context}>
           <TeamDashboard onClose={closeHistory} onOpenMember={openMember} />

@@ -1,3 +1,4 @@
+import { toolCallDisplayOutcome, type DisplayToolStatus } from "./outcome";
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
 import { buildAgentMessageDisplay } from "@getpaseo/protocol/agent-message-display";
 import type { PlanOutcome } from "@/components/plan-card";
@@ -26,6 +27,8 @@ interface BuildToolCallPresentationInput {
 }
 
 export interface ToolCallPresentation {
+  status: DisplayToolStatus;
+  noMatches: boolean;
   detail: ToolCallDetail | undefined;
   displayName: string;
   summary?: string;
@@ -52,6 +55,47 @@ function displayDetail(detail: ToolCallDetail | undefined): ToolCallDetail {
   return detail ?? { type: "unknown", input: null, output: null };
 }
 
+const THINKING_PREVIEW_MAX_LENGTH = 160;
+
+function extractThinkingPreview(
+  toolName: string,
+  detail: ToolCallDetail | undefined,
+): string | undefined {
+  if (toolName.trim().toLowerCase() !== "thinking") {
+    return undefined;
+  }
+  if (detail?.type !== "unknown" || typeof detail.input !== "string") {
+    return undefined;
+  }
+  const parts: string[] = [];
+  let length = 0;
+  for (const rawLine of detail.input.split(/\r?\n/)) {
+    const cleaned = rawLine
+      .trim()
+      .replace(/^(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cleaned) {
+      continue;
+    }
+    parts.push(cleaned);
+    length += cleaned.length + 1;
+    if (length >= THINKING_PREVIEW_MAX_LENGTH) {
+      break;
+    }
+  }
+  if (parts.length === 0) {
+    return undefined;
+  }
+  const joined = parts.join(" ");
+  if (joined.length <= THINKING_PREVIEW_MAX_LENGTH) {
+    return joined;
+  }
+  return `${joined.slice(0, THINKING_PREVIEW_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
 export function buildToolCallPresentation(
   input: BuildToolCallPresentationInput,
 ): ToolCallPresentation {
@@ -59,11 +103,12 @@ export function buildToolCallPresentation(
     ? buildAgentMessageDisplay(input.agentMessage).detail
     : input.detail;
   const detailForDisplay = displayDetail(detail);
+  const outcome = toolCallDisplayOutcome({ status: input.status, detail, error: input.error });
   const displayModel = buildToolCallDisplayModel({
     name: input.toolName,
     agentMessage: input.agentMessage,
-    status: displayStatus(input.status),
-    error: input.error ?? null,
+    status: displayStatus(outcome.status),
+    error: outcome.noMatches ? null : (input.error ?? null),
     detail: detailForDisplay,
     metadata: input.metadata,
     cwd: input.cwd,
@@ -74,11 +119,13 @@ export function buildToolCallPresentation(
     error: input.error,
   });
   const hasDetails = Boolean(input.error) || hasMeaningfulToolCallDetail(detail);
+  const summary = displayModel.summary ?? extractThinkingPreview(input.toolName, detail);
 
   return {
+    ...outcome,
     detail,
     displayName: displayModel.displayName,
-    summary: displayModel.summary,
+    summary,
     errorText: displayModel.errorText,
     icon: input.resolveIcon(input.toolName, detail),
     isLoadingDetails,

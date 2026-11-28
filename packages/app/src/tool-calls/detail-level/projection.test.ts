@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
-import type { StreamItem, ToolCallItem } from "@/types/stream";
+import type { StreamItem, ThoughtItem, ToolCallItem } from "@/types/stream";
+import { buildOverviewPreview } from "./overview/preview";
 import {
   prepareToolCallHistory,
   projectToolCallDetailLevel,
@@ -45,11 +46,26 @@ function assistant(id: string): AssistantMessageItem {
   };
 }
 
+function thought(
+  id: string,
+  text = `thinking ${id}`,
+  status: ThoughtItem["status"] = "ready",
+): ThoughtItem {
+  return {
+    kind: "thought",
+    id,
+    text,
+    status,
+    timestamp: new Date("2026-01-01T00:00:30.000Z"),
+  };
+}
+
 function project(input: {
   level: ToolCallDetailLevel;
   tail?: StreamItem[];
   head?: StreamItem[];
   isTurnActive?: boolean;
+  foldThoughts?: boolean;
   preparedHistory?: PreparedToolCallHistory | null;
 }) {
   const tail = input.tail ?? [];
@@ -57,8 +73,11 @@ function project(input: {
     level: input.level,
     tail,
     head: input.head ?? [],
-    preparedHistory: input.preparedHistory ?? prepareToolCallHistory(input.level, tail),
+    preparedHistory:
+      input.preparedHistory ??
+      prepareToolCallHistory(input.level, tail, { foldThoughts: input.foldThoughts }),
     isTurnActive: input.isTurnActive ?? false,
+    foldThoughts: input.foldThoughts,
   });
 }
 
@@ -492,5 +511,165 @@ describe("tool call detail-level projection", () => {
     expect(result.head).toEqual([singleCall, plan, speak]);
     expect(result.groupsByHostId.get(singleCall.id)?.run.calls).toEqual([singleCall]);
     expect(result.groupsByHostId.size).toBe(1);
+  });
+
+  it("folds interleaved and adjacent thoughts into one overview group in chronological order", () => {
+    const leadingThought = thought("t0", "check branch");
+    const cmd = toolCall("1", { type: "shell", command: "git status" });
+    const midThought = thought("t1", "inspect conflict");
+    const read = toolCall("2", { type: "read", filePath: "/repo/eden.proxy.js" });
+    const trailingThought = thought("t2", "ready to edit");
+    const reply = assistant("done");
+
+    const result = project({
+      level: "overview",
+      tail: [leadingThought, cmd, midThought, read, trailingThought, reply],
+    });
+
+    expect(result.tail).toEqual([
+      expect.objectContaining({ id: cmd.id, timestamp: read.timestamp }),
+      reply,
+    ]);
+    const group = result.groupsByHostId.get(cmd.id);
+    expect(group?.run.calls).toEqual([cmd, read]);
+    expect(group?.run.entries).toEqual([leadingThought, cmd, midThought, read, trailingThought]);
+    expect(group?.summary).toMatchObject({ commandCount: 1, readFileCount: 1 });
+  });
+
+  it("keeps standalone thoughts ungrouped when no tool calls are adjacent", () => {
+    const t1 = thought("t1", "just reasoning");
+    const reply = assistant("answer");
+    const tail = [t1, reply];
+
+    const result = project({ level: "overview", tail });
+
+    expect(result.tail).toBe(tail);
+    expect(result.groupsByHostId.size).toBe(0);
+  });
+
+  it("folds a live streaming thought across the history/head boundary and marks the group loading", () => {
+    const cmd = toolCall("1", { type: "shell", command: "git merge-base HEAD master" });
+    const liveThought = thought("t1", "comparing diff", "loading");
+    const tail = [assistant("start"), cmd];
+
+    const result = project({
+      level: "overview",
+      tail,
+      head: [liveThought],
+      isTurnActive: true,
+    });
+
+    expect(result.tail).toEqual([tail[0], cmd]);
+    expect(result.head).toEqual([]);
+    const group = result.groupsByHostId.get(cmd.id);
+    expect(group).toMatchObject({
+      isLoading: true,
+      run: {
+        calls: [cmd],
+        entries: [cmd, liveThought],
+        isSealed: false,
+      },
+    });
+    expect(result.historyGroupUpdatesByHostId.get(cmd.id)).toBe(group);
+  });
+
+  it("keeps thoughts outside overview groups when foldThoughts is disabled", () => {
+    const cmd = toolCall("1", { type: "shell", command: "git status" });
+    const midThought = thought("t1", "auto expanded reasoning");
+    const read = toolCall("2", { type: "read", filePath: "/repo/eden.proxy.js" });
+
+    const result = project({
+      level: "overview",
+      tail: [cmd, midThought, read],
+      foldThoughts: false,
+    });
+
+    expect(result.tail.map((item) => item.id)).toEqual(["1", "t1", "2"]);
+    expect(result.groupsByHostId.get("1")?.run.entries).toEqual([cmd]);
+    expect(result.groupsByHostId.get("2")?.run.entries).toEqual([read]);
+  });
+});
+
+describe("overview target preview", () => {
+  it("shows relative path and openFilePath for a single file call", () => {
+    const edit = toolCall("1", { type: "edit", filePath: "/repo/src/eden.proxy.js" });
+    const result = project({ level: "overview", tail: [edit] });
+    const group = result.groupsByHostId.get("1")!;
+
+    expect(buildOverviewPreview(group.run, "/repo")).toEqual({
+      secondaryLabel: "src/eden.proxy.js",
+      openFilePath: "/repo/src/eden.proxy.js",
+    });
+  });
+
+  it("shows single-line shell command and falls back to tool name for unknown calls", () => {
+    const shell = toolCall("1", { type: "shell", command: "git diff\n  --stat" });
+    const paseo = toolCall(
+      "2",
+      { type: "unknown", input: null, output: null },
+      { name: "paseo.list_agents" },
+    );
+
+    const shellGroup = project({ level: "overview", tail: [shell] }).groupsByHostId.get("1")!;
+    const paseoGroup = project({ level: "overview", tail: [paseo] }).groupsByHostId.get("2")!;
+
+    expect(buildOverviewPreview(shellGroup.run)).toEqual({
+      secondaryLabel: "git diff --stat",
+    });
+    expect(buildOverviewPreview(paseoGroup.run)).toEqual({
+      secondaryLabel: "List agents",
+    });
+  });
+
+  it("prioritizes edited files and disambiguates colliding basenames in multi-call groups", () => {
+    const calls = [
+      toolCall("1", { type: "shell", command: "git status" }),
+      toolCall("2", { type: "read", filePath: "/repo/README.md" }),
+      toolCall("3", { type: "edit", filePath: "/repo/packages/a/index.ts" }),
+      toolCall("4", { type: "edit", filePath: "/repo/packages/b/index.ts" }),
+    ];
+    const group = project({ level: "overview", tail: calls }).groupsByHostId.get("1")!;
+
+    expect(buildOverviewPreview(group.run, "/repo")).toEqual({
+      secondaryLabel: "packages/a/index.ts, packages/b/index.ts",
+    });
+  });
+
+  it("formats multiple distinct file basenames with overflow count", () => {
+    const calls = [
+      toolCall("1", { type: "read", filePath: "/repo/src/eden.proxy.js" }),
+      toolCall("2", { type: "read", filePath: "/repo/src/edenx.config.ts" }),
+      toolCall("3", { type: "read", filePath: "/repo/src/package.json" }),
+    ];
+    const group = project({ level: "overview", tail: calls }).groupsByHostId.get("1")!;
+
+    expect(buildOverviewPreview(group.run, "/repo")).toEqual({
+      secondaryLabel: "eden.proxy.js, edenx.config.ts +1",
+    });
+  });
+
+  it("joins distinct shell commands when settled and highlights the running command while active", () => {
+    const calls = [
+      toolCall("1", { type: "shell", command: "git merge-base HEAD master" }),
+      toolCall("2", { type: "shell", command: "git diff --stat" }, { status: "running" }),
+    ];
+
+    const liveGroup = project({
+      level: "overview",
+      head: calls,
+      isTurnActive: true,
+    }).groupsByHostId.get("1")!;
+    expect(buildOverviewPreview(liveGroup.run)).toEqual({
+      secondaryLabel: "git diff --stat",
+    });
+
+    const settledCalls = [calls[0]!, toolCall("2", { type: "shell", command: "git diff --stat" })];
+    const settledGroup = project({
+      level: "overview",
+      tail: settledCalls,
+    }).groupsByHostId.get("1")!;
+    expect(buildOverviewPreview(settledGroup.run)).toEqual({
+      secondaryLabel: "git merge-base HEAD master · git diff --stat",
+    });
   });
 });

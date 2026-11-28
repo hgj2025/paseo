@@ -1,9 +1,10 @@
+import { memberPathInstructions, resultPathInstructions } from "./workspace-team-path-context.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
 import { getWorkspaceTeamService } from "./workspace-team-runtime.js";
 import { getOrCreateServerId } from "./server-id.js";
 import { createTestLogger } from "../test-utils/test-logger.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -57,6 +58,57 @@ describe("stable conversation execution binding", () => {
     provider: "codex",
     model: "model-a",
     operationId: randomUUID(),
+  });
+  it("initializes directory context, persists edits, and rebases only the root when execution moves", async () => {
+    vi.mocked(transport.inspect).mockResolvedValue({
+      provider: "codex",
+      cwd: "/Users/me/mock_platform",
+      busy: false,
+    });
+    const { team, member } = await setup();
+    expect(member.pathContext).toEqual({
+      repository: "mock_platform",
+      root: "/Users/me/mock_platform",
+    });
+    const edited = await service.executeSession(workspace, session, {
+      kind: "edit",
+      memberId: member.id,
+      revision: team.revision,
+      alias: member.alias,
+      role: member.role,
+      skills: [],
+      captain: false,
+      pathContext: { repository: "platform", root: "/Users/me" },
+    });
+    const same = await service.executeSession(workspace, session, {
+      kind: "configure_execution",
+      memberId: member.id,
+      revision: edited.revision,
+      execution: {
+        serverId: member.serverId,
+        workspaceId: member.workspaceId,
+        agentId: member.agentId,
+        provider: member.provider,
+        operationId: randomUUID(),
+      },
+    });
+    expect(same.members[1]!.pathContext).toEqual({ repository: "platform", root: "/Users/me" });
+    vi.mocked(transport.inspect).mockResolvedValue({
+      provider: "codex",
+      cwd: "/workspace/platform",
+      busy: false,
+    });
+    const moved = await service.executeSession(workspace, session, {
+      kind: "configure_execution",
+      memberId: member.id,
+      revision: same.revision,
+      execution: runner(),
+    });
+    expect(moved.members[1]!.pathContext).toEqual({
+      repository: "platform",
+      root: "/workspace/platform",
+    });
+    expect((await read()).members[1]!.pathContext).toEqual(moved.members[1]!.pathContext);
   });
   it("keeps session, member, pane, alias and anchor across host changes and daemon reload", async () => {
     const { team, member } = await setup();
@@ -114,7 +166,7 @@ describe("stable conversation execution binding", () => {
       model: "Opus 5.5",
       busy: false,
     });
-    const { team, member } = await setup();
+    const { member } = await setup();
     expect(member.alias).toBe("Opus-5-5");
     const added = await service.executeSession(workspace, session, {
       kind: "join",
@@ -411,5 +463,96 @@ describe("conversation archival of stored-only agents", () => {
     expect(result.status).toBe("ending");
     expect(Object.values(result.archiveErrors ?? {}).join()).toContain("workspace changed");
     expect((await storage.get(captain))?.archivedAt).toBeNull();
+  });
+});
+
+describe("legacy member alias recovery", () => {
+  it("repairs persisted provider defaults on read and follows the next model switch", async () => {
+    const home = await mkdtemp(join(tmpdir(), "paseo-legacy-name-"));
+    const transport: TeamTransport = {
+      inspect: vi.fn(async () => ({ provider: "codex", busy: false })),
+      send: vi.fn(async () => "acknowledged" as const),
+      observe: vi.fn(async () => ({ status: "running" as const, result: "" })),
+      notify: vi.fn(async () => {}),
+    };
+    const service = new WorkspaceTeamService(home, "mac", transport);
+    try {
+      const workspace = "work",
+        session = randomUUID();
+      await service.executeSession(workspace, session, {
+        kind: "join",
+        serverId: "mac",
+        workspaceId: workspace,
+        agentId: randomUUID(),
+        paneId: "captain",
+      });
+      const team = await service.executeSession(workspace, session, {
+        kind: "join",
+        serverId: "mac",
+        workspaceId: workspace,
+        agentId: randomUUID(),
+        paneId: "peer",
+      });
+      const file = join(
+        home,
+        "conversation-teams",
+        (await readdir(join(home, "conversation-teams")))[0]!,
+      );
+      const legacy = JSON.parse(await readFile(file, "utf8"));
+      delete legacy.members[1].automaticAlias;
+      legacy.members[1].alias = "Codex";
+      legacy.members[1].execution = {
+        serverId: "mac",
+        workspaceId: workspace,
+        agentId: team.members[1]!.agentId,
+        provider: "claude",
+        model: "claude-opus-5-5",
+      };
+      await writeFile(file, JSON.stringify(legacy));
+      const read = await service.executeSession(workspace, session, { kind: "read" });
+      expect(read.members[1]).toMatchObject({
+        alias: "claude-opus-5-5",
+        automaticAlias: true,
+        id: team.members[1]!.id,
+      });
+      vi.mocked(transport.inspect).mockResolvedValue({ provider: "codex", busy: false });
+      const changed = await service.executeSession(workspace, session, {
+        kind: "configure_execution",
+        memberId: team.members[1]!.id,
+        revision: read.revision,
+        execution: {
+          serverId: "mac",
+          workspaceId: workspace,
+          agentId: team.members[1]!.agentId,
+          provider: "codex",
+          model: "gpt-next",
+          operationId: randomUUID(),
+        },
+      });
+      expect(changed.members[1]).toMatchObject({
+        alias: "gpt-next",
+        automaticAlias: true,
+        id: team.members[1]!.id,
+      });
+    } finally {
+      service.dispose();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("team path communication", () => {
+  it("uses recipient mapping and labels result roots without rewriting file references", () => {
+    const paths = { repository: "platform", root: "/workspace/platform" };
+    const instructions = memberPathInstructions({ serverId: "devbox", pathContext: paths });
+    expect(instructions).toContain(JSON.stringify(paths));
+    expect(instructions).toContain("repository-relative path");
+    expect(instructions).toContain("not shared or automatically transferred");
+    expect(
+      resultPathInstructions({
+        pathContext: { repository: "platform", root: "/Users/me/platform" },
+      }),
+    ).toContain("do not use its root locally");
+    expect(memberPathInstructions({ serverId: "mac" })).toContain("verify your working directory");
   });
 });

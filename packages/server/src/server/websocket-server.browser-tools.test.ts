@@ -1,6 +1,8 @@
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCollaborationBridge } from "./agent/collaboration-bridge.js";
+import { RemoteAgents } from "./agent/remote-agents.js";
 import { createServer, type Server as HTTPServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -461,6 +463,87 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+it("routes a team owner's inspection through an authenticated Mac subscription without SSH config", async () => {
+  const httpServer = createServer();
+  const wsServer = createVoiceAssistantWebSocketServer({ httpServer, broker: createBroker() });
+  await listen(httpServer);
+  const client = new DaemonClient({
+    url: `ws://127.0.0.1:${getPort(httpServer)}/ws`,
+    clientType: "browser",
+    reconnect: { enabled: false },
+    capabilities: { [CLIENT_CAPS.ownedSubscriptions]: true },
+  });
+  const home = "/tmp/paseo-browser-tools-websocket-test";
+  const agentId = "11111111-1111-4111-8111-111111111111";
+  let registration: ReturnType<DaemonClient["registerCollaborationBridge"]> | undefined;
+  try {
+    await client.connect();
+    registration = client.registerCollaborationBridge(["hgj-mac-coordinator"]);
+    registration.subscribe({
+      snapshot: () => {},
+      update: (message) => {
+        if (message.type !== "collaboration.bridge.execute.request") return;
+        expect(message.hostId).toBe("hgj-mac-coordinator");
+        if (message.operation.op === "ping") {
+          client.sendCollaborationBridgeResponse({
+            type: "collaboration.bridge.execute.response",
+            requestId: message.requestId,
+            result: { ok: true },
+          });
+          return;
+        }
+        expect("workspaceId" in message.operation && message.operation.workspaceId).toBe(
+          "workspace",
+        );
+        client.sendCollaborationBridgeResponse({
+          type: "collaboration.bridge.execute.response",
+          requestId: message.requestId,
+          result: {
+            Id: agentId,
+            Provider: "claude",
+            Model: "fable",
+            Status: "idle",
+            Archived: false,
+            WorkspaceId: "workspace",
+            HistoryEpoch: "epoch",
+            HistorySeq: 5,
+          },
+        });
+      },
+    });
+    await registration.ready;
+    expect(client.getLastServerInfoMessage()?.features?.connectionDiagnostics).toBe(true);
+    const health = await client.getCollaborationHealth();
+    expect(health.error).toBeNull();
+    expect(health.routes).toEqual([
+      expect.objectContaining({ hostId: "hgj-mac-coordinator", transport: "mac", status: "ok" }),
+    ]);
+    const remote = new RemoteAgents(home);
+    await expect(
+      remote.inspect("hgj-mac-coordinator", agentId, "workspace"),
+    ).resolves.toMatchObject({ Id: agentId, Model: "fable", HistorySeq: 5 });
+    const changed = new Promise<void>((resolve) => {
+      const off = getCollaborationBridge(home).subscribe((event) => {
+        if (event.serverId === "hgj-mac-coordinator") {
+          off();
+          resolve();
+        }
+      });
+    });
+    client.sendCollaborationBridgeChanged("hgj-mac-coordinator", agentId);
+    await changed;
+    client.updateCollaborationBridgeRoutes(["hgj-mac-coordinator", "new-host"]);
+    await waitFor(() => getCollaborationBridge(home).has("new-host"));
+    await client.close();
+    await waitFor(() => !getCollaborationBridge(home).has("hgj-mac-coordinator"));
+  } finally {
+    await registration?.release().catch(() => {});
+    await client.close();
+    await wsServer.close();
+    await closeHttpServer(httpServer);
+  }
+});
 
 it("reads and distributes a session-free directory over the real daemon WebSocket RPC", async () => {
   const home = await mkdtemp(join(tmpdir(), "paseo-directory-rpc-"));

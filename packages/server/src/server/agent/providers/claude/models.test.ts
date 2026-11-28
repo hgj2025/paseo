@@ -19,6 +19,7 @@ import {
   findClaudeModel,
   getClaudeContextWindowMaxTokens,
   getClaudeModels,
+  mergeClaudeDiscoveredModels,
   normalizeClaudeRuntimeModelId,
 } from "./models.js";
 
@@ -253,6 +254,34 @@ describe("getClaudeModels", () => {
 });
 
 describe("ClaudeAgentClient.fetchCatalog", () => {
+  it("discovers a new model on the next catalog refresh without a manifest update", async () => {
+    const configDir = await createClaudeConfigDir({});
+    let advertised: ModelInfo[] = [];
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      resolveVersion: async () => "2.1.318",
+      runtimeSettings: { env: { CLAUDE_CONFIG_DIR: configDir } },
+      discoverModels: async () => advertised,
+    });
+    const options = { scope: "workspace" as const, cwd: configDir, force: true };
+    expect(
+      (await client.fetchCatalog(options)).models.some((m) => m.id === "claude-fable-5-2"),
+    ).toBe(false);
+    advertised = [
+      {
+        value: "claude-fable-5-2",
+        resolvedModel: "claude-fable-5-2",
+        displayName: "Fable 5.2",
+        description: "",
+        supportedEffortLevels: ["low", "high", "xhigh", "max"],
+      },
+    ];
+    const model = (await client.fetchCatalog(options)).models.find(
+      (m) => m.id === "claude-fable-5-2",
+    );
+    expect(model?.label).toBe("Fable 5.2");
+    expect(model?.thinkingOptions?.map((o) => o.id)).toContain("xhigh");
+  });
   it.each([
     { value: "mythos", resolvedModel: "claude-mythos-5-1", expected: true },
     { value: "claude-mythos-5-1", expected: true },
@@ -988,5 +1017,63 @@ describe("Claude model discovery process", () => {
     );
     await expect(result).rejects.toBe(failure);
     expect(closed).toBe(true);
+  });
+});
+
+describe("runtime catalog additions", () => {
+  it("adds new canonical models, deduplicates aliases and uses advertised effort without guessing limits", () => {
+    const rows: ModelInfo[] = [
+      {
+        value: "fable",
+        resolvedModel: "claude-fable-5-2",
+        displayName: "Fable 5.2",
+        description: "New",
+        supportedEffortLevels: ["low", "xhigh"],
+      },
+      {
+        value: "claude-fable-5-2",
+        displayName: "Fable 5.2",
+        description: "New",
+        supportedEffortLevels: ["low", "xhigh"],
+      },
+    ];
+    const models = mergeClaudeDiscoveredModels(getClaudeModels(), rows);
+    const added = models.filter((m) => m.id === "claude-fable-5-2");
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({
+      label: "Fable 5.2",
+      thinkingOptions: [
+        { id: "low", label: "Low" },
+        { id: "xhigh", label: "Extra High" },
+      ],
+    });
+    expect(added[0]?.contextWindowMaxTokens).toBeUndefined();
+    expect(models.some((m) => m.id === "claude-opus-5-5")).toBe(true);
+    expect(mergeClaudeDiscoveredModels(getClaudeModels(), [])).toEqual(getClaudeModels());
+  });
+  it("keeps gateway identities and excludes placeholder/default rows", () => {
+    const models = mergeClaudeDiscoveredModels(
+      [],
+      [
+        { value: "default", displayName: "Default", description: "" },
+        { value: "<synthetic>", displayName: "Synthetic", description: "" },
+        {
+          value: "gateway/custom-model",
+          displayName: "Custom",
+          description: "",
+          supportsEffort: false,
+        },
+      ],
+    );
+    expect(models).toEqual([
+      {
+        provider: "claude",
+        id: "gateway/custom-model",
+        label: "Custom",
+        description: "",
+        thinkingOptions: [],
+        defaultThinkingOptionId: undefined,
+      },
+    ]);
   });
 });

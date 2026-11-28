@@ -38,7 +38,7 @@ import { SidebarMenuToggle } from "@/components/headers/sidebar-menu-toggle";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { FloatingHeaderLayout } from "@/components/floating-header";
-import { StreamTopOverlayProvider, supportsStreamTopOverlay } from "@/agent-stream/top-overlay";
+import { StreamTopOverlayProvider } from "@/agent-stream/top-overlay";
 import {
   CompactWorkspaceHeader,
   MobileWorkspaceTabSwitcher,
@@ -789,18 +789,13 @@ function WorkspaceDocumentTitleEffectSlot({
   );
 }
 
-function floatsHeaderOverContent(activeTab: WorkspaceTabDescriptor | null): boolean {
-  return supportsStreamTopOverlay && activeTab?.kind === "agent";
-}
-
 /** A fullscreen composer covers the compact header; the column lays out without it. */
-function resolveCompactHeaderLayout(input: {
+function resolveCompactHeaderLayout(input: { header: ReactNode; composerFullscreen: boolean }): {
   header: ReactNode;
-  activeTab: WorkspaceTabDescriptor | null;
-  composerFullscreen: boolean;
-}): { header: ReactNode; floating: boolean } {
+  floating: boolean;
+} {
   if (input.composerFullscreen) return { header: null, floating: false };
-  return { header: input.header, floating: floatsHeaderOverContent(input.activeTab) };
+  return { header: input.header, floating: false };
 }
 
 function shouldShowWorkspaceScreenHeader(input: {
@@ -2159,7 +2154,12 @@ function WorkspaceScreenContent({
       const target =
         layout && collectAllTabs(layout.root).find((tab) => tab.tabId === tabId)?.target;
       if (!conversation || !target || !conversationTarget(target)) return false;
-      if (conversation.endedAt) return true;
+      if (conversation.endedAt) {
+        if (tabId === conversation.rootTabId) {
+          state.endConversation(persistenceKey, conversation.id);
+        }
+        return true;
+      }
       const confirmed = await confirmDialog({
         title: t("conversation.end"),
         message:
@@ -2185,6 +2185,10 @@ function WorkspaceScreenContent({
             conversation.id,
           );
           assertConversationEnded(result);
+          queryClient.setQueryData(
+            ["workspace-team", normalizedServerId, normalizedWorkspaceId, conversation.id],
+            result,
+          );
           state.endConversation(persistenceKey, conversation.id);
         } else {
           await removeConversationMember(tabId, target, conversation.id);
@@ -2197,7 +2201,9 @@ function WorkspaceScreenContent({
     [
       persistenceKey,
       client,
+      normalizedServerId,
       normalizedWorkspaceId,
+      queryClient,
       t,
       toast,
       confirmDiscardModifiedTab,
@@ -3477,7 +3483,11 @@ function WorkspaceScreenContent({
           explorerToggleLabel={explorerSidebarToggleLabel}
           explorerToggleAccessibilityState={explorerSidebarToggleAccessibilityState}
         >
-          <ConversationActions serverId={normalizedServerId} workspaceId={normalizedWorkspaceId} />
+          <ConversationActions
+            serverId={normalizedServerId}
+            workspaceId={normalizedWorkspaceId}
+            iconOnly
+          />
           <MobileWorkspaceTabSwitcher
             tabs={tabs}
             activeTabKey={activeTabKey}
@@ -3616,7 +3626,6 @@ function WorkspaceScreenContent({
   const workspacePanelKey = `${normalizedServerId}:${normalizedWorkspaceId}`;
   const compactHeaderLayout = resolveCompactHeaderLayout({
     header: compactWorkspaceHeader,
-    activeTab: activeTabDescriptor,
     composerFullscreen: useComposerTabFullscreen(workspacePanelKey, activeTabId),
   });
 

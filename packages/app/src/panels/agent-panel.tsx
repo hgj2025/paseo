@@ -1,3 +1,4 @@
+import { useHistoryHealthObservation } from "@/history-health/use-observation";
 import { useModelHostContext } from "@/screens/workspace/model-host-context";
 import { useConversationHistory } from "@/screens/workspace/conversation-history-context";
 import { ModelLimitNotice } from "./model-limit-notice";
@@ -829,6 +830,12 @@ function ChatAgentContent({
       : ("cold" as const),
   );
   const hasAppliedAuthoritativeHistory = replicaTimelineStatus === "synced";
+  useHistoryHealthObservation({
+    serverId,
+    agentId,
+    active: isPaneVisible,
+    ready: hasAppliedAuthoritativeHistory,
+  });
   const agentHistorySyncGeneration = useSessionStore((state) =>
     agentId ? (state.sessions[serverId]?.agentHistorySyncGeneration?.get(agentId) ?? -1) : -1,
   );
@@ -1146,6 +1153,24 @@ function ChatAgentContent({
   );
 }
 
+function isWorkspaceConversationEnded(
+  conversationEnded: boolean,
+  teamStatus: string | undefined,
+): boolean {
+  return conversationEnded || Boolean(teamStatus && teamStatus !== "active");
+}
+
+function resolveComposerFooterSection(input: {
+  showsComposer: boolean;
+  isConversationEnded: boolean;
+  isSheetHost: boolean;
+  composerNode: ReactNode;
+}): ReactNode {
+  if (input.showsComposer) return input.composerNode;
+  if (input.isConversationEnded && !input.isSheetHost) return <EndedConversationCallout />;
+  return null;
+}
+
 const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   serverId,
   workspaceId,
@@ -1207,10 +1232,12 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   const conversationEnded = useWorkspaceLayoutStore((state) =>
     Boolean(activeConversation(state, ownerKey)?.endedAt),
   );
-  const showsComposer =
-    pane.host !== "sheet" &&
-    !conversationEnded &&
-    (!conversationTeam?.status || conversationTeam.status === "active");
+  const isConversationEnded = isWorkspaceConversationEnded(
+    conversationEnded,
+    conversationTeam?.status,
+  );
+  const isSheetHost = pane.host === "sheet";
+  const showsComposer = !isSheetHost && !isConversationEnded;
   // The dock lays out fullscreen for the same session the composer edits in.
   const composerEditingSession = useComposerEditingSession("chat");
   const isComposerFullscreen = useComposerFullscreen(composerEditingSession);
@@ -1278,30 +1305,35 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       composerState,
     ],
   );
-  const composerSection = showsComposer ? (
-    <RenderProfile id={`AgentComposerSection:${agentId}`}>
-      <ModelLimitNotice
-        status={agentState.status ?? "idle"}
-        error={agentState.lastError}
-        model={agentState.model}
-      />
-      <AgentComposerSection
-        agentId={agentId}
-        serverId={serverId}
-        isPaneFocused={isPaneFocused}
-        isArchivingCurrentAgent={isArchivingCurrentAgent}
-        archivedAt={agentState.archivedAt}
-        cwd={cwd}
-        isSubmitLoading={false}
-        agentInputDraft={agentInputDraft}
-        editingSession={composerEditingSession}
-        onAttentionInputFocus={onAttentionInputFocus}
-        onAttentionPromptSend={onAttentionPromptSend}
-        onComposerHeightChange={handleComposerHeightChange}
-        onMessageSent={handleMessageSent}
-      />
-    </RenderProfile>
-  ) : null;
+  const composerSection = resolveComposerFooterSection({
+    showsComposer,
+    isConversationEnded,
+    isSheetHost,
+    composerNode: (
+      <RenderProfile id={`AgentComposerSection:${agentId}`}>
+        <ModelLimitNotice
+          status={agentState.status ?? "idle"}
+          error={agentState.lastError}
+          model={agentState.model}
+        />
+        <AgentComposerSection
+          agentId={agentId}
+          serverId={serverId}
+          isPaneFocused={isPaneFocused}
+          isArchivingCurrentAgent={isArchivingCurrentAgent}
+          archivedAt={agentState.archivedAt}
+          cwd={cwd}
+          isSubmitLoading={false}
+          agentInputDraft={agentInputDraft}
+          editingSession={composerEditingSession}
+          onAttentionInputFocus={onAttentionInputFocus}
+          onAttentionPromptSend={onAttentionPromptSend}
+          onComposerHeightChange={handleComposerHeightChange}
+          onMessageSent={handleMessageSent}
+        />
+      </RenderProfile>
+    ),
+  });
   const streamContent = (
     <View style={animatedStaticStyles.content}>
       {showsComposer ? null : <SheetAgentFacts serverId={serverId} agentId={agentId} />}
@@ -1316,6 +1348,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
           hasActiveComposer={hasActiveComposer}
           hasVisibleAgentTracks={hasVisibleAgentTracks}
+          emptyText={isConversationEnded ? t("conversation.ended") : undefined}
           toast={toastApi}
           onOpenWorkspaceFile={onOpenWorkspaceFile}
         />
@@ -1434,6 +1467,19 @@ function TimelineSyncErrorCallout({
   );
 }
 
+function EndedConversationCallout() {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.endedConversationRail} testID="conversation-ended-callout">
+      <View style={styles.endedConversationContent}>
+        <View style={styles.endedConversationCallout}>
+          <Text style={styles.endedConversationText}>{t("conversation.readOnly")}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 /**
  * What the composer's controls and context meter would show, as one line, for an agent shown
  * without its composer.
@@ -1441,7 +1487,8 @@ function TimelineSyncErrorCallout({
 function SheetAgentFacts({ serverId, agentId }: { serverId: string; agentId: string }) {
   const agent = useSessionStore(
     useShallow((state) => {
-      const current = state.sessions[serverId]?.agents.get(agentId);
+      const session = state.sessions[serverId];
+      const current = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
       return current
         ? {
             provider: current.provider,
@@ -1474,6 +1521,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasAppliedAuthoritativeHistory,
   hasActiveComposer,
   hasVisibleAgentTracks,
+  emptyText,
   toast,
   onOpenWorkspaceFile,
 }: {
@@ -1486,6 +1534,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasAppliedAuthoritativeHistory: boolean;
   hasActiveComposer: boolean;
   hasVisibleAgentTracks: boolean;
+  emptyText?: string;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
 }) {
@@ -1568,6 +1617,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       toast={toast}
       pendingMessageSubmissions={pendingMessageSubmissions}
       turnPresentation={turnPresentation}
+      emptyText={emptyText}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
     />
   );
@@ -1884,6 +1934,30 @@ const styles = StyleSheet.create((theme) => ({
   timelineSyncCalloutText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
+  },
+  endedConversationRail: {
+    width: "100%",
+    alignItems: "center",
+    padding: theme.spacing[4],
+  },
+  endedConversationContent: {
+    width: "100%",
+    maxWidth: theme.contentMaxWidth,
+  },
+  endedConversationCallout: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface1,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius["2xl"],
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+  },
+  endedConversationText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.base,
+    textAlign: "center",
   },
   historySyncOverlay: {
     position: "absolute",

@@ -11,10 +11,19 @@ export const TeamExecutionSchema = z.object({
   operationId: z.string().uuid().optional(),
 });
 export type TeamExecution = z.infer<typeof TeamExecutionSchema>;
+export const TeamPathContextSchema = z.object({
+  repository: z.string().min(1).max(120),
+  root: z
+    .string()
+    .min(1)
+    .max(4096)
+    .regex(/^(?:\/|[A-Za-z]:[\\/])/),
+});
 export const TeamMemberSchema = z.object({
   id: z.string().uuid(),
   alias: TeamAliasSchema,
   automaticAlias: z.boolean().optional(),
+  pathContext: TeamPathContextSchema.optional(),
   serverId: z.string().min(1),
   workspaceId: z.string().min(1),
   agentId: z.string().uuid(),
@@ -32,6 +41,7 @@ export const TeamTaskSchema = z.object({
   memberId: z.string().uuid(),
   senderId: z.string().uuid().nullable(),
   prompt: z.string().max(40000),
+  pathContext: TeamPathContextSchema.optional(),
   status: z.enum(["sending", "running", "permission", "completed", "failed", "uncertain"]),
   result: z.string(),
   createdAt: z.string(),
@@ -111,6 +121,7 @@ export const TeamActionSchema = z.discriminatedUnion("kind", [
     memberId: z.string().uuid(),
     revision: z.number().int(),
     alias: TeamAliasSchema,
+    pathContext: TeamPathContextSchema.optional(),
     role: z.string().max(1000),
     skills: z.array(z.string().max(40)).max(12),
     captain: z.boolean(),
@@ -197,4 +208,67 @@ export function memberExecutions(member: TeamMember): TeamExecution[] {
         (other) => other.serverId === entry.serverId && other.agentId === entry.agentId,
       ) === index,
   );
+}
+
+/** Only legacy provider defaults and explicitly automatic aliases follow execution models. */
+export function isAutomaticTeamMember(member: TeamMember, captainId: string | null): boolean {
+  return (
+    member.id !== captainId &&
+    (member.automaticAlias === true ||
+      (member.automaticAlias === undefined &&
+        member.alias.toLowerCase() === member.provider.toLowerCase()))
+  );
+}
+export function teamModelAlias(provider: string, model?: string | null): string {
+  const name = model?.trim() || provider.charAt(0).toUpperCase() + provider.slice(1);
+  return (
+    name
+      .replace(/[^A-Za-z0-9_\-\u4e00-\u9fff]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "Agent"
+  );
+}
+export function uniqueTeamMemberAlias(
+  members: readonly TeamMember[],
+  base: string,
+  memberId?: string,
+): string {
+  let alias = base,
+    suffix = 2;
+  while (
+    members.some(
+      (member) => member.id !== memberId && member.alias.toLowerCase() === alias.toLowerCase(),
+    )
+  )
+    alias = `${base}-${suffix++}`;
+  return alias;
+}
+
+/** Normalize after schema validation, without changing conversation anchors or execution bindings. */
+export function resolveTeamMemberAliases(
+  members: readonly TeamMember[],
+  captainId: string | null,
+  options: { models?: ReadonlyMap<string, string | null | undefined>; legacyOnly?: boolean } = {},
+): TeamMember[] {
+  const eligible = (member: TeamMember) =>
+    isAutomaticTeamMember(member, captainId) &&
+    (!options.legacyOnly || member.automaticAlias === undefined);
+  const reserved = members.filter((member) => !eligible(member));
+  const resolved = new Map<string, TeamMember>();
+  for (const member of members) {
+    if (!eligible(member)) continue;
+    const model = options.models?.get(member.id) ?? member.execution?.model;
+    const base =
+      model?.trim() || member.execution
+        ? teamModelAlias(member.execution?.provider ?? member.provider, model)
+        : member.alias;
+    const alias = uniqueTeamMemberAlias(reserved, base);
+    const next =
+      alias === member.alias && member.automaticAlias === true
+        ? member
+        : { ...member, alias, automaticAlias: true };
+    reserved.push(next);
+    resolved.set(member.id, next);
+  }
+  return members.map((member) => resolved.get(member.id) ?? member);
 }

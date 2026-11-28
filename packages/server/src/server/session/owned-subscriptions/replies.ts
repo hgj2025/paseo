@@ -42,7 +42,7 @@ const statuses = {
   agent_created: ["create_agent_request"],
   agent_create_failed: ["create_agent_request", "import_agent_request"],
   agent_resumed: ["resume_agent_request", "import_agent_request"],
-  agent_refreshed: ["refresh_agent_request"],
+  agent_refreshed: ["refresh_agent_request", "synchronize_agent_history_request"],
   restart_requested: ["restart_server_request"],
   shutdown_requested: ["shutdown_server_request"],
 } satisfies Record<StatusReply, readonly Request["type"][]>;

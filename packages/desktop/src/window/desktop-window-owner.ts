@@ -92,7 +92,17 @@ export function createDesktopWindowOwner<TAgentTarget>(
       if (deliverable) window.sendAgent(deliverable);
     },
     async restoreWhenActivated() {
-      if (port.windows().length === 0) await owner.openPrimary();
+      const windows = port.windows().filter((window) => !window.isDestroyed());
+      if (windows.length === 0) {
+        await owner.openPrimary();
+        return;
+      }
+      if (!windows.some((window) => window.isVisible())) {
+        const window = windows[0]!;
+        if (window.isMinimized()) window.restore();
+        window.show();
+        window.focus();
+      }
     },
     takePendingProject: (webContentsId) => pendingProjects.take(webContentsId),
   };

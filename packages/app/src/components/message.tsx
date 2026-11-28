@@ -3073,6 +3073,7 @@ export const ToolCall = memo(function ToolCall({
   forceInline = false,
   maxDetailHeight = 400,
 }: ToolCallProps) {
+  const { t } = useTranslation();
   const { openToolCall } = useToolCallSheet();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false);
 
@@ -3200,24 +3201,49 @@ export const ToolCall = memo(function ToolCall({
     );
   }
 
+  const isExpandedInline = shouldRenderInline && isExpanded;
+  const secondaryLabel = resolveToolCallSecondaryLabel({
+    toolName,
+    isExpandedInline,
+    noMatches: presentation.noMatches,
+    noMatchesLabel: t("paneFind.noMatches"),
+    summary: presentation.summary,
+  });
+
   return (
     <ExpandableBadge
       testID="tool-call-badge"
       label={presentation.displayName}
-      secondaryLabel={presentation.summary}
+      secondaryLabel={secondaryLabel}
       icon={presentation.icon}
-      isExpanded={shouldRenderInline && isExpanded}
+      isExpanded={isExpandedInline}
       onToggle={presentation.canOpenDetails ? handleToggle : undefined}
       onOpenFile={handleOpenFile}
       renderDetails={presentation.canOpenDetails && shouldRenderInline ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
-      isError={status === "failed"}
+      isError={presentation.status === "failed"}
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
       onDetailHoverChange={onInlineDetailsHoverChange}
     />
   );
 }, areToolCallPropsEqual);
+
+function resolveToolCallSecondaryLabel(input: {
+  toolName: string;
+  isExpandedInline: boolean;
+  noMatches: boolean;
+  noMatchesLabel: string;
+  summary: string | undefined;
+}): string | undefined {
+  if (input.noMatches) {
+    return `${input.noMatchesLabel} · ${input.summary ?? ""}`;
+  }
+  if (input.isExpandedInline && input.toolName.trim().toLowerCase() === "thinking") {
+    return undefined;
+  }
+  return input.summary;
+}
 
 function areToolCallPropsEqual(previous: ToolCallProps, next: ToolCallProps) {
   if (previous.toolName !== next.toolName) return false;

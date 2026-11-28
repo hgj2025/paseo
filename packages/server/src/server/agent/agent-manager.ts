@@ -1,3 +1,4 @@
+import { PersistedHistoryObserver } from "./persisted-history-observer.js";
 import { projectTimelineRows } from "./timeline-projection.js";
 import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
@@ -732,6 +733,7 @@ export interface RetiredInternalAgent {
 }
 
 export class AgentManager {
+  private persistedHistoryObserver?: PersistedHistoryObserver;
   private readonly pluginLifecycle: PluginLifecycle | undefined;
   private readonly retiredInternalAgents = new Map<
     string,
@@ -3247,6 +3249,71 @@ export class AgentManager {
     await this.hydrateTimelineFromLegacyProviderHistory(agent, options);
   }
 
+  observePersistedHistory(
+    agentId: string,
+  ): { ready: Promise<void>; release(): Promise<void> } | null {
+    const agent = this.agents.get(agentId);
+    const path = agent?.session?.getPersistedHistoryPath?.();
+    if (!path) return null;
+    this.persistedHistoryObserver ??= new PersistedHistoryObserver({
+      synchronize: (id) => this.synchronizePersistedHistory(id),
+      isBusy: (id) => this.hasInFlightRun(id),
+      onError: (err, id) =>
+        this.logger.warn({ err, agentId: id }, "Automatic history alignment failed"),
+    });
+    const observation = this.persistedHistoryObserver.observe(agentId, path);
+    const unsubscribe = this.subscribe(
+      (event) => {
+        if (event.type === "agent_state" && event.agent.lifecycle === "idle") {
+          // Wait for the turn's settlement before checking edits deferred while it was running.
+          const settled = this.runs.getRun(agentId)?.settledPromise ?? Promise.resolve();
+          void settled
+            .then(() => this.persistedHistoryObserver?.check(agentId))
+            .catch((err) =>
+              this.logger.warn({ err, agentId }, "Deferred history alignment failed"),
+            );
+        }
+      },
+      { agentId, replayState: false },
+    );
+    return {
+      ready: observation.ready,
+      release: async () => {
+        unsubscribe();
+        await observation.release();
+      },
+    };
+  }
+
+  async synchronizePersistedHistory(agentId: string): Promise<ManagedAgent> {
+    return this.runLifecycleMutation(agentId, async () => {
+      const agent = this.requireSessionAgent(agentId);
+      if (!agent.session.readPersistedHistory) {
+        throw new Error("Provider does not support history synchronization");
+      }
+      if (this.hasInFlightRun(agentId)) {
+        throw new Error("Cannot synchronize history while the agent is running");
+      }
+      const lock = this.runs.createPendingRun(agentId);
+      try {
+        await this.forceHydrateTimelineFromLegacyProviderHistory(
+          agent,
+          true,
+          false,
+          agent.session.readPersistedHistory(),
+        );
+        this.dispatch({
+          type: "timeline_replacement",
+          agentId,
+          epoch: this.timelineStore.getEpoch(agentId),
+        });
+        return this.getAgent(agentId)!;
+      } finally {
+        this.runs.settleForegroundRun(agentId, lock.token);
+      }
+    });
+  }
+
   async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
     const submittedRow = this.timelineStore
@@ -4121,10 +4188,11 @@ export class AgentManager {
     agent: ActiveManagedAgent,
     broadcast: boolean,
     broadcastTimeline: boolean,
+    history: AsyncIterable<AgentStreamEvent> = agent.session.streamHistory(),
   ): Promise<void> {
     const historyEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
     const providerSubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[] = [];
-    for await (const rawEvent of agent.session.streamHistory()) {
+    for await (const rawEvent of history) {
       const event = limitAgentStreamEventContent(rawEvent);
       if (event.type === "timeline") {
         const item = projectAgentMessage(event.item);

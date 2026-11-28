@@ -34,6 +34,7 @@ export function asAgentManager(stub: {
   [K in keyof SessionOptions["agentManager"]]?: unknown;
 }): SessionOptions["agentManager"] {
   return createStub<SessionOptions["agentManager"]>({
+    observePersistedHistory: () => null,
     listProviderSubagentActivity: () => [],
     getRetiredInternalAgent: () => null,
     ...stub,

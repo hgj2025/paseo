@@ -1,3 +1,5 @@
+import type { CollaborationHealthReport } from "@getpaseo/protocol/collaboration-bridge";
+import { getCollaborationBridge } from "./collaboration-bridge.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -68,27 +70,115 @@ export class RemoteAgents {
   }
 
   private async host(hostId: string): Promise<RemoteAgentHost> {
+    if (getCollaborationBridge(this.home).has(hostId))
+      return { id: hostId, label: hostId, command: [], transport: "persistent" as const };
     const host = (await this.hosts()).find((entry) => entry.id === hostId);
-    if (!host) throw new Error(`Collaboration host is not configured: ${hostId}`);
+    if (!host)
+      throw new Error(
+        `No connected Mac collaboration route or configured direct connection for ${hostId}. Open Paseo on the coordinator Mac and connect this host.`,
+      );
     return host;
   }
 
+  private request(host: RemoteAgentHost, operation: Record<string, unknown>, timeout: number) {
+    const bridge = getCollaborationBridge(this.home);
+    if (host.command.length === 0) return bridge.execute(host.id, operation);
+    return getRemoteAgentPool(this.home).connection(host).request(operation, timeout);
+  }
+  async health(): Promise<Omit<CollaborationHealthReport, "requestId">> {
+    const bridge = getCollaborationBridge(this.home);
+    let configured: RemoteAgentHost[];
+    try {
+      configured = await this.hosts();
+    } catch {
+      return { checkedAt: new Date().toISOString(), error: "invalid_configuration", routes: [] };
+    }
+    const hosts = new Map(configured.map((host) => [host.id, host]));
+    for (const id of bridge.hostIds())
+      if (!hosts.has(id)) hosts.set(id, { id, label: id, command: [] });
+    const routes: CollaborationHealthReport["routes"] = [...hosts.values()].map((host) => {
+      let transport: "mac" | "ssh" | "cli" = host.transport === "persistent" ? "ssh" : "cli";
+      if (bridge.has(host.id)) transport = "mac";
+      return {
+        hostId: host.id,
+        label: host.label,
+        transport,
+        status: "unchecked",
+        latencyMs: null,
+        error: null,
+      };
+    });
+    // Bound fan-out and total work. Large registries show untested routes honestly.
+    let cursor = 0;
+    const deadline = Date.now() + 5000;
+    await Promise.all(
+      Array.from({ length: Math.min(4, routes.length) }, async () => {
+        while (cursor < routes.length && Date.now() < deadline) {
+          const route = routes[cursor++]!;
+          if (route.transport === "cli") continue;
+          const start = performance.now();
+          try {
+            const host = hosts.get(route.hostId)!;
+            if (route.transport === "mac") await bridge.execute(route.hostId, { op: "ping" });
+            else await this.request(host, { op: "ping" }, 5000);
+            route.status = "ok";
+            route.latencyMs = Math.round(performance.now() - start);
+          } catch (error) {
+            route.status = "error";
+            const message = String(error).toLowerCase();
+            // Never expose administrator command argv, stderr, URLs or credentials.
+            route.error = "unavailable";
+            if (message.includes("timeout") || message.includes("timed out"))
+              route.error = "timeout";
+            else if (message.includes("not connected") || message.includes("disconnected"))
+              route.error = "disconnected";
+          }
+        }
+      }),
+    );
+    return { checkedAt: new Date().toISOString(), error: null, routes };
+  }
   async list(hostId?: string): Promise<unknown> {
-    if (!hostId) return { hosts: (await this.hosts()).map(({ id, label }) => ({ id, label })) };
+    const bridge = getCollaborationBridge(this.home);
+    if (!hostId) {
+      const hosts = new Map((await this.hosts()).map(({ id, label }) => [id, { id, label }]));
+      for (const id of bridge.hostIds()) if (!hosts.has(id)) hosts.set(id, { id, label: id });
+      return { hosts: [...hosts.values()] };
+    }
+    const host = await this.host(hostId);
     return {
       hostId,
-      agents: await this.run(await this.host(hostId), ["agent", "ls", "--global"], 20_000),
+      agents:
+        host.command.length === 0
+          ? await bridge.execute(hostId, { op: "list" })
+          : await this.run(host, ["agent", "ls", "--global"], 20000),
     };
   }
 
   subscribe(listener: (event: RemoteChange) => void) {
-    return getRemoteAgentPool(this.home).subscribe(listener);
+    const offDirect = getRemoteAgentPool(this.home).subscribe(listener);
+    const offBridge = getCollaborationBridge(this.home).subscribe(listener);
+    return () => {
+      offDirect();
+      offBridge();
+    };
   }
 
-  async observeTask(hostId: string, agentId: string, taskId: string): Promise<unknown | null> {
+  async observeTask(
+    hostId: string,
+    agentId: string,
+    taskId: string,
+    workspaceId?: string,
+  ): Promise<unknown | null> {
     z.string().uuid().parse(agentId);
     z.string().uuid().parse(taskId);
     const host = await this.host(hostId);
+    if (host.command.length === 0)
+      return this.request(
+        host,
+        { op: "observe", agentId, taskId, workspaceId: workspaceId ?? "" },
+        30000,
+      );
     if (host.transport !== "persistent") return null;
     const connection = getRemoteAgentPool(this.home).connection(host);
     await connection.request({ op: "watch", agentId });
@@ -99,9 +189,11 @@ export class RemoteAgents {
     z.string().uuid().parse(agentId);
     const host = await this.host(hostId);
     if (host.transport === "persistent")
-      return getRemoteAgentPool(this.home)
-        .connection(host)
-        .request({ op: "inspect", agentId, workspaceId });
+      return this.request(
+        host,
+        { op: "inspect", agentId, ...(workspaceId ? { workspaceId } : {}) },
+        30000,
+      );
     return this.run(host, ["agent", "inspect", agentId], 20_000);
   }
 
@@ -110,9 +202,7 @@ export class RemoteAgents {
     const host = await this.host(hostId);
     if (host.transport !== "persistent")
       throw new Error("Conversation archival requires a persistent host connection.");
-    await getRemoteAgentPool(this.home)
-      .connection(host)
-      .request({ op: "archive", agentId, workspaceId }, 30000);
+    await this.request(host, { op: "archive", agentId, workspaceId }, 30000);
   }
   async send(input: {
     callerId: string;
@@ -159,15 +249,23 @@ export class RemoteAgents {
       return previous.state === "dispatching" ? { ...previous, state: "uncertain" } : previous;
     }
     try {
+      const workspaceId =
+        input.workspaceId ??
+        (host.command.length === 0
+          ? z
+              .object({ WorkspaceId: z.string().min(1) })
+              .parse(await this.inspect(input.hostId, input.agentId)).WorkspaceId
+          : undefined);
       receipt.result =
         host.transport === "persistent"
-          ? await getRemoteAgentPool(this.home).connection(host).request(
+          ? await this.request(
+              host,
               {
                 op: "send",
                 agentId: input.agentId,
                 taskId: input.requestId,
                 prompt: input.prompt,
-                workspaceId: input.workspaceId,
+                workspaceId,
               },
               25_000,
             )
@@ -198,6 +296,12 @@ export class RemoteAgents {
     z.string().uuid().parse(agentId);
     z.number().int().min(1).max(30).parse(timeoutSeconds);
     const host = await this.host(hostId);
+    if (host.command.length === 0)
+      return getCollaborationBridge(this.home).execute(hostId, {
+        op: "wait",
+        agentId,
+        timeoutSeconds,
+      });
     if (host.transport === "persistent")
       return getRemoteAgentPool(this.home)
         .connection(host)

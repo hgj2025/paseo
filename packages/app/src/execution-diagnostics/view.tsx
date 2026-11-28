@@ -1,4 +1,4 @@
-import { Component, type ReactNode, useMemo, useState } from "react";
+import { Component, type ReactNode, useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,12 @@ interface Props {
   hasOlder: boolean;
   loadingOlder: boolean;
   loadOlder: () => unknown;
+}
+
+function statusLabel(row: ExecutionRow): string {
+  if (row.noMatches) return "paneFind.noMatches";
+  if (row.recoveredBy) return "executionDiagnostics.recovered";
+  return `executionDiagnostics.status.${row.status}`;
 }
 
 class DiagnosticBoundary extends Component<
@@ -43,6 +49,87 @@ export function ExecutionDiagnosticDetail(props: Props) {
   );
 }
 
+type DiagnosticFilter = "issues" | "slow" | "all";
+const DIAGNOSTIC_FILTERS: readonly DiagnosticFilter[] = ["issues", "slow", "all"];
+
+function extractRowKey(row: ExecutionRow): string {
+  return row.id;
+}
+
+function DiagnosticFilterButton({
+  value,
+  selected,
+  label,
+  onSelect,
+}: {
+  value: DiagnosticFilter;
+  selected: boolean;
+  label: string;
+  onSelect: (value: DiagnosticFilter) => void;
+}) {
+  const handlePress = useCallback(() => onSelect(value), [onSelect, value]);
+  const accessibilityState = useMemo(() => ({ selected }), [selected]);
+  return (
+    <Button
+      size="xs"
+      variant={selected ? "secondary" : "ghost"}
+      onPress={handlePress}
+      accessibilityState={accessibilityState}
+    >
+      {label}
+    </Button>
+  );
+}
+
+function DiagnosticRowItem({
+  row,
+  isExpanded,
+  durationText,
+  onToggle,
+}: {
+  row: ExecutionRow;
+  isExpanded: boolean;
+  durationText: string;
+  onToggle: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  const handlePress = useCallback(() => onToggle(row.id), [onToggle, row.id]);
+  const accessibilityState = useMemo(() => ({ expanded: isExpanded }), [isExpanded]);
+  return (
+    <View style={styles.row}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={accessibilityState}
+        onPress={handlePress}
+        style={styles.rowToggle}
+      >
+        <Text style={styles.text}>
+          {t(statusLabel(row))} · {t(`executionDiagnostics.category.${row.category}`)}
+        </Text>
+        <Text style={styles.muted}>{durationText}</Text>
+        <Text style={styles.command} numberOfLines={isExpanded ? undefined : 1} selectable>
+          {row.command || t("executionDiagnostics.agentError")}
+        </Text>
+      </Pressable>
+      {isExpanded && (
+        <View style={styles.evidence}>
+          <Text selectable style={styles.command}>
+            {row.evidence || t("executionDiagnostics.noEvidence")}
+          </Text>
+          {row.recoveredBy && (
+            <Text style={styles.muted}>
+              {t("executionDiagnostics.retryEvidence")} {row.recoveredBy}
+            </Text>
+          )}
+          <Text style={styles.muted}>
+            {t("executionDiagnostics.source")} {row.id}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function DiagnosticBody({
   connected,
   serverId,
@@ -55,7 +142,7 @@ function DiagnosticBody({
 }: Props) {
   const { t } = useTranslation();
   const [historyError, setHistoryError] = useState(false);
-  const [filter, setFilter] = useState<"issues" | "slow" | "all">("issues");
+  const [filter, setFilter] = useState<DiagnosticFilter>("issues");
   const [expanded, setExpanded] = useState<string | null>(null);
   const failures = rows.filter((row) => row.status === "failed" && !row.recoveredBy).length;
   const recovered = rows.filter((row) => row.recoveredBy).length;
@@ -69,10 +156,43 @@ function DiagnosticBody({
         .reverse(),
     [rows, filter],
   );
-  const duration = (row: ExecutionRow) =>
-    row.durationMs === undefined
-      ? t("executionDiagnostics.unknown")
-      : `${(row.durationMs / 1000).toFixed(1)}s · ${t(`executionDiagnostics.${row.timing}`)}`;
+  const duration = useCallback(
+    (row: ExecutionRow) =>
+      row.durationMs === undefined
+        ? t("executionDiagnostics.unknown")
+        : `${(row.durationMs / 1000).toFixed(1)}s · ${t(`executionDiagnostics.${row.timing}`)}`,
+    [t],
+  );
+  const handleToggleRow = useCallback((id: string) => {
+    setExpanded((previous) => (previous === id ? null : id));
+  }, []);
+  const handleLoadOlder = useCallback(() => {
+    setHistoryError(false);
+    try {
+      void Promise.resolve(loadOlder()).catch(() => setHistoryError(true));
+    } catch {
+      setHistoryError(true);
+    }
+  }, [loadOlder]);
+  const renderEmpty = useCallback(
+    () => (
+      <Text style={styles.muted}>
+        {t(rows.length ? "executionDiagnostics.noMatches" : "executionDiagnostics.empty")}
+      </Text>
+    ),
+    [rows.length, t],
+  );
+  const renderItem = useCallback(
+    ({ item: row }: { item: ExecutionRow }) => (
+      <DiagnosticRowItem
+        row={row}
+        isExpanded={expanded === row.id}
+        durationText={duration(row)}
+        onToggle={handleToggleRow}
+      />
+    ),
+    [duration, expanded, handleToggleRow],
+  );
   return (
     <View style={styles.body} testID="execution-diagnostics-body">
       <Text style={styles.muted} numberOfLines={1}>
@@ -94,31 +214,17 @@ function DiagnosticBody({
         </Text>
       )}
       <View style={styles.filters}>
-        {(["issues", "slow", "all"] as const).map((value) => (
-          <Button
+        {DIAGNOSTIC_FILTERS.map((value) => (
+          <DiagnosticFilterButton
             key={value}
-            size="xs"
-            variant={filter === value ? "secondary" : "ghost"}
-            onPress={() => setFilter(value)}
-            accessibilityState={{ selected: filter === value }}
-          >
-            {t(`executionDiagnostics.${value}`)}
-          </Button>
+            value={value}
+            selected={filter === value}
+            label={t(`executionDiagnostics.${value}`)}
+            onSelect={setFilter}
+          />
         ))}
         {hasOlder && (
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={loadingOlder}
-            onPress={() => {
-              setHistoryError(false);
-              try {
-                void Promise.resolve(loadOlder()).catch(() => setHistoryError(true));
-              } catch {
-                setHistoryError(true);
-              }
-            }}
-          >
+          <Button size="xs" variant="ghost" disabled={loadingOlder} onPress={handleLoadOlder}>
             {t(loadingOlder ? "executionDiagnostics.loading" : "executionDiagnostics.loadOlder")}
           </Button>
         )}
@@ -127,57 +233,12 @@ function DiagnosticBody({
       <FlatList
         style={styles.list}
         data={visible}
-        keyExtractor={(row) => row.id}
+        keyExtractor={extractRowKey}
         extraData={expanded}
         initialNumToRender={8}
         windowSize={3}
-        ListEmptyComponent={
-          <Text style={styles.muted}>
-            {t(rows.length ? "executionDiagnostics.noMatches" : "executionDiagnostics.empty")}
-          </Text>
-        }
-        renderItem={({ item: row }) => (
-          <View style={styles.row}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: expanded === row.id }}
-              onPress={() => setExpanded(expanded === row.id ? null : row.id)}
-              style={styles.rowToggle}
-            >
-              <Text style={styles.text}>
-                {t(
-                  row.recoveredBy
-                    ? "executionDiagnostics.recovered"
-                    : `executionDiagnostics.status.${row.status}`,
-                )}{" "}
-                · {t(`executionDiagnostics.category.${row.category}`)}
-              </Text>
-              <Text style={styles.muted}>{duration(row)}</Text>
-              <Text
-                style={styles.command}
-                numberOfLines={expanded === row.id ? undefined : 1}
-                selectable
-              >
-                {row.command || t("executionDiagnostics.agentError")}
-              </Text>
-            </Pressable>
-            {expanded === row.id && (
-              <View style={styles.evidence}>
-                <Text selectable style={styles.command}>
-                  {row.evidence || t("executionDiagnostics.noEvidence")}
-                </Text>
-                {row.recoveredBy && (
-                  <Text style={styles.muted}>
-                    {t("executionDiagnostics.retryEvidence")} {row.recoveredBy}
-                  </Text>
-                )}
-                <Text style={styles.muted}>
-                  {t("executionDiagnostics.source")} {row.id}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
+        ListEmptyComponent={renderEmpty}
+        renderItem={renderItem}
       />
     </View>
   );

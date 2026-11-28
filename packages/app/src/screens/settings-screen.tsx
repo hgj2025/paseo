@@ -1,3 +1,4 @@
+import { ConnectionDiagnosticSection } from "@/connection-diagnostics/section";
 import { getIsElectronMac } from "@/constants/platform";
 import { ExecutionDiagnosticPage } from "@/execution-diagnostics/page";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -396,76 +397,79 @@ function DiagnosticsSection({
   const { t } = useTranslation();
   const router = useRouter();
   const openAppDiagnostic = useAppDiagnosticStore((state) => state.open);
+  const openExecutionDiagnostics = useCallback(
+    () => router.push(buildSettingsSectionRoute("execution-diagnostics")),
+    [router],
+  );
   const handlePlayPress = useCallback(() => {
     void handlePlaybackTest();
   }, [handlePlaybackTest]);
   return (
-    <SettingsSection title={t("settings.diagnostics.title")}>
-      <View style={settingsStyles.card}>
-        {isNative ? (
-          <View style={settingsStyles.row} testID="legacy-terminal-renderer-row">
-            <View style={settingsStyles.rowContent}>
-              <Text style={settingsStyles.rowTitle}>
-                {t("settings.diagnostics.legacyTerminalRenderer.label")}
-              </Text>
-              <Text style={settingsStyles.rowHint}>
-                {t("settings.diagnostics.legacyTerminalRenderer.description")}
-              </Text>
+    <>
+      <ConnectionDiagnosticSection />
+      <SettingsSection title={t("settings.diagnostics.title")}>
+        <View style={settingsStyles.card}>
+          {isNative ? (
+            <View style={settingsStyles.row} testID="legacy-terminal-renderer-row">
+              <View style={settingsStyles.rowContent}>
+                <Text style={settingsStyles.rowTitle}>
+                  {t("settings.diagnostics.legacyTerminalRenderer.label")}
+                </Text>
+                <Text style={settingsStyles.rowHint}>
+                  {t("settings.diagnostics.legacyTerminalRenderer.description")}
+                </Text>
+              </View>
+              <Switch
+                value={useLegacyTerminalRenderer}
+                onValueChange={onUseLegacyTerminalRendererChange}
+                accessibilityLabel={t(
+                  "settings.diagnostics.legacyTerminalRenderer.accessibilityLabel",
+                )}
+                testID="legacy-terminal-renderer-switch"
+              />
             </View>
-            <Switch
-              value={useLegacyTerminalRenderer}
-              onValueChange={onUseLegacyTerminalRendererChange}
-              accessibilityLabel={t(
-                "settings.diagnostics.legacyTerminalRenderer.accessibilityLabel",
-              )}
-              testID="legacy-terminal-renderer-switch"
-            />
-          </View>
-        ) : null}
-        {getIsElectronMac() && (
-          <View style={settingsStyles.row} testID="session-execution-diagnostic-row">
+          ) : null}
+          {getIsElectronMac() && (
+            <View style={settingsStyles.row} testID="session-execution-diagnostic-row">
+              <View style={settingsStyles.rowContent}>
+                <Text style={settingsStyles.rowTitle}>{t("executionDiagnostics.pageTitle")}</Text>
+                <Text style={settingsStyles.rowHint}>{t("executionDiagnostics.entryHint")}</Text>
+              </View>
+              <Button variant="secondary" size="sm" onPress={openExecutionDiagnostics}>
+                {t("executionDiagnostics.open")}
+              </Button>
+            </View>
+          )}
+          <View style={settingsStyles.row} testID="app-diagnostic-row">
             <View style={settingsStyles.rowContent}>
-              <Text style={settingsStyles.rowTitle}>{t("executionDiagnostics.pageTitle")}</Text>
-              <Text style={settingsStyles.rowHint}>{t("executionDiagnostics.entryHint")}</Text>
+              <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.app.rowTitle")}</Text>
+              <Text style={settingsStyles.rowHint}>{t("settings.diagnostics.app.rowHint")}</Text>
+            </View>
+            <Button variant="secondary" size="sm" onPress={openAppDiagnostic}>
+              {t("settings.diagnostics.app.run")}
+            </Button>
+          </View>
+          <View style={settingsStyles.row}>
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.testAudio")}</Text>
+              {playbackTestResult ? (
+                <Text style={settingsStyles.rowHint}>{playbackTestResult}</Text>
+              ) : null}
             </View>
             <Button
               variant="secondary"
               size="sm"
-              onPress={() => router.push(buildSettingsSectionRoute("execution-diagnostics"))}
+              onPress={handlePlayPress}
+              disabled={!voiceAudioEngine || isPlaybackTestRunning}
             >
-              {t("executionDiagnostics.open")}
+              {isPlaybackTestRunning
+                ? t("settings.diagnostics.playing")
+                : t("settings.diagnostics.playTest")}
             </Button>
           </View>
-        )}
-        <View style={settingsStyles.row} testID="app-diagnostic-row">
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.app.rowTitle")}</Text>
-            <Text style={settingsStyles.rowHint}>{t("settings.diagnostics.app.rowHint")}</Text>
-          </View>
-          <Button variant="secondary" size="sm" onPress={openAppDiagnostic}>
-            {t("settings.diagnostics.app.run")}
-          </Button>
         </View>
-        <View style={settingsStyles.row}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.testAudio")}</Text>
-            {playbackTestResult ? (
-              <Text style={settingsStyles.rowHint}>{playbackTestResult}</Text>
-            ) : null}
-          </View>
-          <Button
-            variant="secondary"
-            size="sm"
-            onPress={handlePlayPress}
-            disabled={!voiceAudioEngine || isPlaybackTestRunning}
-          >
-            {isPlaybackTestRunning
-              ? t("settings.diagnostics.playing")
-              : t("settings.diagnostics.playTest")}
-          </Button>
-        </View>
-      </View>
-    </SettingsSection>
+      </SettingsSection>
+    </>
   );
 }
 
@@ -979,12 +983,8 @@ function SettingsSidebar({
     () => [{ flex: 1 }, isDesktop ? { paddingTop: insets.top } : null],
     [insets.top, isDesktop],
   );
-  const selectedSectionId =
-    view.kind === "section"
-      ? view.section === "execution-diagnostics"
-        ? "diagnostics"
-        : view.section
-      : null;
+  let selectedSectionId = view.kind === "section" ? view.section : null;
+  if (selectedSectionId === "execution-diagnostics") selectedSectionId = "diagnostics";
   let selectedHostSection: HostSectionSlug | null = null;
   if (view.kind === "host") selectedHostSection = view.section;
   if (view.kind === "project") selectedHostSection = "projects";

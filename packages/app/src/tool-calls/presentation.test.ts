@@ -131,3 +131,57 @@ it("uses an opaque sender ID when no title is available", () => {
   });
   expect(presentation.displayName).toBe("Message from remote::worker");
 });
+
+it("shows a no-match search neutrally while retaining its raw detail", () => {
+  const detail: ToolCallDetail = {
+    type: "shell",
+    command: "rg -n 'a|b' src",
+    exitCode: 1,
+    output: "",
+  };
+  const presentation = buildToolCallPresentation({
+    toolName: "shell",
+    status: "failed",
+    error: { message: "Command failed" },
+    detail,
+    resolveIcon: fakeResolveIcon,
+  });
+  expect(presentation).toMatchObject({
+    status: "completed",
+    noMatches: true,
+    canOpenDetails: true,
+  });
+  expect(presentation.errorText).toBeUndefined();
+  expect(presentation.detail).toBe(detail);
+  expect(detail.exitCode).toBe(1);
+});
+
+it("extracts a clean single-line summary preview for thinking rows", () => {
+  const presentation = buildToolCallPresentation({
+    toolName: "thinking",
+    status: "completed",
+    error: null,
+    detail: {
+      type: "unknown",
+      input: "**分析冲突**\n\n- 先检查 `eden.proxy.js` 的改动范围",
+      output: null,
+    },
+    resolveIcon: fakeResolveIcon,
+  });
+
+  expect(presentation.displayName).toBe("Thinking");
+  expect(presentation.summary).toBe("分析冲突 先检查 eden.proxy.js 的改动范围");
+
+  const empty = buildToolCallPresentation({
+    toolName: "thinking",
+    status: "executing",
+    error: null,
+    detail: {
+      type: "unknown",
+      input: "   \n  ",
+      output: null,
+    },
+    resolveIcon: fakeResolveIcon,
+  });
+  expect(empty.summary).toBeUndefined();
+});

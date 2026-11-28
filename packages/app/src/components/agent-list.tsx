@@ -17,7 +17,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useTimeAgo } from "@/hooks/use-time-ago";
 import { type AggregatedAgent } from "@/hooks/use-aggregated-agents";
 import { useSessionStore } from "@/stores/session-store";
-import { Archive, ChevronRight } from "lucide-react-native";
+import { Archive, ChevronRight, Square, SquareCheck } from "lucide-react-native";
 import { useProviderIcon } from "@/components/provider-icons";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { useArchiveAgent } from "@/hooks/use-archive-agent";
@@ -27,6 +27,7 @@ import { findHighlightRanges } from "@/components/ui/highlighted-text-segments";
 
 interface AgentListProps {
   agents: AggregatedAgent[];
+  selection?: { selectedKeys: ReadonlySet<string>; onToggle: (agent: AggregatedAgent) => void };
   showCheckoutInfo?: boolean;
   isRefreshing?: boolean;
   onRefresh?: () => void;
@@ -160,6 +161,32 @@ function SessionRowTrailingAttention({
   );
 }
 
+function rowIsSelected(
+  agent: AggregatedAgent,
+  selection: AgentListProps["selection"],
+  selectedAgentId?: string,
+) {
+  return selection
+    ? selection.selectedKeys.has(JSON.stringify([agent.serverId, agent.id]))
+    : selectedAgentId === `${agent.serverId}:${agent.id}`;
+}
+function SessionSelectionMark({
+  selection,
+  selected,
+}: {
+  selection: AgentListProps["selection"];
+  selected: boolean;
+}) {
+  const { theme } = useUnistyles();
+  if (!selection) return null;
+  const Icon = selected ? SquareCheck : Square;
+  return (
+    <View style={styles.selectionMark}>
+      <Icon size={20} color={theme.colors.foreground} />
+    </View>
+  );
+}
+
 function SessionRow({
   agent,
   search,
@@ -169,8 +196,10 @@ function SessionRow({
   showHostColumn,
   onPress,
   onLongPress,
+  selection,
 }: {
   agent: AggregatedAgent;
+  selection?: AgentListProps["selection"];
   search?: string;
   isMobile: boolean;
   selectedAgentId?: string;
@@ -181,8 +210,7 @@ function SessionRow({
 }) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const agentKey = `${agent.serverId}:${agent.id}`;
-  const isSelected = selectedAgentId === agentKey;
+  const isSelected = rowIsSelected(agent, selection, selectedAgentId);
   const projectName = agent.projectPlacement?.projectName ?? "";
   const branch = agent.projectPlacement?.checkout.currentBranch ?? "";
   const workspaceName = agent.projectPlacement?.workspaceName ?? "";
@@ -208,8 +236,19 @@ function SessionRow({
     [isSelected],
   );
 
-  const handlePress = useCallback(() => onPress(agent), [onPress, agent]);
+  const handlePress = useCallback(
+    () => (selection ? selection.onToggle(agent) : onPress(agent)),
+    [onPress, agent, selection],
+  );
   const handleLongPress = useCallback(() => onLongPress(agent), [onLongPress, agent]);
+  const interaction = useMemo(
+    () => ({
+      onLongPress: selection ? undefined : handleLongPress,
+      accessibilityRole: selection ? ("checkbox" as const) : ("button" as const),
+      accessibilityState: selection ? { checked: isSelected } : undefined,
+    }),
+    [selection, handleLongPress, isSelected],
+  );
 
   const archivedIcon = useMemo(
     () => <Archive size={theme.fontSize.sm} color={theme.colors.foregroundMuted} />,
@@ -237,10 +276,10 @@ function SessionRow({
     <Pressable
       style={pressableStyle}
       onPress={handlePress}
-      onLongPress={handleLongPress}
-      accessibilityRole="button"
+      {...interaction}
       testID={`agent-row-${agent.serverId}-${agent.id}`}
     >
+      <SessionSelectionMark selection={selection} selected={isSelected} />
       <View style={styles.rowContent}>
         <View style={styles.rowTitleRow}>
           <HighlightedText
@@ -338,6 +377,7 @@ function AgentActivityTime({ date, isMobile }: { date: Date; isMobile: boolean }
 
 export function AgentList({
   agents,
+  selection,
   isRefreshing = false,
   onRefresh,
   selectedAgentId,
@@ -447,6 +487,7 @@ export function AgentList({
       return (
         <SessionRow
           agent={item.agent}
+          selection={selection}
           search={search}
           isMobile={isMobile}
           selectedAgentId={selectedAgentId}
@@ -463,6 +504,7 @@ export function AgentList({
       isMobile,
       search,
       selectedAgentId,
+      selection,
       showAttentionIndicator,
       showHostColumn,
       t,
@@ -551,6 +593,11 @@ export function AgentList({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  selectionMark: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
+    marginRight: theme.spacing[2],
+  },
   list: {
     flex: 1,
     minHeight: 0,
